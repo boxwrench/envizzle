@@ -2182,7 +2182,6 @@ git commit -m "feat(envizzle): add installer to ~/.claude/skills"
 - Delete: `legacy/BIOME_TECHDEMO_TEMPLATE.md`
 - Delete: `legacy/TEMPLATE_GUIDE.md`
 - Delete: `legacy/TEMPLATE.md`
-- Delete: `legacy/og prompt.txt`
 - Delete: `legacy/verify_demo.mjs`
 - Modify: `README.md`
 
@@ -2236,7 +2235,6 @@ git mv "legacy/prompt_builder.html" prompt_builder.html
 git rm "legacy/BIOME_TECHDEMO_TEMPLATE.md" \
        "legacy/TEMPLATE_GUIDE.md" \
        "legacy/TEMPLATE.md" \
-       "legacy/og prompt.txt" \
        "legacy/verify_demo.mjs"
 ```
 
@@ -2247,7 +2245,8 @@ Replace the `legacy/` bullet in `README.md` with a recovery note:
 ```markdown
 The original prompt templates this skill was distilled from
 (`BIOME_TECHDEMO_TEMPLATE.md`, `TEMPLATE.md`, `TEMPLATE_GUIDE.md`,
-`og prompt.txt`, `verify_demo.mjs`) lived in `legacy/` during the migration and
+`verify_demo.mjs`, and the original `og prompt.txt`) lived in `legacy/` during the
+migration and
 were removed once their content was mined. Recover any of them with:
 
     git log --diff-filter=D --name-only
