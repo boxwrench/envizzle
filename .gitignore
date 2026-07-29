@@ -1,0 +1,8 @@
+node_modules/
+*.log
+
+# generated briefs
+*_TECHDEMO_PROMPT.md
+
+# local scratch
+.review-tmp/
