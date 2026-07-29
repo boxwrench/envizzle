@@ -289,9 +289,11 @@ mechanically:
 4. **End-to-end, manual.** Emit one brief, hand it to an agent, confirm the character
    is a rigged figure rather than primitives.
 
-Fixture images come from the existing reference output at
-`C:\Users\wests\OneDrive\Desktop\New folder (3)\screenshots\`, which gives real
-known-bad frames to test against.
+Fixture images come from the `screenshots/` directory of the reference output — the
+demo built from the predecessor template by Gemini Flash 3.6 — referred to
+throughout the plan as `$REFERENCE_OUTPUT`. That run produced genuine known-bad
+frames, including one near-black frame that the old verifier passed, so the gates
+are tested against real failures rather than only synthetic ones.
 
 ## Decisions
 

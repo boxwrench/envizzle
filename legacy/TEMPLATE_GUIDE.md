@@ -1,6 +1,6 @@
 # Biome Tech Demo Prompt Template — Companion Guide
 
-> Companion guide for [TEMPLATE.md](file:///C:/GitHub/SnowVR/prompt%20template/TEMPLATE.md). Use this document to understand why each placeholder exists, what made the SnowFlow & Hoshi-no-Tani demos effective, and how to adapt them for photoreal or painterly biomes.
+> Companion guide for [TEMPLATE.md](./TEMPLATE.md). Use this document to understand why each placeholder exists, what made the SnowFlow & Hoshi-no-Tani demos effective, and how to adapt them for photoreal or painterly biomes.
 
 ---
 

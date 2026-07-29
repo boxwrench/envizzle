@@ -28,7 +28,7 @@ get substituted, so the module reads as documentation with quotes around it.
 - Test runner is `node:test`. Do not add jest, vitest, or mocha.
 - Only two dev dependencies permitted in `package.json`: `pngjs` and `playwright`.
 - Skill name is exactly `envizzle`. Invoked as `/envizzle`.
-- **All paths in this plan are relative to the repo root `C:/GitHub/envizzle`.** The repo root *is* the skill root — `SKILL.md` sits at the top level so the repo can be cloned or symlinked straight into `~/.claude/skills/envizzle/`, which is a generated copy; never edit it directly.
+- **All paths in this plan are relative to the repo root the repo root.** The repo root *is* the skill root — `SKILL.md` sits at the top level so the repo can be cloned or symlinked straight into `~/.claude/skills/envizzle/`, which is a generated copy; never edit it directly.
 - `legacy/` holds the six superseded files migrated out of `SnowVR/prompt template/`. It is mining source only: nothing in the shipped skill may import from it, and the installer must exclude it.
 - The emitted brief must be fully self-contained: the target agent may be any model and sees only that one file. `character-recipe.md` is inlined in full, never referenced by path.
 - Every file uses LF line endings.
@@ -182,7 +182,7 @@ test('sections are stripped before token checking, so disabled-section tokens do
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/assemble.test.mjs`
+Run: `node --test tests/assemble.test.mjs`
 Expected: FAIL — `Cannot find module '../lib/assemble.mjs'`
 
 - [ ] **Step 4: Implement the assembler**
@@ -295,7 +295,7 @@ terrain, vegetation, and atmosphere untouched.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/assemble.test.mjs`
+Run: `node --test tests/assemble.test.mjs`
 Expected: PASS, 7 tests
 
 - [ ] **Step 7: Commit**
@@ -385,7 +385,7 @@ test('recipe does not reintroduce the cloth-driven-figure escape hatch', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/character-recipe.test.mjs`
+Run: `node --test tests/character-recipe.test.mjs`
 Expected: FAIL — `ENOENT` on `references/character-recipe.md`
 
 - [ ] **Step 3: Write the recipe**
@@ -471,7 +471,7 @@ line in `BIOME_TECHDEMO_TEMPLATE.md:447` is the direct cause of the reported bug
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/character-recipe.test.mjs`
+Run: `node --test tests/character-recipe.test.mjs`
 Expected: PASS, 7 tests
 
 - [ ] **Step 5: Commit**
@@ -628,7 +628,7 @@ test('accent-heavy palettes are capped', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/coherence.test.mjs`
+Run: `node --test tests/coherence.test.mjs`
 Expected: FAIL — cannot find `../lib/color.mjs`
 
 - [ ] **Step 3: Implement colour maths**
@@ -777,7 +777,7 @@ export function checkCoherence(config) {
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/coherence.test.mjs`
+Run: `node --test tests/coherence.test.mjs`
 Expected: PASS, 9 tests. In particular the reference config is flagged on both
 `light-anchor` and `large-area-luminance`.
 
@@ -874,7 +874,7 @@ test('every biome tags palette entries with an area class', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/presets-biomes.test.mjs`
+Run: `node --test tests/presets-biomes.test.mjs`
 Expected: FAIL — cannot find `../lib/ambition.mjs`
 
 - [ ] **Step 3: Implement the ambition dial**
@@ -992,7 +992,7 @@ Constraints when authoring the remaining five:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/presets-biomes.test.mjs`
+Run: `node --test tests/presets-biomes.test.mjs`
 Expected: PASS, 7 tests
 
 - [ ] **Step 6: Commit**
@@ -1113,7 +1113,7 @@ test('every optional system maps to a section name the ambition dial knows', () 
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/presets-other.test.mjs`
+Run: `node --test tests/presets-other.test.mjs`
 Expected: FAIL — cannot find `../lib/presets/archetypes.mjs`
 
 - [ ] **Step 3: Implement archetypes**
@@ -1167,7 +1167,7 @@ arm's length and the rig therefore needs correct proportions, not just silhouett
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/presets-other.test.mjs`
+Run: `node --test tests/presets-other.test.mjs`
 Expected: PASS, 10 tests
 
 - [ ] **Step 6: Commit**
@@ -1267,7 +1267,7 @@ test('every showcase config explains why it reads as AAA', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/showcase.test.mjs`
+Run: `node --test tests/showcase.test.mjs`
 Expected: FAIL — cannot find `../lib/presets/showcase.mjs`
 
 - [ ] **Step 3: Implement the showcase configs**
@@ -1389,12 +1389,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 - [ ] **Step 5: Run the full test suite**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/`
+Run: `node --test tests/`
 Expected: PASS, all tests across all five test files
 
 - [ ] **Step 6: Smoke-test the CLI by eye**
 
-Run: `cd "C:/GitHub/envizzle" && node lib/assemble.mjs alpineDawn --out /tmp/brief.md && head -60 /tmp/brief.md`
+Run: `node lib/assemble.mjs alpineDawn --out /tmp/brief.md && head -60 /tmp/brief.md`
 Expected: a clean brief with no `{{` and no `SECTION` markers.
 
 - [ ] **Step 7: Commit**
@@ -1429,16 +1429,16 @@ synthetic images and the browser run passes buffers straight through.
 
 - [ ] **Step 1: Install the PNG decoder**
 
-Run: `cd "C:/GitHub/envizzle" && npm install`
+Run: `npm install`
 Expected: `pngjs` and `playwright` present in `node_modules`.
 
 - [ ] **Step 2: Copy the real known-bad fixtures**
 
 ```bash
 mkdir -p "tests/fixtures"
-cp "/c/Users/wests/OneDrive/Desktop/New folder (3)/screenshots/milestone_locomotion.png" \
+cp "$REFERENCE_OUTPUT/screenshots/milestone_locomotion.png" \
    "tests/fixtures/real-black-frame.png"
-cp "/c/Users/wests/OneDrive/Desktop/New folder (3)/screenshots/milestone_idle.png" \
+cp "$REFERENCE_OUTPUT/screenshots/milestone_idle.png" \
    "tests/fixtures/real-idle-frame.png"
 ```
 
@@ -1602,7 +1602,7 @@ test('a camera inside geometry fails', () => {
 
 - [ ] **Step 5: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/gates.test.mjs`
+Run: `node --test tests/gates.test.mjs`
 Expected: FAIL — cannot find `../verify/gates.mjs`
 
 - [ ] **Step 6: Implement the gates**
@@ -1731,7 +1731,7 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
 
 - [ ] **Step 7: Run tests to verify they pass**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/gates.test.mjs`
+Run: `node --test tests/gates.test.mjs`
 Expected: PASS, 11 tests.
 
 If `the real idle frame passes` fails, print the actuals and calibrate:
@@ -1882,7 +1882,7 @@ diff gate cannot be satisfied without a real character.
 
 - [ ] **Step 3: Verify it fails correctly against a demo with no hook**
 
-Run: `cd "C:/GitHub/envizzle" && node verify/verify_demo.mjs "/c/Users/wests/OneDrive/Desktop/New folder (3)"`
+Run: `node verify/verify_demo.mjs "$REFERENCE_OUTPUT"`
 Expected: exit code 1, with `window.__demo hook missing` among the failures —
 the reference output predates the hook, so this is the correct result and
 confirms the gate is wired.
@@ -1962,7 +1962,7 @@ test('names the three ambition levels', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/skill-md.test.mjs`
+Run: `node --test tests/skill-md.test.mjs`
 Expected: FAIL — `ENOENT` on `SKILL.md`
 
 - [ ] **Step 3: Write SKILL.md**
@@ -2017,7 +2017,7 @@ Body sections, in order:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/skill-md.test.mjs`
+Run: `node --test tests/skill-md.test.mjs`
 Expected: PASS, 7 tests
 
 - [ ] **Step 5: Commit**
@@ -2105,7 +2105,7 @@ test('install is idempotent', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/install.test.mjs`
+Run: `node --test tests/install.test.mjs`
 Expected: FAIL — cannot find `../install.mjs`
 
 - [ ] **Step 3: Implement the installer**
@@ -2158,12 +2158,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/install.test.mjs`
+Run: `node --test tests/install.test.mjs`
 Expected: PASS, 4 tests
 
 - [ ] **Step 5: Install for real and confirm the skill is discovered**
 
-Run: `cd "C:/GitHub/envizzle" && node install.mjs && ls ~/.claude/skills/envizzle/`
+Run: `node install.mjs && ls ~/.claude/skills/envizzle/`
 Expected: `SKILL.md`, `TEMPLATE.md`, `references/`, `lib/`, `verify/`, `install.mjs`
 
 - [ ] **Step 6: Commit**
@@ -2196,7 +2196,7 @@ that removal, so uncommitted edits were preserved.
 
 - [ ] **Step 1: Confirm the whole suite passes before deleting anything**
 
-Run: `cd "C:/GitHub/envizzle" && node --test tests/`
+Run: `node --test tests/`
 Expected: PASS across all seven test files. If anything fails, stop — `legacy/` is
 still the only copy of some content in this repo.
 
@@ -2227,14 +2227,12 @@ Expected: `clean`.
 path. It only lives in `legacy/` because that is where the migration put it.
 
 ```bash
-cd "C:/GitHub/envizzle"
 git mv "legacy/prompt_builder.html" prompt_builder.html
 ```
 
 - [ ] **Step 4: Delete the mining sources**
 
 ```bash
-cd "C:/GitHub/envizzle"
 git rm "legacy/BIOME_TECHDEMO_TEMPLATE.md" \
        "legacy/TEMPLATE_GUIDE.md" \
        "legacy/TEMPLATE.md" \
@@ -2258,14 +2256,13 @@ were removed once their content was mined. Recover any of them with:
 
 - [ ] **Step 6: Confirm nothing references the deleted files**
 
-Run: `cd "C:/GitHub/envizzle" && grep -rn "BIOME_TECHDEMO_TEMPLATE\|TEMPLATE_GUIDE\|og prompt" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=docs . || echo "no dangling references"`
+Run: `grep -rn "BIOME_TECHDEMO_TEMPLATE\|TEMPLATE_GUIDE\|og prompt" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=docs . || echo "no dangling references"`
 Expected: `no dangling references`. `docs/` is excluded because the spec and this
 plan legitimately discuss those files by name.
 
 - [ ] **Step 7: Run the suite one final time and reinstall**
 
 ```bash
-cd "C:/GitHub/envizzle"
 node --test tests/
 node install.mjs
 ```

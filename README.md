@@ -1,28 +1,112 @@
 # envizzle
 
-A Claude Code skill that emits a self-contained implementation brief for a
-one-shot, visually impressive real-time graphics tech demo.
+**A Claude Code skill that writes the brief, so an agent can one-shot a
+visually impressive real-time graphics demo.**
 
-Invoked as `/envizzle`. It interviews you (or picks a config for you), checks your
-art-direction choices for internal contradictions, and writes a single Markdown
-brief you hand to any coding agent.
+You run `/envizzle`. It asks what you want (or picks a known-good combination for
+you), checks your art direction for internal contradictions, and writes a single
+self-contained Markdown brief. You hand that brief to any coding agent — Claude,
+Gemini, whatever — and it builds the demo.
 
-## Why it exists
+The brief is the product. It is deliberately model-agnostic: one file, no external
+references, nothing to fetch.
 
-The predecessor was a fill-in-the-blanks prompt template. It specified grass with
-four distance rings, blades per square metre, and a density law — and grass got
-built correctly. It specified the character with a paragraph of adjectives, and
-the character came back as a cylinder, a sphere, and three boxes.
+---
 
-envizzle fixes that asymmetry. The character gets the same numeric treatment
-everything else already had: an 18-bone skeleton with rest positions in metres,
-lofted cross-section ring geometry, gait phase driven by ground distance so foot
-sliding is impossible by construction, and an explicit prohibition on primitive
-geometry.
+## The problem it solves
 
-It also catches art-direction contradictions the old template could not. A
-painterly paradigm over a near-black palette produces muddy frames; that
-combination is now rejected before a brief is written.
+envizzle was distilled from a fill-in-the-blanks prompt template that worked
+unevenly, and the pattern in *how* it failed turned out to be the whole insight.
+
+That template specified grass with four distance rings, blades per square metre,
+and a continuous density law. Grass came back beautiful. It specified terrain with
+noise layers in metres and amplitudes, and a clipmap LOD. Terrain came back
+beautiful. Then it specified the character like this:
+
+> Create a Ghibli-inspired traveller with a wind-blown coat, scarf, leather
+> satchel, and boots.
+
+The character came back as a cylinder, a sphere, and three boxes. No skeleton, no
+limbs, no legs. The brief had also demanded that "feet must plant rather than
+slide" — unimplementable, because there were no feet.
+
+**Systems specified with numbers got built. The system specified with adjectives
+did not.** Agents do not need more encouragement; they need a recipe.
+
+There was a second failure worth naming. The template let you pick a painterly,
+Ghibli-style rendering paradigm and then hand it a palette of `#080810` obsidian
+and `#2b0052` violet. Painterly rendering reads as beautiful *because* it is
+high-key and luminous; against near-black it produces mud. Nothing caught the
+contradiction, and the resulting frames were unusable.
+
+## What it does differently
+
+**The character gets a construction recipe, not an art brief.** An 18-bone
+skeleton with rest positions in metres. One continuous skinned mesh generated from
+lofted cross-section rings, each with a radius *and* an ellipse ratio so limbs
+aren't tubes. Gait phase advanced by ground distance travelled, so stride length
+equals ground speed by construction and foot sliding is not merely discouraged but
+impossible. Two-bone analytic IK by law of cosines. Foot planting with a single
+write site, so no code path exists that could slide a planted foot.
+
+And an explicit prohibition list: `BoxGeometry`, `SphereGeometry`,
+`CylinderGeometry`, `CapsuleGeometry`, and `ConeGeometry` are forbidden in
+character code. The predecessor's escape hatch — *"if a rig cannot be brought to a
+high standard, prefer a cloth-driven figure"* — is deleted, because agents took it
+as permission to skip the rig entirely.
+
+**Art direction is checked before a brief is written.** Rules reject the
+combinations that produce mud: a palette needs a genuinely *desaturated* light
+anchor (a bright neon does not count — that was the bug in the first draft of these
+rules, since neon cyan has luminance 0.76); it needs values spanning dark, mid, and
+light; and a painterly paradigm needs its large-area colours to carry actual light.
+Conflicts are reported with a suggested fix, never silently corrected — the rules
+encode defaults, not truth.
+
+**An ambition dial keeps one-shots one-shottable.** `slice` is the default, because
+a single-pass build collapses under a dozen simultaneous systems. `showcase` and
+`everything` open up more. Unselected sections are omitted from the brief entirely
+rather than left as dead placeholders.
+
+**Verification gates on pixels.** The predecessor's verifier captured screenshots
+and then logged `PASS: Screenshots successfully saved` without inspecting a single
+one — which is how a near-black frame with the camera clipped inside a rock passed
+as a success. envizzle's gates check mean luminance, reject frames where 70%+ of
+pixels share one luminance bucket, and diff a frame against the same frame with the
+character hidden to confirm the character actually occupies 3–20% of it. That last
+one is essentially unfakeable.
+
+## Usage
+
+```bash
+npm install
+npm test
+```
+
+Install as a personal skill, then invoke `/envizzle` in Claude Code:
+
+```bash
+node install.mjs          # copies to ~/.claude/skills/envizzle/
+```
+
+Or clone/symlink this repo directly to `~/.claude/skills/envizzle/` — the repo root
+*is* the skill root.
+
+Emit a brief without the interview:
+
+```bash
+node lib/assemble.mjs alpineDawn --out ALPINE_DAWN_TECHDEMO_PROMPT.md
+```
+
+Verify a demo an agent built from a brief:
+
+```bash
+node verify/verify_demo.mjs path/to/demo
+```
+
+Verification requires the demo to expose a `window.__demo` hook (pose setters, a
+character-visibility toggle, frame stats). The brief mandates it; without it the
+image gates cannot run, and the verifier says so instead of passing.
 
 ## Layout
 
@@ -34,37 +118,23 @@ combination is now rejected before a brief is written.
 | `lib/presets/` | Biomes, archetypes, mechanics, cameras, showcase configs |
 | `lib/coherence.mjs` | Art-direction conflict rules |
 | `lib/assemble.mjs` | Brief assembler + CLI |
-| `verify/` | Playwright run with image gates that reject blank frames |
+| `verify/` | Playwright run with the image gates |
 | `docs/` | Design spec and implementation plan |
-| `legacy/` | The original templates, kept until their content is mined |
 | `prompt_builder.html` | Standalone manual form, an alternative to the interview |
-
-The repo root *is* the skill root, so it can be cloned or symlinked directly into
-`~/.claude/skills/envizzle/`.
-
-## Usage
-
-```bash
-npm install
-npm test
-
-# Emit a brief from a showcase config
-node lib/assemble.mjs alpineDawn --out ALPINE_DAWN_TECHDEMO_PROMPT.md
-
-# Verify a demo an agent built from a brief
-node verify/verify_demo.mjs path/to/demo
-
-# Install as a personal skill
-node install.mjs
-```
-
-`~/.claude/skills/envizzle/` is a generated copy. Edit here, then re-run
-`node install.mjs`.
+| `legacy/` | The original templates, kept until their content is mined out |
 
 ## Status
 
-Design and plan are complete and committed under `docs/`. Implementation has not
-started — `SKILL.md`, `lib/`, `verify/`, and `tests/` do not exist yet.
+**Design and plan are complete; implementation has not started.** `SKILL.md`,
+`lib/`, `verify/`, and `tests/` do not exist yet — see
+`docs/2026-07-29-envizzle-skill.md` for the 11-task plan, and
+`docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind it.
 
-Origin: distilled from the prompt template that previously lived in
-`SnowVR/prompt template/`.
+## Attribution
+
+MIT licensed — see [LICENSE](LICENSE). The licence requires that the copyright
+notice be retained in copies and substantial portions, so if you build on envizzle,
+keep the notice and a link back to this repo.
+
+Distilled from a prompt template developed for [SnowVR](https://github.com/boxwrench/SnowVR),
+which itself grew out of the `snowflow_demo` tech demo brief.
