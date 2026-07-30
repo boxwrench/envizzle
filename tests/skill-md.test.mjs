@@ -56,9 +56,41 @@ test('instructs running the coherence check and recording overrides', () => {
 });
 
 test('does not reference files that no longer exist', () => {
-  for (const gone of ['lib/assemble.mjs', 'legacy/', 'install.mjs']) {
+  for (const gone of ['lib/assemble.mjs', 'legacy/', 'install.mjs', 'prompt_builder.html']) {
     assert.doesNotMatch(skill, new RegExp(gone.replace(/[/.]/g, '\\$&')), `references removed ${gone}`);
   }
+});
+
+test('frontmatter description accurately scopes skill triggers and excludes complete games', () => {
+  const desc = skill.match(/^description:\s*(.+)$/m)[1];
+  assert.ok(
+    desc.includes('visual vertical slice') || desc.includes('environment showcase'),
+    'description should name visual vertical slice or environment showcase'
+  );
+  assert.match(
+    desc,
+    /do not use for (a )?complete game/i,
+    'description should explicitly exclude complete game scope'
+  );
+  assert.doesNotMatch(
+    skill,
+    /one-shot a game/i,
+    'SKILL.md should not contain stale trigger phrase "one-shot a game"'
+  );
+});
+
+test('stale manual builder prompt_builder.html is removed and unreferenced in active docs', () => {
+  assert.strictEqual(
+    fs.existsSync('prompt_builder.html'),
+    false,
+    'prompt_builder.html file should no longer exist on disk'
+  );
+  const readme = fs.readFileSync('README.md', 'utf8');
+  assert.doesNotMatch(
+    readme,
+    /prompt_builder\.html/i,
+    'active README.md should not advertise or reference prompt_builder.html'
+  );
 });
 
 test('camera modes are documented as a section substitution, not a token fill', () => {

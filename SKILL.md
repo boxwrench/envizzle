@@ -1,6 +1,6 @@
 ---
 name: envizzle
-description: Use when the user wants to one-shot a visually impressive real-time graphics tech demo or game — writes a self-contained implementation brief with a numeric procedural character recipe, curated biome and archetype presets, coherence-checked palettes, and hardened visual verification. Triggers on "one-shot a game", "visually stunning demo", "tech demo brief", "make something that looks AAA".
+description: Use when the user wants a visually impressive real-time graphics tech demo, environment showcase, movement prototype, or visual vertical slice. Writes a self-contained implementation brief with a numeric procedural character recipe, curated biome and archetype presets, coherence-checked palettes, and visual verification. Do not use for a complete game requiring progression, content systems, or production gameplay architecture. Triggers on "visually stunning demo", "tech demo brief", "graphics vertical slice", and "make something that looks AAA".
 ---
 
 # envizzle
@@ -400,4 +400,3 @@ you are reproducing the failure this skill exists to prevent.
 | `TEMPLATE.md` | The skeleton: 34 tokens, 3 marked sections, the `window.__demo` hook in §6 |
 | `check.mjs` | `validateBrief` (CLI: `node check.mjs <brief>`) and `checkCoherence(config)` |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |
-| `prompt_builder.html` | Optional manual path — a standalone form, an alternative to this interview |

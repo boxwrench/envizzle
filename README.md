@@ -103,9 +103,6 @@ Validate a brief you or the skill wrote:
 node check.mjs ALPINE_DAWN_TECHDEMO_PROMPT.md
 ```
 
-Or skip the interview entirely and fill the form by hand — open
-`prompt_builder.html` in a browser.
-
 Verify a demo an agent built from a brief:
 
 ```bash
@@ -128,13 +125,13 @@ image gates cannot run, and the verifier says so instead of passing.
 | `verify/` | Playwright run with the image gates |
 | `tests/` | `node:test` suite over all of the above |
 | `docs/` | Design spec and implementation plan |
-| `prompt_builder.html` | Standalone manual form, an alternative to the interview |
 
 ## Status
 
-**Implementation is complete.** The skill, the preset library, the character
-recipe, the validator, the coherence rules, and the verification gates all ship,
-with a `node:test` suite over them — run `npm test`. See
+**Envizzle is in public alpha.** The core skill, preset library, character
+recipe, coherence rules, validator, and image gates are implemented, and the
+unit tests pass (`npm test`). Deterministic end-to-end brief assembly and
+multi-agent generated-demo benchmarking remain before a 1.0 claim. See
 `docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the design and
 `docs/2026-07-29-envizzle-skill.md` for the task plan it was built from.
 
