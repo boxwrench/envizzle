@@ -41,7 +41,7 @@ contradiction, and the resulting frames were unusable.
 
 ## What it does differently
 
-**The character gets a construction recipe, not an art brief.** An 18-bone
+**The character gets a construction recipe, not an art brief.** A 22-bone
 skeleton with rest positions in metres. One continuous skinned mesh generated from
 lofted cross-section rings, each with a radius *and* an ellipse ratio so limbs
 aren't tubes. Gait phase advanced by ground distance travelled, so stride length
