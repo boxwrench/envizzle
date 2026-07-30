@@ -24,7 +24,7 @@ test('recipe names all 18 bones', () => {
 });
 
 test('recipe gives numeric rest positions, not prose', () => {
-  for (const v of ['0.95', '1.10', '1.28', '1.42', '1.52', '1.62', '0.92', '0.52']) {
+  for (const v of ['0.95', '1.10', '1.28', '1.42', '1.52', '1.62', '0.92', '0.50']) {
     assert.match(recipe, new RegExp(v.replace('.', '\\.')), `missing rest height ${v}`);
   }
 });

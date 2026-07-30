@@ -44,8 +44,8 @@ character's left. Positive `x` values belong to `.L`, negative to `.R`.
 | hand.R | forearm.R | (-0.19, 0.90, 0) |
 | thigh.L | hips | (+0.09, 0.92, 0) |
 | thigh.R | hips | (-0.09, 0.92, 0) |
-| shin.L | thigh.L | (+0.09, 0.52, 0) |
-| shin.R | thigh.R | (-0.09, 0.52, 0) |
+| shin.L | thigh.L | (+0.09, 0.50, 0) |
+| shin.R | thigh.R | (-0.09, 0.50, 0) |
 | foot.L | shin.L | (+0.09, 0.10, 0) |
 | foot.R | shin.R | (-0.09, 0.10, 0) |
 | toe.L | foot.L | (+0.09, 0.02, 0.14) |
@@ -64,18 +64,28 @@ hierarchy, each bone's local translation is its own position minus its parent's.
 | shin | 0.40 |
 | foot | 0.16 |
 
-Use this table to sanity-check your rig, but **compute the lengths your IK actually
-uses from the rest positions at build time** (`thighLength = distance(thigh, shin)`,
-and so on). Two reasons: it keeps the solver consistent with whatever rest pose you
-ended up with, and archetypes rescale the figure, at which point any hard-coded length
-is silently wrong. For the gait formulas,
-`legLength = thighLength + shinLength` — 0.82 m for a 1.75 m figure.
+**Compute the lengths your IK actually uses from the rest positions at build time**
+(`thighLength = distance(thigh, shin)`, and so on) rather than hard-coding them.
+Archetypes rescale the figure, and a hard-coded length is then silently wrong while
+ring placement still follows the scaled rest pose — which shears the mesh mid-segment,
+because the IK's knee and the geometry's crease end up in different places.
+
+The table above and the rest positions agree exactly, so it is a real check you can
+assert on: thigh is 0.92 − 0.50 = 0.42 m and shin is 0.50 − 0.10 = 0.40 m. If your
+derived numbers do not match the table, your rest pose is wrong — fix the rest pose,
+not the solver. Note that the thigh is the **longer** of the two: femur longer than
+tibia is what human proportion requires, and inverting them gives the figure a
+bird-like high hock that reads as wrong even to a viewer who cannot name the error.
+
+For the gait formulas, `legLength = thighLength + shinLength` — 0.82 m for a 1.75 m
+figure. Every length in Parts 3 and 4 is expressed as a multiple of `legLength`, so
+this is the one number the whole gait scales from.
 
 **Scaling.** Nothing above is a magic constant; every position is a proportion of
 figure height. For a figure of height `H`, multiply every rest position by `H / 1.75`.
-Derive limb lengths from the scaled rest pose, and let stride length, pelvis bob, and
-swing arc follow from `legLength` rather than from literals, so a 1.45 m figure walks
-correctly without a second set of numbers.
+Ring radii scale by the same factor (Part 2), and every gait length derives from
+`legLength` (Part 4), so a 1.45 m figure is built and walks correctly without a second
+set of numbers anywhere in the system.
 
 ---
 
@@ -85,25 +95,45 @@ correctly without a second set of numbers.
 rings; it is never an assembly of primitive meshes.**
 
 Walk each bone chain, place rings of vertices at intervals along it, and stitch
-consecutive rings into triangle strips. The torso, arms, legs, neck, and head are
-regions of a single vertex buffer bound to a single skeleton — not separate objects
-parented to bones.
+consecutive rings into triangle strips. The torso, neck, head, arms, hands, legs, and
+feet are all regions of a single vertex buffer bound to a single skeleton — not separate
+objects parented to bones.
 
 | Chain | Rings | Radius profile (m) | Ellipse ratio (x:z) |
 |---|---|---|---|
 | Torso (hips→neck) | 12 | 0.16 → 0.19 → 0.17 → 0.14 | 1.00 → 1.35 |
+| Head (neck→crown) | 6 | 0.055 → 0.098 → 0.072 | 0.86 (narrower than deep) |
 | Arm (shoulder→wrist) | 8 | 0.055 → 0.040 → 0.032 | 1.00 |
+| Hand (wrist→fingertip) | 3 | 0.032 → 0.040 → 0.018 | 0.45 (flat paddle) |
 | Leg (hip→ankle) | 10 | 0.085 → 0.055 → 0.038 | 1.10 |
+| Foot (ankle→toe) | 4 | 0.038 → 0.045 → 0.030 | 0.62 (wider than tall) |
+
+**Every chain in that table is required.** Build all six. The torso, arm, and leg rows
+alone leave a figure with no head, no hands, and no feet — and an agent that caps the
+arm at the wrist, then reaches for a sphere to finish the head and finds spheres
+forbidden, ships a headless torso. There is no primitive escape: the head is a lofted
+chain like everything else. Foot geometry is also load-bearing for Part 5, which blends
+foot orientation to the terrain normal — there must be a foot to orient, or that whole
+mechanism has nothing to act on.
 
 Read each radius profile as control points of a curve sampled along the chain, not as
 per-ring values: the torso's four numbers are hips, chest, upper chest, and neck, and
 its 12 rings interpolate smoothly between them. The leg profile is hip 0.085, knee
-0.055, ankle 0.038; the arm profile is shoulder 0.055, elbow 0.040, wrist 0.032.
+0.055, ankle 0.038; the arm profile is shoulder 0.055, elbow 0.040, wrist 0.032. The
+head profile runs neck 0.055, skull 0.098, crown 0.072; the hand runs wrist 0.032,
+knuckles 0.040, fingertip 0.018; the foot runs ankle 0.038, mid-foot 0.045, toe 0.030.
 
-Ring resolution is **12–16 segments**. Rings stitch into triangle strips; the ends
-(crown of the head, wrists, ankles) are capped. Total budget is roughly **3–4 k
-triangles** for the body — the silhouette, not surface detail, is what reads at mid
-distance.
+The head, hand, and foot ellipse ratios are below 1.00, which reverses the torso's
+proportion — a skull is *narrower* than it is deep, a hand is a flat paddle, and a foot
+is wider than it is tall. Do not assume the direction of flattening is uniform across
+the body; each of these numbers is stated because getting it backwards is what makes a
+figure look wrong in a way that is hard to diagnose afterwards.
+
+Ring resolution is **12–16 segments**, dropping to **6–8 for the hand and foot** —
+small features at this framing do not repay a full ring. Rings stitch into triangle
+strips; the ends are capped at the crown, the fingertips, and the toe tips. Total
+budget is roughly **3–4 k triangles** for the whole body — the silhouette, not surface
+detail, is what reads at mid distance.
 
 **Why the ellipse ratio matters.** A ring is not a circle. The ellipse ratio is the
 `x` radius divided by the `z` radius, so 1.35 at the chest means the chest is 1.35
@@ -114,9 +144,19 @@ and a tube stack. Interpolate the ratio along the torso from 1.00 at the hips to
 at the chest. Legs stay near 1.10 (thighs are slightly wider than deep) and arms stay
 circular at 1.00.
 
+**Scaling for non-1.75 m archetypes.** Both rest positions **and** ring radii scale by
+`H / 1.75`, with the archetype's ring-radius multiplier applied on top of that. Radii
+must scale too, and this is easy to miss because the radius table looks like a set of
+absolute constants: a 1.45 m figure built with the 0.19 m adult chest radius is not a
+short person, it is a dwarfish one — correct height, adult girth. Scale the whole
+profile, keep the ellipse ratios as they are (proportions of width to depth do not
+change with size), and apply the archetype multiplier last so a "heavy" or "slight"
+build reads the same way at any height.
+
 **Skin weights.** Derive them from each vertex's normalized arc-length position along
-its chain, blended across a **0.08 m** falloff either side of each joint. This is
-deterministic and needs no hand-rigging:
+its chain, blended across a **0.08 m** falloff either side of each joint — which is
+`0.098 * legLength`, so it scales with the figure like every other length (see the
+Part 4 table). This is deterministic and needs no hand-rigging:
 
 ```js
 // t: the vertex's normalized arc-length position along its chain, 0..1.
@@ -176,7 +216,7 @@ normalized to the run speed, 0..1, and lengthens the stride as the character spe
 |---|---|---|
 | stance | phase 0.0 → 0.6 | foot is planted; holds its locked world position |
 | swing | phase 0.6 → 1.0 | foot travels to the predicted touchdown point |
-| swing arc height | 0.12 m | peak lift of the foot mid-swing, eased with smoothstep |
+| swing arc height | 0.12 m = `0.146 * legLength` | peak lift of the foot mid-swing, eased with smoothstep |
 | per-leg phase offset | 0.5 | one leg runs half a cycle behind the other |
 
 Stance occupying 0.6 of the cycle rather than 0.5 is deliberate: the two stance windows
@@ -211,7 +251,15 @@ function solveTwoBone(rootPos, targetPos, poleDir, a, b) {
   const aim = toTarget.normalize();
   // The bend plane is spanned by aim and the pole vector; the knee points along
   // the pole. Pole = the character's forward direction, so knees never invert.
-  const bendAxis = aim.clone().cross(poleDir).normalize();
+  // At full stride reach the aim swings toward the pole, the cross product
+  // collapses toward zero length, and normalize() of a zero vector is NaN —
+  // which propagates into the bone matrix and the leg disappears from the frame.
+  // Detect the degenerate case and fall back to a fixed perpendicular axis.
+  let bendAxis = aim.clone().cross(poleDir);
+  if (bendAxis.length() < 1e-4) {
+    bendAxis = characterRight.clone();   // local +x: any axis perpendicular to aim
+  }
+  bendAxis.normalize();
   return {
     kneeBend: Math.PI - kneeInterior,   // 0 when straight, growing as it flexes
     aim,
@@ -227,6 +275,12 @@ points **forward**; without it the solver has a free rotation about the hip-to-a
 line and knees flip inward between frames. The same routine solves the arm, with the
 elbow pole pointing backward.
 
+Both guards in that function are load-bearing, not defensive padding. The
+`(a + b) * 0.999` clamp and the `1e-4` bend-axis fallback each prevent a NaN that does
+not merely look wrong — a NaN in a bone matrix silently removes the limb from the frame,
+and because it appears only at full extension it survives casual testing and shows up in
+the captured footage.
+
 Do not blend animation clips at any point in this system. There are no clips.
 
 ---
@@ -238,7 +292,7 @@ functions of `gaitPhase`, so they cost nothing and cannot desynchronise from the
 
 | motion | formula / range |
 |---|---|
-| pelvis bob | `y -= 0.035 * (1 - cos(4π * gaitPhase)) / 2` |
+| pelvis bob | `y -= bobAmplitude * (1 - cos(4π * gaitPhase)) / 2` |
 | pelvis roll | ±3° |
 | shoulder counter-rotation | ±5°, opposing the pelvis |
 | arm swing (shoulder pitch) | `±22° * sin(2π * (gaitPhase + 0.5))` |
@@ -246,10 +300,27 @@ functions of `gaitPhase`, so they cost nothing and cannot desynchronise from the
 | spine lean | chest pitch `clamp(accelAlongForward * 0.04, -8°, +12°)` |
 | head | counter-rotated to hold a level gaze |
 
+**Every length in the gait must derive from `legLength`, not from a literal**, or a
+short archetype bobs like an adult and over-lifts its feet — the angles look right, the
+distances do not, and the figure reads as a scaled-down adult rather than a smaller
+person. At the 1.75 m reference figure `legLength` is 0.82 m, which gives:
+
+| Quantity | Reference value | Expressed relative to legLength |
+|---|---|---|
+| stride length | — | `0.78 * legLength * (1 + 0.35 * speedNorm)` |
+| pelvis bob amplitude | 0.035 m | `0.043 * legLength` |
+| swing arc height | 0.12 m | `0.146 * legLength` |
+| joint weight falloff | 0.08 m | `0.098 * legLength` |
+
+Use the right-hand column in code; the reference values are there so you can check your
+arithmetic against a 1.75 m figure. So `bobAmplitude = 0.043 * legLength`, which is
+0.035 m at the reference height. Angles — pelvis roll, shoulder counter-rotation, elbow
+flex, chest pitch — are scale-invariant and stay as degrees at every height.
+
 The bob uses **4π**, not 2π: the pelvis dips once per footfall and there are two
 footfalls per gait cycle. Use 2π and the figure dips once per two steps, which reads as
 a lurch. The expression `(1 - cos(angle)) / 2` stays within 0..1, so the pelvis only
-ever drops — by up to 0.035 m — and never rises above its rest height.
+ever drops — by up to `bobAmplitude` — and never rises above its rest height.
 
 Pelvis roll and shoulder counter-rotation must oppose each other. That counter-twist
 through the spine is most of what makes a walk look human; rotate the shoulders with the
@@ -331,16 +402,17 @@ Presets adjust this rig; they never replace it. An archetype may set:
 
 | parameter | effect |
 |---|---|
-| figure height | scales every rest position by `H / 1.75`; limb lengths, stride, bob, and swing arc all follow |
-| ring-radius scale | multiplies the radius profiles for a heavier or slighter build; ellipse ratios are unchanged |
+| figure height | scales every rest position **and every ring radius** by `H / 1.75`; limb lengths, stride, bob, swing arc, and joint falloff all follow from the scaled `legLength` |
+| ring-radius scale | multiplies the radius profiles for a heavier or slighter build, applied **on top of** the `H / 1.75` height scaling; ellipse ratios are unchanged |
 | ellipse-ratio override | the chest ratio may move within roughly 1.15–1.45; it is never 1.00 |
 | hidden lower body | hides leg *rings* only, under the Part 6 condition; leg bones, IK, planting, and footfall effects stay live |
 | cloth panels | which chains carry simulated cloth, and how far it reaches |
 | ring counts | may rise for a close-framed archetype, within the triangle budget |
 
-Everything else in this document is fixed. Bone names, hierarchy, the distance-driven
-phase, the single write site for `plantedPos`, and the one-mesh rule are not
-archetype-dependent.
+Everything else in this document is fixed. Bone names, hierarchy, the presence of all
+six geometry chains, the distance-driven phase, the single write site for `plantedPos`,
+and the one-mesh rule are not archetype-dependent. No archetype removes the head, the
+hands, or the feet.
 
 ---
 
