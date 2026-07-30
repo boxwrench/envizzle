@@ -156,7 +156,9 @@ build reads the same way at any height.
 **Skin weights.** Derive them from each vertex's normalized arc-length position along
 its chain, blended across a **0.08 m** falloff either side of each joint — which is
 `0.098 * legLength`, so it scales with the figure like every other length (see the
-Part 4 table). This is deterministic and needs no hand-rigging:
+Part 4 table). Here 0.098 is a coefficient against `legLength`, not a radius in metres;
+the same digits appear in the head profile above as an actual 0.098 m skull radius, and
+the two are unrelated. This is deterministic and needs no hand-rigging:
 
 ```js
 // t: the vertex's normalized arc-length position along its chain, 0..1.
@@ -274,6 +276,11 @@ Compose the thigh rotation as "aim at the target, then rotate by `rootOffset` ab
 points **forward**; without it the solver has a free rotation about the hip-to-ankle
 line and knees flip inward between frames. The same routine solves the arm, with the
 elbow pole pointing backward.
+
+`characterRight` in that fallback is the character's local **+x** basis vector, read from
+the root transform — the same axis the rest-position table calls the character's left
+side. It is an existing quantity, not a new one to derive: any axis reliably
+perpendicular to the aim direction will do, and local +x is one you already have.
 
 Both guards in that function are load-bearing, not defensive padding. The
 `(a + b) * 0.999` clamp and the `1e-4` bend-axis fallback each prevent a NaN that does

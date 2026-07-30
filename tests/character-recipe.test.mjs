@@ -42,6 +42,38 @@ test('recipe specifies lofted ring geometry with radius and ellipse ratio', () =
   assert.match(recipe, /0\.055/, 'missing knee/shoulder ring radius');
 });
 
+test('the shin rest position is 0.50, never the old contradictory 0.52', () => {
+  // 0.52 implied a 0.40 m thigh and 0.42 m shin, contradicting the segment
+  // table and making the femur shorter than the tibia.
+  assert.doesNotMatch(recipe, /0\.52/, 'the superseded shin height is back');
+});
+
+test('recipe specifies geometry for head, hands, and feet', () => {
+  // Without these chains a literal reader ships a headless, footless torso —
+  // and Part 5 has no foot to orient to the terrain normal.
+  assert.match(recipe, /0\.098/, 'missing head ring radius');
+  assert.match(recipe, /0\.018/, 'missing hand fingertip radius');
+  assert.match(recipe, /0\.030/, 'missing foot toe radius');
+  for (const chain of ['head', 'hand', 'foot']) {
+    assert.match(recipe, new RegExp(`\\|\\s*${chain}\\s*\\(`, 'i'), `missing ${chain} chain row`);
+  }
+});
+
+test('gait lengths are expressed relative to legLength, not baked in', () => {
+  // Absolute metres make a 1.45 m archetype bob like an adult.
+  assert.match(recipe, /0\.043/, 'missing legLength-relative pelvis bob');
+  assert.match(recipe, /0\.146/, 'missing legLength-relative swing arc');
+  assert.match(recipe, /legLength/, 'legLength never mentioned');
+  assert.match(recipe, /H\s*\/\s*1\.75/, 'missing height-scaling rule for ring radii');
+});
+
+test('the two-bone IK guards against the degenerate bend axis', () => {
+  // aim x poleDir collapses toward zero at full stride reach; normalising a
+  // zero vector yields NaN and the leg disappears from the frame.
+  assert.match(recipe, /1e-4/, 'missing epsilon for the degenerate cross product');
+  assert.match(recipe, /bendAxis/, 'bend axis never named');
+});
+
 test('recipe mandates one continuous skinned mesh', () => {
   assert.match(recipe, /one continuous|single continuous/i);
   assert.match(recipe, /skinned mesh/i);
