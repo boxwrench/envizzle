@@ -974,7 +974,8 @@ export function saturation(hex) {
 
 const LIGHT_ANCHOR_MIN_LUM = 0.55;
 const LIGHT_ANCHOR_MAX_SAT = 0.35;
-const LARGE_AREA_MIN_MEAN_LUM = 0.30;
+const LARGE_AREA_MIN_MEAN_LUM = 0.30;   // painterly only
+const LARGE_AREA_MIN_MEAN_ANY = 0.10;   // every paradigm; tracks the runtime gate
 const ACCENT_MAX_FRACTION = 0.35;
 const TIER_DARK = 0.15;
 const TIER_LIGHT = 0.55;
@@ -1046,13 +1047,31 @@ export function checkCoherence(config) {
   // still has something big carrying light: moonlit wet road, ash-lit steam,
   // a bright sky band. If every large area is in the dark tier, the frame is
   // murk regardless of paradigm.
-  if (large.length > 0 && !large.some((p) => relativeLuminance(p.hex) > TIER_DARK)) {
-    const brightest = Math.max(...large.map((p) => relativeLuminance(p.hex)));
-    out.push(conflict(
-      'large-area-all-dark', 'error',
-      `Every large-area colour is in the dark tier (brightest is ${brightest.toFixed(3)}, needs one above ${TIER_DARK}). The frame will read as murk whatever the paradigm.`,
-      'Give at least one large-area colour a value above 0.15 — a lit sky band, a wet or reflective ground plane, or a mist layer. A dark scene needs one big surface carrying light, not only small emissive accents.',
-    ));
+  if (large.length > 0) {
+    const largeLums = large.map((p) => relativeLuminance(p.hex));
+    const brightest = Math.max(...largeLums);
+    const meanLarge = largeLums.reduce((s, l) => s + l, 0) / largeLums.length;
+
+    if (brightest <= TIER_DARK) {
+      out.push(conflict(
+        'large-area-all-dark', 'error',
+        `Every large-area colour is in the dark tier (brightest is ${brightest.toFixed(3)}, needs one above ${TIER_DARK}). The frame will read as murk whatever the paradigm.`,
+        'Give at least one large-area colour a value above 0.15 — a lit sky band, a wet or reflective ground plane, or a mist layer. A dark scene needs one big surface carrying light, not only small emissive accents.',
+      ));
+    }
+
+    // An existence check on the brightest value alone is gameable: one large
+    // area a hair over 0.15 would license arbitrarily black remaining large
+    // areas. This floor is deliberately aligned with the runtime image gate's
+    // meanLuminanceMin of 0.12 — a palette below it would very likely fail
+    // that gate after the build, and catching it here is far cheaper.
+    if (meanLarge < LARGE_AREA_MIN_MEAN_ANY) {
+      out.push(conflict(
+        'large-area-mean-floor', 'error',
+        `Mean large-area luminance is ${meanLarge.toFixed(3)} (floor ${LARGE_AREA_MIN_MEAN_ANY}). One lit band over otherwise black surfaces still renders as murk, and the runtime luminance gate would likely reject the frame.`,
+        'Raise a second large-area surface out of the dark tier, or promote a mid-value colour from medium to large area. A dark scene needs more than a single bright stripe.',
+      ));
+    }
   }
 
   // R4 — accent cap. Emissive should punctuate, not dominate.
@@ -1249,6 +1268,42 @@ test('a light anchor confined to an accent does not count', () => {
   assert.ok(rules.includes('light-anchor'), `rules were: ${rules.join(', ')}`);
 });
 
+test('one lit band over near-black large areas does not buy a pass', () => {
+  // large-area-all-dark is an existence check on the brightest value, so a
+  // single large area a hair over 0.15 would otherwise license arbitrarily
+  // black remaining large areas. Mean here is 0.056.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'haze-band',  hex: '#707070', area: 'large' },
+      { role: 'terrain',    hex: '#050508', area: 'large' },
+      { role: 'vegetation', hex: '#060b0b', area: 'large' },
+      { role: 'cliff-lip',  hex: '#d8d0b8', area: 'medium' },
+      { role: 'ember',      hex: '#ff5a1e', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('large-area-mean-floor'), `rules were: ${rules.join(', ')}`);
+});
+
+test('a volcanic palette authored to the floor passes', () => {
+  // Proof the floor leaves the deliberate low-key biome buildable — Task 4
+  // must ship this preset. Two large areas carrying light, not one stripe.
+  assert.deepEqual(checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals, emissive crust fissures',
+    palette: [
+      { role: 'ash-sky',      hex: '#9a8578', area: 'large' },
+      { role: 'ash-plain',    hex: '#6b5f57', area: 'large' },
+      { role: 'basalt',       hex: '#14100f', area: 'large' },
+      { role: 'steam-lit',    hex: '#e8dcc8', area: 'medium' },
+      { role: 'lava-fissure', hex: '#ff5a1e', area: 'accent' },
+    ],
+  }), []);
+});
+
 test('a disciplined dark photoreal scene still passes', () => {
   // Night city: dark overall, but the wet road carries light at large area.
   assert.deepEqual(checkCoherence({
@@ -1267,7 +1322,7 @@ test('a disciplined dark photoreal scene still passes', () => {
 ```
 
 Run: `node --test tests/coherence.test.mjs`
-Expected: PASS, 13 tests.
+Expected: PASS, 15 tests.
 
 - [ ] **Step 10: Write the Playwright orchestrator**
 
@@ -1327,7 +1382,18 @@ async function run() {
   // Wait for the dev server to actually accept connections. Without this, a
   // slow vite boot yields ERR_CONNECTION_REFUSED, which surfaces as
   // "verification crashed" and reads like a defect in the demo.
-  await waitForServer('http://localhost:5173', 30000);
+  //
+  // The kill-on-throw matters more than it looks: this happens BEFORE the
+  // try/finally below, so without it a timeout orphans `npx vite` still
+  // holding port 5173 — and the NEXT run's readiness poll would succeed
+  // against that stale server, verifying nothing. Same vacuous-pass class
+  // this whole module exists to eliminate.
+  try {
+    await waitForServer('http://localhost:5173', 30000);
+  } catch (err) {
+    server.kill();
+    throw err;
+  }
 
   const browser = await playwright.chromium.launch({
     headless: true,
