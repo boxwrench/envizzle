@@ -62,7 +62,8 @@ Build a custom material using {{ENGINE}}'s ShaderMaterial or custom shader plugi
 
 Build the material's core lighting response as a shared shader include inside `src/shaders/lib/lighting.{{SHADER_LANG_EXT — default: wgsl}}` (or `.glsl`) that every surface in the scene imports — terrain, vegetation, character, wake, particles, abilities, vehicles. One function, used everywhere.
 
-### 2.3 Wind Field & Terrain State Buffer (${DEFORMATION_TYPE})
+<!--SECTION:state-buffer-->
+### 2.3 Wind Field & Terrain State Buffer ({{DEFORMATION_TYPE}})
 
 **Wind Field Architecture:**
 {{WIND_FIELD_ARCH — default: Maintain a 256x256 GPU wind render target covering a 440m world area. Simulates mean wind speed, gustiness, and directional advection. Sampled per-frame by grass Bezier vertices, tree foliage, cloth, pollen motes, train smoke, and river ripples.}}
@@ -83,20 +84,17 @@ Use **HalfFloatType (RGBA16F)** for render targets to guarantee 100% hardware co
 Apply {{RECOVERY_MECHANISM}} over time, so {{DEFORMATION_MARKS}} soften and eventually {{RECOVERY_OUTCOME}}. Tune it so a mark remains clearly visible after 60 seconds.
 
 Terrain vertex displacement samples state channels. Recompute normals from the same data so lighting and shadowing respond correctly.
+<!--/SECTION-->
 
+<!--SECTION:vegetation-->
 ### 2.4 Vegetation & Foliage Systems
 
 {{GRASS_SYSTEM_SPEC — default: Render grass using 4 concentric distance rings (0-26m, 22-84m, 76-290m, 260-1250m) with Bezier curved blade geometry ((2n+1) vertices). Enforce continuous density law: blades/m²(d) = B_i * min(1, (dn_i/d)^1.5). Thin instances on CPU via shuffled instance buffer prefix (zero vertex cost for distant blades). Far blades widen stroke width to simulate painterly brush marks.}}
+<!--/SECTION-->
 
 ### 2.5 Character, Cloth & Foot Planting
 
-{{CHARACTER_DESCRIPTION}}
-
-Add cloth simulation to {{CLOTH_PANELS}}. Decouple simulation resolution from visual tessellation using Catmull-Rom interpolation in the vertex shader.
-
-Pack all per-frame character data into a single small texture or buffer: bone transforms, cloth node positions, and any other animated state. One upload per frame, no allocation.
-
-Feet must plant rather than slide: stance foot world position is written once on touchdown and held fixed while IK reaches for it. Feet {{FOOT_INTERACTION}} on each step.
+{{CHARACTER_RECIPE}}
 
 ### 2.6 Camera, Controls & Initial Elevation
 
@@ -114,6 +112,7 @@ Hold {{CENTREPIECE_INPUT — default: RMB / F / T}}. This receives the most poli
 - **Ability / Event 2:** {{ABILITY_2_NAME}}
 - **Ability / Event 3:** {{ABILITY_3_NAME}}
 
+<!--SECTION:audio-->
 ### 2.8 Audio Engine & Atmospheric Life
 
 **WebAudio Procedural Synthesizer:**
@@ -121,6 +120,7 @@ Hold {{CENTREPIECE_INPUT — default: RMB / F / T}}. This receives the most poli
 
 **Atmospheric Life & Boids:**
 {{ATMOSPHERIC_LIFE_SPEC — default: Add flocking bird boids soaring overhead, butterflies fluttering over flower patches, and floating dandelion pollen motes illuminated by sun shafts.}}
+<!--/SECTION-->
 
 ---
 
@@ -172,3 +172,25 @@ Before declaring the demo complete, verify each item:
 - Surface detail is legible at 3 distinct scales simultaneously.
 - State marks displace mass/vegetation, self-shadow, and soften over time.
 - The demo sustains 90 FPS with 1% lows above 60 FPS. Zero hitching on first trigger.
+
+## 6. Mandatory Verification Hook
+
+You MUST expose `window.__demo` once the loading screen dismisses. Verification
+is automated and will fail the build without it.
+
+```js
+window.__demo = {
+  ready: true,
+  /** @param {'idle'|'locomotion'|'mechanic'} name */
+  setPose(name) {},
+  /** @param {boolean} visible - hide the character mesh only, keep the scene */
+  setCharacterVisible(visible) {},
+  /** @returns {number} metres from camera to nearest scene geometry */
+  cameraNearestDepth() {},
+  /** @returns {{medianMs:number, p99Ms:number, samples:number}} */
+  frameStats() {},
+};
+```
+
+`setCharacterVisible(false)` must hide only the character and its cloth, leaving
+terrain, vegetation, and atmosphere untouched.

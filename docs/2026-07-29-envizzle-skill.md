@@ -1,308 +1,281 @@
-# envizzle Skill Implementation Plan
+# envizzle Skill Implementation Plan (lean)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `/envizzle`, a skill that interviews the user, coherence-checks their choices, and emits a self-contained Markdown brief that a coding agent can use to one-shot a visually impressive real-time graphics tech demo — with a numeric procedural character recipe that prevents the primitive-assembly failure mode.
+**Goal:** Build `/envizzle`, a skill that interviews the user, checks their art-direction choices for contradictions, and emits a self-contained Markdown brief a coding agent can use to one-shot a visually impressive graphics tech demo — with a numeric procedural character recipe that prevents the primitive-assembly failure mode.
 
-**Architecture:** Presets and coherence rules live as testable ES module data (`lib/`), not prose, so assembly is deterministic and "no unreplaced token" is a real assertion. A CLI assembler substitutes tokens into `TEMPLATE.md`, inlines `references/character-recipe.md` verbatim, and strips unselected sections. Verification gates are pure functions over decoded pixel buffers, so they unit-test against synthetic buffers and integration-test against the real known-bad screenshots.
+**Architecture:** This is a skill, so it is mostly markdown. Claude reads `references/presets.md`, fills `TEMPLATE.md`, and writes the brief — normal skill behaviour, no build system. Code exists only where prose genuinely cannot do the job: WCAG luminance arithmetic, and pixel statistics on screenshots. Two scripts total.
 
-**Tech Stack:** Node 24 ESM, `node:test` + `node:assert` (built in, no test framework dependency), `pngjs` for PNG decode in tests and gates, `playwright` for the browser run (already the incumbent choice in `legacy/verify_demo.mjs`).
+**Tech Stack:** Node 24 ESM, `node:test` + `node:assert` (built in), `pngjs`, `playwright`.
 
-## Spec Refinement (deviation from approved spec, flagged)
+## Scope history
 
-The spec listed all presets as `references/*.md`. Implementation uses `lib/presets/*.mjs`
-data modules instead, keeping only `references/character-recipe.md` as markdown.
+An earlier draft of this plan had 11 tasks: preset data modules, a token-substituting assembler with a CLI, showcase-config resolution, and an installer. That was a build system wrapped around a skill. Five of those tasks produced quoted prose strings inside `.mjs` files that Claude can simply read as markdown.
 
-**Rationale:** the spec's own Testing section requires asserting "no unreplaced
-`{{TOKEN}}` remains" and "the known-bad reference config is flagged". Both require
-presets to be structured data a program can read. Prose presets would force Claude to
-assemble by hand, which is exactly the non-determinism that produces inconsistent
-briefs. `coherence.md` likewise becomes `lib/coherence.mjs` because it is logic.
+The lean version keeps both real fixes — the numeric character recipe and the coherence rules — and drops the scaffolding. **Generation moves to Claude; code only validates.**
 
-Human readability is preserved: each preset module's values *are* the prose strings that
-get substituted, so the module reads as documentation with quotes around it.
+Task 1 of the old plan is already committed (`9ca1a9d`): `TEMPLATE.md`, `lib/assemble.mjs`, `tests/assemble.test.mjs`, `package.json`. Task 1 below revises that work rather than starting fresh.
 
 ## Global Constraints
 
-- Node 24 ESM throughout. `"type": "module"`. No TypeScript, no build step.
-- Test runner is `node:test`. Do not add jest, vitest, or mocha.
+- Node 24 ESM. `"type": "module"`. No TypeScript, no build step.
+- Test runner is `node:test` with `node:assert`. Do NOT add jest, vitest, or mocha.
 - Only two dev dependencies permitted in `package.json`: `pngjs` and `playwright`.
-- Skill name is exactly `envizzle`. Invoked as `/envizzle`.
-- **All paths in this plan are relative to the repo root the repo root.** The repo root *is* the skill root — `SKILL.md` sits at the top level so the repo can be cloned or symlinked straight into `~/.claude/skills/envizzle/`, which is a generated copy; never edit it directly.
-- `legacy/` holds the six superseded files migrated out of `SnowVR/prompt template/`. It is mining source only: nothing in the shipped skill may import from it, and the installer must exclude it.
-- The emitted brief must be fully self-contained: the target agent may be any model and sees only that one file. `character-recipe.md` is inlined in full, never referenced by path.
+- **`node --test tests/` on a bare directory fails on this machine** (Node 24 / Windows, `MODULE_NOT_FOUND`). Use an explicit glob: `node --test tests/*.test.mjs`. Fix the `test` script in `package.json` accordingly.
+- All paths are relative to the repo root `C:/GitHub/envizzle`. The repo root *is* the skill root — `SKILL.md` at top level, so the repo can be cloned or symlinked straight into `~/.claude/skills/envizzle/`.
+- `legacy/` is migration mining source. Nothing shipped may import from it. It is deleted in Task 5.
+- The emitted brief must be fully self-contained: the target agent may be any model and sees only that one file. `references/character-recipe.md` is inlined in full, never referenced by path.
 - Every file uses LF line endings.
 - Commit after every task.
 
 ## File Structure
 
-| Path | Responsibility |
-|---|---|
-| `SKILL.md` | Frontmatter + interview flow + assembly instructions Claude follows |
-| `TEMPLATE.md` | Brief skeleton with `{{TOKEN}}` slots and `<!--SECTION:name-->` markers |
-| `references/character-recipe.md` | The numeric humanoid construction spec, inlined verbatim |
-| `lib/assemble.mjs` | Token substitution, section stripping, recipe inlining, CLI entry |
-| `lib/color.mjs` | `relativeLuminance`, `saturation`, `hexToRgb01` — shared by coherence and gates |
-| `lib/coherence.mjs` | Config → array of conflicts |
-| `lib/presets/biomes.mjs` | Biome token bundles |
-| `lib/presets/archetypes.mjs` | Character archetypes as rig parameters |
-| `lib/presets/mechanics.mjs` | Centrepiece mechanic bundles |
-| `lib/presets/cameras.mjs` | Camera/presentation modes |
-| `lib/presets/optional-systems.mjs` | Optional system axes |
-| `lib/presets/showcase.mjs` | 6 complete coherence-clean configs |
-| `lib/ambition.mjs` | Ambition level → set of enabled section names |
-| `verify/gates.mjs` | Pure pixel-buffer gate functions |
-| `verify/verify_demo.mjs` | Playwright orchestrator invoking gates |
-| `install.mjs` | Copy skill → `~/.claude/skills/envizzle/` |
-| `tests/*.test.mjs` | All tests |
-| `tests/fixtures/` | Real known-bad PNGs + synthetic generator |
-| `prompt_builder.html` | Optional manual form, unchanged. Promoted out of `legacy/` in Task 11 |
-| `legacy/` | Migration mining source, deleted in Task 11. Never imported by shipped code |
-| `docs/` | Spec and this plan. Excluded from the install set |
-| `README.md`, `.gitignore` | Repo scaffolding, already created during repo setup |
+| Path | Responsibility | Status |
+|---|---|---|
+| `TEMPLATE.md` | Brief skeleton, 34 `{{TOKEN}}` slots, 3 `<!--SECTION:name-->` blocks | exists |
+| `package.json` | Manifest, test script | exists, needs script fix |
+| `check.mjs` | Validate a brief (no stray tokens/markers) + coherence rules | Task 1, 3 |
+| `references/character-recipe.md` | Numeric humanoid spec, inlined into every brief | Task 2 |
+| `references/presets.md` | Biomes, archetypes, mechanics, cameras, showcase configs, ambition levels | Task 4 |
+| `verify/gates.mjs` | Pure pixel-buffer gate functions | Task 3 |
+| `verify/verify_demo.mjs` | Playwright orchestrator | Task 3 |
+| `SKILL.md` | Entry point: interview, coherence step, assembly, handoff | Task 5 |
+| `prompt_builder.html` | Optional manual form, promoted out of `legacy/` | Task 5 |
+| `lib/assemble.mjs` | **Deleted in Task 1** — folded into `check.mjs` | exists |
+
+Five tasks: **1** validator, **2** character recipe, **3** verification, **4** presets, **5** skill + cleanup.
 
 ---
 
-### Task 1: Skill scaffold and the assembler
+### Task 1: Reduce the assembler to a validator
 
 **Files:**
-- Create: `package.json`
-- Create: `lib/assemble.mjs`
-- Create: `TEMPLATE.md`
-- Test: `tests/assemble.test.mjs`
+- Create: `check.mjs`
+- Delete: `lib/assemble.mjs`
+- Delete: `tests/assemble.test.mjs`
+- Create: `tests/check.test.mjs`
+- Modify: `TEMPLATE.md` (one-character bug fix)
+- Modify: `package.json` (test script)
 
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `class UnresolvedTokenError extends Error` with property `tokens: string[]`
-  - `substituteTokens(template: string, tokens: Record<string,string>): string` — throws `UnresolvedTokenError` if any `{{...}}` remains
-  - `stripSections(template: string, enabled: Set<string>): string`
-  - `assemble({ template, tokens, enabledSections, characterRecipe }): string`
+  - `findUnresolvedTokens(brief: string): string[]` — unique token names still present
+  - `findStraySectionMarkers(brief: string): string[]` — leftover `<!--SECTION:x-->` / `<!--/SECTION-->`
+  - `findTemplateLiteralLeaks(brief: string): string[]` — `${NAME}` forms, which never substitute
+  - `validateBrief(brief: string): { ok: boolean, problems: string[] }`
 
-- [ ] **Step 1: Create the package manifest**
+Claude writes the brief; this validates it. Generation is no longer code's job, so `assemble.mjs`'s substitution and section-stripping go away.
 
-Create `package.json`:
+- [ ] **Step 1: Fix the template-literal bug in TEMPLATE.md**
 
-```json
-{
-  "name": "envizzle-skill",
-  "private": true,
-  "version": "0.1.0",
-  "type": "module",
-  "scripts": {
-    "test": "node --test tests/",
-    "assemble": "node lib/assemble.mjs",
-    "install-skill": "node install.mjs"
-  },
-  "devDependencies": {
-    "pngjs": "^7.0.0",
-    "playwright": "^1.62.0"
-  }
-}
+`TEMPLATE.md:66` reads:
+
 ```
+### 2.3 Wind Field & Terrain State Buffer (${DEFORMATION_TYPE})
+```
+
+That is JS template-literal syntax, not the `{{...}}` form used everywhere else — line 71 has the correct `{{DEFORMATION_TYPE}}` directly below it, confirming the typo. As written it leaks the literal text `${DEFORMATION_TYPE}` into every brief with the state-buffer section enabled. Change it to `{{DEFORMATION_TYPE}}`.
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `tests/assemble.test.mjs`:
+Create `tests/check.test.mjs`:
 
 ```js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
-  substituteTokens,
-  stripSections,
-  assemble,
-  UnresolvedTokenError,
-} from '../lib/assemble.mjs';
+  findUnresolvedTokens,
+  findStraySectionMarkers,
+  findTemplateLiteralLeaks,
+  validateBrief,
+} from '../check.mjs';
 
-test('substitutes a bare token', () => {
-  assert.equal(substituteTokens('Hi {{NAME}}!', { NAME: 'Ada' }), 'Hi Ada!');
+test('finds a bare unresolved token', () => {
+  assert.deepEqual(findUnresolvedTokens('Hi {{NAME}}!'), ['NAME']);
 });
 
-test('substitutes a token carrying an em-dash default hint', () => {
-  // TEMPLATE.md uses this real form: {{SHADER_LANG — default: WGSL or GLSL}}
-  const out = substituteTokens('Lang: {{SHADER_LANG — default: WGSL}}', {
-    SHADER_LANG: 'GLSL',
-  });
-  assert.equal(out, 'Lang: GLSL');
-});
-
-test('throws UnresolvedTokenError naming every missing token', () => {
-  const err = assert.throws(
-    () => substituteTokens('{{A}} and {{B}} and {{A}}', { A: 'x' }),
-    UnresolvedTokenError,
-  );
-  assert.deepEqual(err.tokens, ['B']);
-});
-
-test('keeps enabled sections and drops disabled ones', () => {
-  const tpl = [
-    'keep-always',
-    '<!--SECTION:vegetation-->veg-body<!--/SECTION-->',
-    '<!--SECTION:audio-->audio-body<!--/SECTION-->',
-  ].join('\n');
-  const out = stripSections(tpl, new Set(['vegetation']));
-  assert.match(out, /veg-body/);
-  assert.doesNotMatch(out, /audio-body/);
-  assert.doesNotMatch(out, /SECTION/);
-});
-
-test('assemble inlines the character recipe verbatim', () => {
-  const out = assemble({
-    template: 'A {{X}}\n{{CHARACTER_RECIPE}}',
-    tokens: { X: 'brief' },
-    enabledSections: new Set(),
-    characterRecipe: '## Recipe\nbone hips 0.95',
-  });
-  assert.match(out, /bone hips 0\.95/);
-});
-
-test('assemble rejects a brief that still contains a token', () => {
-  assert.throws(
-    () => assemble({
-      template: '{{MISSING}}',
-      tokens: {},
-      enabledSections: new Set(),
-      characterRecipe: '',
-    }),
-    UnresolvedTokenError,
+test('finds a token carrying an em-dash default hint', () => {
+  // TEMPLATE.md really uses this form: {{SHADER_LANG — default: WGSL}}
+  assert.deepEqual(
+    findUnresolvedTokens('Lang: {{SHADER_LANG — default: WGSL}}'),
+    ['SHADER_LANG'],
   );
 });
 
-test('sections are stripped before token checking, so disabled-section tokens do not fail', () => {
-  const out = assemble({
-    template: 'ok\n<!--SECTION:audio-->{{AUDIO_SPEC}}<!--/SECTION-->',
-    tokens: {},
-    enabledSections: new Set(),
-    characterRecipe: '',
-  });
-  assert.equal(out.trim(), 'ok');
+test('deduplicates repeated tokens', () => {
+  assert.deepEqual(findUnresolvedTokens('{{A}} {{B}} {{A}}'), ['A', 'B']);
+});
+
+test('a fully filled brief has no unresolved tokens', () => {
+  assert.deepEqual(findUnresolvedTokens('All filled in. No braces here.'), []);
+});
+
+test('finds stray section markers', () => {
+  const found = findStraySectionMarkers('ok <!--SECTION:audio--> body <!--/SECTION-->');
+  assert.equal(found.length, 2);
+});
+
+test('finds ${} template-literal leaks', () => {
+  // The exact bug that shipped in the predecessor template.
+  assert.deepEqual(findTemplateLiteralLeaks('State Buffer (${DEFORMATION_TYPE})'), ['DEFORMATION_TYPE']);
+});
+
+test('validateBrief passes a clean brief', () => {
+  const result = validateBrief('# Brief\n\nEverything is filled in.\n');
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.problems, []);
+});
+
+test('validateBrief reports every problem class at once', () => {
+  const result = validateBrief('{{MISSING}} ${LEAK} <!--SECTION:audio-->');
+  assert.equal(result.ok, false);
+  assert.equal(result.problems.length, 3);
+  assert.ok(result.problems.some((p) => /MISSING/.test(p)));
+  assert.ok(result.problems.some((p) => /LEAK/.test(p)));
+  assert.ok(result.problems.some((p) => /SECTION/.test(p)));
+});
+
+test('the shipped TEMPLATE.md has no ${} leaks', () => {
+  // Regression guard for the TEMPLATE.md:66 bug.
+  assert.deepEqual(findTemplateLiteralLeaks(fs.readFileSync('TEMPLATE.md', 'utf8')), []);
+});
+
+test('the shipped TEMPLATE.md still has its tokens and sections', () => {
+  const tpl = fs.readFileSync('TEMPLATE.md', 'utf8');
+  assert.ok(findUnresolvedTokens(tpl).length >= 30, 'template lost its token slots');
+  assert.ok(findUnresolvedTokens(tpl).includes('CHARACTER_RECIPE'));
+  assert.ok(findStraySectionMarkers(tpl).length >= 4, 'template lost its section markers');
 });
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `node --test tests/assemble.test.mjs`
-Expected: FAIL — `Cannot find module '../lib/assemble.mjs'`
+Run: `node --test tests/check.test.mjs`
+Expected: FAIL — cannot find `../check.mjs`
 
-- [ ] **Step 4: Implement the assembler**
+- [ ] **Step 4: Write the validator**
 
-Create `lib/assemble.mjs`:
+Create `check.mjs` at the repo root:
 
 ```js
+#!/usr/bin/env node
+/**
+ * Validate an assembled envizzle brief.
+ *
+ * Claude assembles the brief by reading references/presets.md and filling
+ * TEMPLATE.md. This script is the safety net: it catches the mechanical
+ * mistakes that are easy to make by hand and invisible to read past.
+ *
+ * Usage: node check.mjs <brief.md>
+ */
 import fs from 'node:fs';
-import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-
-/** Thrown when an assembled brief still contains {{TOKEN}} placeholders. */
-export class UnresolvedTokenError extends Error {
-  /** @param {string[]} tokens */
-  constructor(tokens) {
-    super(`Unresolved tokens in assembled brief: ${tokens.join(', ')}`);
-    this.name = 'UnresolvedTokenError';
-    this.tokens = tokens;
-  }
-}
-
-// Matches {{NAME}} and {{NAME — default: anything}}. The name is the leading
-// run of A-Z0-9_ ; everything up to the closing braces is a human-facing hint.
+// {{NAME}} and {{NAME — default: hint}}. Name is the leading run of A-Z0-9_.
 const TOKEN_RE = /\{\{([A-Z0-9_]+)(?:[^}]*)?\}\}/g;
+const SECTION_RE = /<!--\/?SECTION:?[a-z0-9-]*-->/g;
+// ${NAME} never substitutes — it is JS template-literal syntax that leaked
+// into a markdown template. TEMPLATE.md:66 shipped this bug for months.
+const LITERAL_RE = /\$\{([A-Za-z0-9_]+)\}/g;
 
-/**
- * Replace every {{TOKEN}} with tokens[TOKEN].
- * @throws {UnresolvedTokenError} if any placeholder has no value.
- */
-export function substituteTokens(template, tokens) {
-  const out = template.replace(TOKEN_RE, (match, name) =>
-    Object.prototype.hasOwnProperty.call(tokens, name) ? tokens[name] : match,
-  );
+const uniqueMatches = (text, re, group = 1) =>
+  [...new Set([...text.matchAll(re)].map((m) => m[group]))];
 
-  const missing = [...new Set([...out.matchAll(TOKEN_RE)].map((m) => m[1]))];
-  if (missing.length > 0) throw new UnresolvedTokenError(missing);
-  return out;
+/** Token names still unfilled in the brief. */
+export function findUnresolvedTokens(brief) {
+  return uniqueMatches(brief, TOKEN_RE);
 }
 
-const SECTION_RE = /<!--SECTION:([a-z0-9-]+)-->([\s\S]*?)<!--\/SECTION-->\n?/g;
-
-/** Keep the bodies of enabled sections, delete disabled ones entirely. */
-export function stripSections(template, enabled) {
-  return template.replace(SECTION_RE, (_match, name, body) =>
-    enabled.has(name) ? body : '',
-  );
+/** Section markers that should have been stripped along with their bodies. */
+export function findStraySectionMarkers(brief) {
+  return [...brief.matchAll(SECTION_RE)].map((m) => m[0]);
 }
 
-/**
- * Build the final brief. Sections are stripped first so that tokens living
- * inside a disabled section never count as missing.
- */
-export function assemble({ template, tokens, enabledSections, characterRecipe }) {
-  const sectioned = stripSections(template, enabledSections);
-  return substituteTokens(sectioned, {
-    ...tokens,
-    CHARACTER_RECIPE: characterRecipe,
-  });
+/** `${NAME}` forms, which look like tokens but never substitute. */
+export function findTemplateLiteralLeaks(brief) {
+  return uniqueMatches(brief, LITERAL_RE);
 }
 
-/** Read the canonical template and character recipe off disk. */
-export function loadAssets() {
-  return {
-    template: fs.readFileSync(path.join(HERE, '..', 'TEMPLATE.md'), 'utf8'),
-    characterRecipe: fs.readFileSync(
-      path.join(HERE, '..', 'references', 'character-recipe.md'),
-      'utf8',
-    ),
-  };
+/** @returns {{ok: boolean, problems: string[]}} */
+export function validateBrief(brief) {
+  const problems = [];
+
+  const tokens = findUnresolvedTokens(brief);
+  if (tokens.length > 0) {
+    problems.push(
+      `${tokens.length} unresolved token(s): ${tokens.join(', ')}. Fill them, or omit the section that contains them.`,
+    );
+  }
+
+  const leaks = findTemplateLiteralLeaks(brief);
+  if (leaks.length > 0) {
+    problems.push(
+      `${leaks.length} \${} template-literal leak(s): ${leaks.join(', ')}. These never substitute — rewrite as {{NAME}} and fill them.`,
+    );
+  }
+
+  const markers = findStraySectionMarkers(brief);
+  if (markers.length > 0) {
+    problems.push(
+      `${markers.length} stray section marker(s): ${[...new Set(markers)].join(', ')}. Delete the marker lines; keep or drop the body deliberately.`,
+    );
+  }
+
+  return { ok: problems.length === 0, problems };
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const file = process.argv[2];
+  if (!file) {
+    console.error('Usage: node check.mjs <brief.md>');
+    process.exit(2);
+  }
+  const { ok, problems } = validateBrief(fs.readFileSync(file, 'utf8'));
+  if (ok) {
+    console.log(`OK: ${file} has no unresolved tokens, leaks, or stray markers.`);
+    process.exit(0);
+  }
+  console.error(`FAILED: ${file}`);
+  problems.forEach((p, i) => console.error(`  ${i + 1}. ${p}`));
+  process.exit(1);
 }
 ```
 
-- [ ] **Step 5: Create a minimal TEMPLATE.md so `loadAssets` has something to read**
-
-Create `TEMPLATE.md` by copying the current
-`legacy/TEMPLATE.md` and making exactly these changes:
-
-1. Replace the whole of section `### 2.5 Character, Cloth & Foot Planting` body with the single line `{{CHARACTER_RECIPE}}`.
-2. Wrap these sections in section markers so the ambition dial can drop them:
-   - `### 2.4 Vegetation & Foliage Systems` → `<!--SECTION:vegetation-->` … `<!--/SECTION-->`
-   - `### 2.3 Wind Field & Terrain State Buffer` → `<!--SECTION:state-buffer-->` … `<!--/SECTION-->`
-   - `### 2.8 Audio Engine & Atmospheric Life` → `<!--SECTION:audio-->` … `<!--/SECTION-->`
-3. Append a new section, always enabled, containing the `window.__demo` contract:
-
-```markdown
-## 6. Mandatory Verification Hook
-
-You MUST expose `window.__demo` once the loading screen dismisses. Verification
-is automated and will fail the build without it.
-
-```js
-window.__demo = {
-  ready: true,
-  /** @param {'idle'|'locomotion'|'mechanic'} name */
-  setPose(name) {},
-  /** @param {boolean} visible - hide the character mesh only, keep the scene */
-  setCharacterVisible(visible) {},
-  /** @returns {number} metres from camera to nearest scene geometry */
-  cameraNearestDepth() {},
-  /** @returns {{medianMs:number, p99Ms:number, samples:number}} */
-  frameStats() {},
-};
-```
-
-`setCharacterVisible(false)` must hide only the character and its cloth, leaving
-terrain, vegetation, and atmosphere untouched.
-```
-
-- [ ] **Step 6: Run the tests to verify they pass**
-
-Run: `node --test tests/assemble.test.mjs`
-Expected: PASS, 7 tests
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 5: Delete the superseded assembler**
 
 ```bash
-git add "package.json" "lib/assemble.mjs" "TEMPLATE.md" "tests/assemble.test.mjs"
-git commit -m "feat(envizzle): add skill scaffold and brief assembler"
+git rm lib/assemble.mjs tests/assemble.test.mjs
+```
+
+`lib/` should now be empty; remove the directory if git leaves it behind.
+
+- [ ] **Step 6: Fix the test script in package.json**
+
+`node --test tests/` fails on this machine. Change the `test` script to:
+
+```json
+"test": "node --test tests/*.test.mjs"
+```
+
+Remove the `assemble` script if present. Keep `pngjs` and `playwright` as the only devDependencies.
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `node --test tests/check.test.mjs`
+Expected: PASS, 10 tests. Then confirm the script works: `npm test`.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add -A
+git commit -m "refactor: replace assembler with brief validator
+
+Generation is Claude's job in a skill; code only validates. Drops token
+substitution and section stripping, keeps and extends the checks. Adds a
+\${} leak detector and fixes TEMPLATE.md:66, which shipped JS
+template-literal syntax that could never substitute."
 ```
 
 ---
@@ -310,17 +283,16 @@ git commit -m "feat(envizzle): add skill scaffold and brief assembler"
 ### Task 2: The character recipe
 
 **Files:**
-- Create: `references/character-recipe.md`
+- Modify: `references/character-recipe.md` (currently a one-line placeholder)
 - Test: `tests/character-recipe.test.mjs`
 
 **Interfaces:**
-- Consumes: `loadAssets()` from Task 1.
-- Produces: `references/character-recipe.md` — a standalone markdown document with no tokens, safe to inline verbatim.
+- Consumes: nothing.
+- Produces: a standalone markdown document with no tokens, safe to inline verbatim.
 
-This is the task that fixes the reported bug. `src/character/player.js:30-77` of the
-reference output built a `CylinderGeometry` torso, `SphereGeometry` head, and three
-`BoxGeometry` parts because the brief gave adjectives where every working system got
-numbers.
+This task fixes the bug the whole project exists for. In the reference output, `src/character/player.js:30-77` built a `CylinderGeometry` torso, a `SphereGeometry` head, and three `BoxGeometry` parts — because every system specified with numbers got built, and the character was specified with adjectives.
+
+Mining source: `legacy/BIOME_TECHDEMO_TEMPLATE.md` §2.6 (line ~406) holds the predecessor's character guidance. Read it to see what was there, then write something far more specific. **Do not carry over its line 447**, which reads *"If a rig and locomotion animation cannot be brought to a high standard, prefer a fully cloth- and procedurally driven figure"* — agents took that as permission to skip the rig entirely.
 
 - [ ] **Step 1: Write the failing structural test**
 
@@ -329,26 +301,95 @@ Create `tests/character-recipe.test.mjs`:
 ```js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadAssets } from '../lib/assemble.mjs';
+import fs from 'node:fs';
 
-const { characterRecipe: recipe } = loadAssets();
+const recipe = fs.readFileSync('references/character-recipe.md', 'utf8');
+
+test('recipe is substantial, not a placeholder', () => {
+  assert.ok(recipe.length > 3000, `recipe is only ${recipe.length} chars`);
+});
 
 test('recipe contains no unfilled tokens (it is inlined verbatim)', () => {
   assert.doesNotMatch(recipe, /\{\{/);
+  assert.doesNotMatch(recipe, /\$\{/);
 });
 
-test('recipe specifies all 18 bones with numeric rest positions', () => {
-  const bones = [
+test('recipe names all 18 bones', () => {
+  for (const bone of [
     'hips', 'spine01', 'spine02', 'chest', 'neck', 'head',
     'clavicle', 'upperArm', 'forearm', 'hand',
     'thigh', 'shin', 'foot', 'toe',
-  ];
-  for (const bone of bones) {
+  ]) {
     assert.match(recipe, new RegExp(bone, 'i'), `missing bone: ${bone}`);
   }
-  // Rest positions must be actual numbers, not prose.
-  assert.match(recipe, /0\.95/, 'missing hips height 0.95');
-  assert.match(recipe, /1\.62/, 'missing head height 1.62');
+});
+
+test('recipe gives numeric rest positions, not prose', () => {
+  for (const v of ['0.95', '1.10', '1.28', '1.42', '1.52', '1.62', '0.92', '0.50']) {
+    assert.match(recipe, new RegExp(v.replace('.', '\\.')), `missing rest height ${v}`);
+  }
+});
+
+test('recipe gives segment lengths', () => {
+  for (const v of ['0.28', '0.26', '0.42', '0.40', '0.16']) {
+    assert.match(recipe, new RegExp(v.replace('.', '\\.')), `missing segment length ${v}`);
+  }
+});
+
+test('recipe specifies lofted ring geometry with radius and ellipse ratio', () => {
+  assert.match(recipe, /ellipse ratio/i);
+  assert.match(recipe, /1\.35/, 'missing chest ellipse ratio');
+  assert.match(recipe, /0\.085/, 'missing hip ring radius');
+  assert.match(recipe, /0\.055/, 'missing knee/shoulder ring radius');
+});
+
+test('the shin rest position is 0.50, never the old contradictory 0.52', () => {
+  // 0.52 implied a 0.40 m thigh and 0.42 m shin, contradicting the segment
+  // table and making the femur shorter than the tibia.
+  assert.doesNotMatch(recipe, /0\.52/, 'the superseded shin height is back');
+});
+
+test('recipe specifies geometry for head, hands, and feet', () => {
+  // Without these chains a literal reader ships a headless, footless torso —
+  // and Part 5 has no foot to orient to the terrain normal.
+  assert.match(recipe, /0\.098/, 'missing head ring radius');
+  assert.match(recipe, /0\.018/, 'missing hand fingertip radius');
+  assert.match(recipe, /0\.030/, 'missing foot toe radius');
+  for (const chain of ['head', 'hand', 'foot']) {
+    assert.match(recipe, new RegExp(`\\|\\s*${chain}\\s*\\(`, 'i'), `missing ${chain} chain row`);
+  }
+});
+
+test('gait lengths are expressed relative to legLength, not baked in', () => {
+  // Absolute metres make a 1.45 m archetype bob like an adult.
+  assert.match(recipe, /0\.043/, 'missing legLength-relative pelvis bob');
+  assert.match(recipe, /0\.146/, 'missing legLength-relative swing arc');
+  assert.match(recipe, /legLength/, 'legLength never mentioned');
+  assert.match(recipe, /H\s*\/\s*1\.75/, 'missing height-scaling rule for ring radii');
+});
+
+test('the two-bone IK guards against the degenerate bend axis', () => {
+  // aim x poleDir collapses toward zero at full stride reach; normalising a
+  // zero vector yields NaN and the leg disappears from the frame.
+  assert.match(recipe, /1e-4/, 'missing epsilon for the degenerate cross product');
+  assert.match(recipe, /bendAxis/, 'bend axis never named');
+});
+
+test('recipe mandates one continuous skinned mesh', () => {
+  assert.match(recipe, /one continuous|single continuous/i);
+  assert.match(recipe, /skinned mesh/i);
+});
+
+test('recipe makes gait distance-driven, not clip-blended', () => {
+  assert.match(recipe, /gaitPhase/);
+  assert.match(recipe, /0\.78/, 'missing stride length coefficient');
+  assert.match(recipe, /law of cosines/i);
+  assert.match(recipe, /distance/i);
+});
+
+test('recipe states the single-write-site rule for foot planting', () => {
+  assert.match(recipe, /plantedPos/);
+  assert.match(recipe, /no code path/i);
 });
 
 test('recipe forbids every primitive geometry the reference output used', () => {
@@ -361,64 +402,50 @@ test('recipe forbids every primitive geometry the reference output used', () => 
   assert.match(recipe, /forbidden/i);
 });
 
-test('recipe specifies lofted ring geometry with radius and ellipse ratio', () => {
-  assert.match(recipe, /ellipse ratio/i);
-  assert.match(recipe, /1\.35/, 'missing chest ellipse ratio 1.35');
-  assert.match(recipe, /0\.085/, 'missing hip ring radius 0.085');
-});
-
-test('recipe makes gait distance-driven, not clip-blended', () => {
-  assert.match(recipe, /gaitPhase/);
-  assert.match(recipe, /0\.78/, 'missing stride length coefficient');
-  assert.match(recipe, /law of cosines/i);
-});
-
-test('recipe states the single-write-site rule for foot planting', () => {
-  assert.match(recipe, /plantedPos/);
-  assert.match(recipe, /no code path/i);
-});
-
 test('recipe does not reintroduce the cloth-driven-figure escape hatch', () => {
   assert.doesNotMatch(recipe, /if a rig .{0,80}cannot be brought/i);
+  assert.doesNotMatch(recipe, /prefer a fully cloth/i);
+});
+
+test('recipe states frame framing so the character is readable', () => {
+  assert.match(recipe, /12/, 'missing frame-height percentage floor');
+  assert.match(recipe, /18/, 'missing frame-height percentage ceiling');
 });
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `node --test tests/character-recipe.test.mjs`
-Expected: FAIL — `ENOENT` on `references/character-recipe.md`
+Expected: FAIL — the placeholder file is one line.
 
 - [ ] **Step 3: Write the recipe**
 
-Create `references/character-recipe.md`. It must contain
-these six parts, with these exact values:
+Replace `references/character-recipe.md` entirely. Six parts, with these exact values.
 
-**Part 1 — Skeleton.** A markdown table of 18 bones for a 1.75 m figure, columns
-`bone | parent | rest position (x, y, z) metres`. Values: hips `(0, 0.95, 0)`,
-spine01 `(0, 1.10, 0)`, spine02 `(0, 1.28, 0)`, chest `(0, 1.42, 0)`,
-neck `(0, 1.52, 0)`, head `(0, 1.62, 0)`, clavicle.L/R `(±0.06, 1.45, 0)`,
-upperArm.L/R `(±0.19, 1.44, 0)`, forearm.L/R `(±0.19, 1.16, 0)`,
-hand.L/R `(±0.19, 0.90, 0)`, thigh.L/R `(±0.09, 0.92, 0)`,
-shin.L/R `(±0.09, 0.52, 0)`, foot.L/R `(±0.09, 0.10, 0)`,
-toe.L/R `(±0.09, 0.02, 0.14)`. State segment lengths: upperArm 0.28, forearm 0.26,
-thigh 0.42, shin 0.40, foot 0.16.
+**Part 1 — Skeleton.** A markdown table of 18 bones for a 1.75 m figure, columns `bone | parent | rest position (x, y, z) metres`:
 
-**Part 2 — Geometry.** State the rule in bold: *the character is ONE continuous
-skinned mesh generated from lofted cross-section rings; it is never an assembly of
-primitive meshes.* Then the ring tables:
+hips `(0, 0.95, 0)`, spine01 `(0, 1.10, 0)`, spine02 `(0, 1.28, 0)`, chest `(0, 1.42, 0)`, neck `(0, 1.52, 0)`, head `(0, 1.62, 0)`, clavicle.L/R `(±0.06, 1.45, 0)`, upperArm.L/R `(±0.19, 1.44, 0)`, forearm.L/R `(±0.19, 1.16, 0)`, hand.L/R `(±0.19, 0.90, 0)`, thigh.L/R `(±0.09, 0.92, 0)`, shin.L/R `(±0.09, 0.50, 0)`, foot.L/R `(±0.09, 0.10, 0)`, toe.L/R `(±0.09, 0.02, 0.14)`.
+
+Segment lengths: upperArm 0.28, forearm 0.26, thigh 0.42, shin 0.40, foot 0.16.
+
+**Part 2 — Geometry.** Lead with the rule in bold: **the character is ONE continuous skinned mesh generated from lofted cross-section rings; it is never an assembly of primitive meshes.** Then:
 
 | Chain | Rings | Radius profile (m) | Ellipse ratio (x:z) |
 |---|---|---|---|
 | Torso (hips→neck) | 12 | 0.16 → 0.19 → 0.17 → 0.14 | 1.00 → 1.35 |
+| Head (neck→crown) | 6 | 0.055 → 0.098 → 0.072 | 0.86 (narrower than deep) |
 | Arm (shoulder→wrist) | 8 | 0.055 → 0.040 → 0.032 | 1.00 |
+| Hand (wrist→fingertip) | 3 | 0.032 → 0.040 → 0.018 | 0.45 (flat paddle) |
 | Leg (hip→ankle) | 10 | 0.085 → 0.055 → 0.038 | 1.10 |
+| Foot (ankle→toe) | 4 | 0.038 → 0.045 → 0.030 | 0.62 (wider than tall) |
 
-Ring resolution 12–16 segments. Rings stitch into triangle strips; ends capped.
-Skin weights derived from normalized arc-length position along the chain, blended
-across a 0.08 m falloff either side of each joint — deterministic, no hand-rigging.
-Budget ~3–4 k triangles total.
+**Every chain in that table is required.** The torso/arm/leg rows alone leave a figure with no head, no hands, and no feet — and an agent that caps the arm at the wrist and finds spheres forbidden will ship a headless torso. Foot geometry is also load-bearing for Part 5, which blends foot orientation to the terrain normal; there must be a foot to orient.
 
-**Part 3 — Gait.** State that sliding is prevented by construction, not discipline:
+Ring resolution 12–16 segments (6–8 for hand and foot). Rings stitch into triangle strips; ends capped at the crown, fingertips, and toe tips. Skin weights derived from normalized arc-length position along the chain, blended across a 0.08 m falloff either side of each joint — deterministic, requiring no hand-rigging. Budget ~3–4 k triangles. Explain *why* the ellipse ratio matters: a chest that is as deep as it is wide reads as a barrel, and that single number is much of the difference between a figure and a tube stack.
+
+**Scaling for non-1.75 m archetypes.** Both rest positions *and* ring radii scale by `H / 1.75`, with the archetype's ring-radius multiplier applied on top. Radii must scale too — a 1.45 m figure with a 0.19 m adult chest radius reads as dwarfish rather than short.
+
+**Part 3 — Gait.** State that sliding is prevented by construction, not by discipline:
 
 ```js
 // Phase advances with GROUND DISTANCE, so stride length equals ground speed
@@ -427,1023 +454,104 @@ const strideLength = 0.78 * legLength * (1 + 0.35 * speedNorm);
 gaitPhase = (gaitPhase + distanceThisFrame / strideLength) % 1;
 ```
 
-Stance spans phase 0 → 0.6 and holds the locked world position. Swing spans
-0.6 → 1.0 and arcs 0.12 m to predicted touchdown via smoothstep. Per-leg phase
-offset 0.5. Two-bone analytic IK by law of cosines for hip → knee → ankle, knee
-pole vector forward.
+Stance spans phase 0 → 0.6 and holds the locked world position. Swing spans 0.6 → 1.0 and arcs 0.12 m to predicted touchdown via smoothstep. Per-leg phase offset 0.5. Two-bone analytic IK by law of cosines for hip → knee → ankle, knee pole vector forward — roughly 20 lines, no solver dependency.
 
-**Part 4 — Secondary motion.** Pelvis bob `y -= 0.035 * (1 - cos(4π * gaitPhase)) / 2`.
-Pelvis roll ±3°, shoulders counter-rotate ±5°. Arm swing shoulder pitch
-`±22° * sin(2π * (gaitPhase + 0.5))`, elbow flex 12–35°. Spine lean into
-acceleration, chest pitch `clamp(accelAlongForward * 0.04, -8°, +12°)`. Head
-counter-rotated to hold a level gaze.
+**Part 4 — Secondary motion.** Pelvis bob `y -= bobAmplitude * (1 - cos(4π * gaitPhase)) / 2`. Pelvis roll ±3°, shoulders counter-rotate ±5°. Arm swing shoulder pitch `±22° * sin(2π * (gaitPhase + 0.5))`, elbow flex 12–35°. Spine lean into acceleration: chest pitch `clamp(accelAlongForward * 0.04, -8°, +12°)`. Head counter-rotated to hold a level gaze.
 
-**Part 5 — Foot planting.** The mechanism, not the goal:
+**Every length in the gait must derive from `legLength`, not from a literal**, or a short archetype bobs like an adult and over-lifts its feet. At the 1.75 m reference figure `legLength` is 0.82 m, giving:
+
+| Quantity | Reference value | Expressed relative to legLength |
+|---|---|---|
+| stride length | — | `0.78 * legLength * (1 + 0.35 * speedNorm)` |
+| pelvis bob amplitude | 0.035 m | `0.043 * legLength` |
+| swing arc height | 0.12 m | `0.146 * legLength` |
+| joint weight falloff | 0.08 m | `0.098 * legLength` |
+
+State both columns. Angles (roll, pitch, elbow flex) are scale-invariant and stay as degrees.
+
+**Part 5 — Foot planting.** Give the mechanism, not the goal:
 
 ```js
 // On touchdown ONLY. During stance nothing writes to plantedPos — a planted
 // foot cannot slide because no code path exists that could move it.
-plantedPos[leg].copy(terrainRaycast(footTarget).point);
-plantedNormal[leg].copy(terrainRaycast(footTarget).normal);
+const hit = terrainRaycast(footTarget);
+plantedPos[leg].copy(hit.point);
+plantedNormal[leg].copy(hit.normal);
 stateBuffer.addSplat(plantedPos[leg]);   // same call site, cannot desync
 audio.footfall(plantedPos[leg]);
 ```
 
 Foot orientation blends to the terrain normal at 0.7.
 
-**Part 6 — Prohibitions.** A bold, unhedged list:
+**Part 6 — Prohibitions.** Bold and unhedged:
 
-- `BoxGeometry`, `SphereGeometry`, `CylinderGeometry`, `CapsuleGeometry`, and
-  `ConeGeometry` are **forbidden** anywhere in character code.
-- A character assembled from separate per-body-part meshes is a **defect**, not a
-  stepping stone.
-- Omitting legs is permitted **only** when the chosen archetype specifies a hidden
-  lower body **and** cloth reaches the ground.
+- `BoxGeometry`, `SphereGeometry`, `CylinderGeometry`, `CapsuleGeometry`, and `ConeGeometry` are **forbidden** anywhere in character code.
+- A character assembled from separate per-body-part meshes is a **defect**, not a stepping stone.
+- Omitting legs is permitted **only** when the chosen archetype specifies a hidden lower body **and** cloth reaches the ground.
 - There is **no fallback**. If the rig is hard, the rig is still required.
 
-Close with framing: character occupies 12–18% of frame height at default
-third-person zoom, uses the shared lighting include, and carries rim light so the
-silhouette reads against sky.
-
-**Do not** include any sentence resembling "if a rig and locomotion animation
-cannot be brought to a high standard, prefer a fully cloth-driven figure". That
-line in `BIOME_TECHDEMO_TEMPLATE.md:447` is the direct cause of the reported bug.
+Close with framing: the character occupies 12–18% of frame height at default third-person zoom, uses the scene's shared lighting include, and carries rim light so the silhouette reads against sky.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `node --test tests/character-recipe.test.mjs`
-Expected: PASS, 7 tests
+Expected: PASS, 16 tests
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add "references/character-recipe.md" "tests/character-recipe.test.mjs"
-git commit -m "feat(envizzle): add numeric procedural humanoid recipe"
+git add -A
+git commit -m "feat: add numeric procedural humanoid recipe
+
+Gives the character the same numeric treatment grass and terrain already
+had. Removes the predecessor's escape hatch, which agents read as
+permission to skip the rig and ship primitives."
 ```
 
 ---
 
-### Task 3: Colour maths and coherence rules
-
-**Files:**
-- Create: `lib/color.mjs`
-- Create: `lib/coherence.mjs`
-- Test: `tests/coherence.test.mjs`
-
-**Interfaces:**
-- Consumes: nothing.
-- Produces:
-  - `hexToRgb01(hex: string): [number, number, number]`
-  - `relativeLuminance(hex: string): number` — WCAG, linearized, 0–1
-  - `saturation(hex: string): number` — HSV S, 0–1
-  - `checkCoherence(config): Conflict[]` where `Conflict = { rule: string, severity: 'error'|'warn', message: string, fix: string }`
-
-**Palette schema** (used by every preset from here on):
-
-```js
-palette: [ { role: 'sky', hex: '#a8c8e8', area: 'large' }, ... ]
-// area: 'large' (sky, terrain base, vegetation base) | 'medium' | 'accent'
-```
-
-Roles are free-form strings. `area` is required and drives two rules.
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `tests/coherence.test.mjs`:
-
-```js
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { relativeLuminance, saturation } from '../lib/color.mjs';
-import { checkCoherence } from '../lib/coherence.mjs';
-
-// Values verified by hand against the WCAG formula before writing this plan.
-test('relativeLuminance matches known values', () => {
-  assert.ok(Math.abs(relativeLuminance('#000000') - 0.0) < 1e-6);
-  assert.ok(Math.abs(relativeLuminance('#ffffff') - 1.0) < 1e-6);
-  assert.ok(Math.abs(relativeLuminance('#00ffcc') - 0.759) < 0.01);
-  assert.ok(Math.abs(relativeLuminance('#d8d0b8') - 0.632) < 0.01);
-  assert.ok(Math.abs(relativeLuminance('#0d3b4c') - 0.037) < 0.01);
-});
-
-test('saturation separates neon from tinted neutral', () => {
-  assert.ok(Math.abs(saturation('#00ffcc') - 1.0) < 1e-6);
-  assert.ok(saturation('#d8d0b8') < 0.35);
-});
-
-// The config that produced the muddy dark frames in the reference output.
-const REFERENCE_BAD = {
-  paradigm: 'painterly',
-  assetStrategy: 'zero-asset',
-  materialBehaviours: 'Palette table, cel ramp, bioluminescent veins',
-  palette: [
-    { role: 'sky',        hex: '#2b0052', area: 'large' },
-    { role: 'terrain',    hex: '#080810', area: 'large' },
-    { role: 'vegetation', hex: '#0d3b4c', area: 'large' },
-    { role: 'accent-a',   hex: '#ff0066', area: 'accent' },
-    { role: 'accent-b',   hex: '#00ffcc', area: 'accent' },
-    { role: 'accent-c',   hex: '#ffaa00', area: 'accent' },
-  ],
-};
-
-test('flags the reference config on the light-anchor rule', () => {
-  const conflicts = checkCoherence(REFERENCE_BAD);
-  const rules = conflicts.map((c) => c.rule);
-  // Every colour is either near-black or fully saturated neon. A bright neon
-  // is NOT a substitute for a luminous light value — this is the rule that
-  // actually catches the bug.
-  assert.ok(rules.includes('light-anchor'), `rules were: ${rules.join(', ')}`);
-});
-
-test('flags the reference config on large-area luminance', () => {
-  const rules = checkCoherence(REFERENCE_BAD).map((c) => c.rule);
-  assert.ok(rules.includes('large-area-luminance'));
-});
-
-test('a bright-neon-only palette does NOT satisfy the light anchor', () => {
-  // Regression guard: a naive "must contain a bright colour" rule passes this,
-  // because #00ffcc has luminance 0.76. It must still fail.
-  const rules = checkCoherence(REFERENCE_BAD).map((c) => c.rule);
-  assert.ok(rules.includes('light-anchor'));
-});
-
-test('every conflict carries a suggested fix', () => {
-  for (const c of checkCoherence(REFERENCE_BAD)) {
-    assert.ok(c.fix.length > 10, `rule ${c.rule} has no usable fix text`);
-    assert.ok(['error', 'warn'].includes(c.severity));
-  }
-});
-
-test('a coherent high-key painterly palette passes clean', () => {
-  const good = {
-    paradigm: 'painterly',
-    assetStrategy: 'zero-asset',
-    materialBehaviours: 'Single-source palette table converted to linear, cel ramp, shadow wobble',
-    palette: [
-      { role: 'sky',        hex: '#a8c8e8', area: 'large' },
-      { role: 'cloud',      hex: '#f2ece0', area: 'large' },
-      { role: 'vegetation', hex: '#7a9a54', area: 'large' },
-      { role: 'rock',       hex: '#6b6256', area: 'medium' },
-      { role: 'shadow',     hex: '#2c3348', area: 'medium' },
-      { role: 'sun-accent', hex: '#f0b24a', area: 'accent' },
-    ],
-  };
-  assert.deepEqual(checkCoherence(good), []);
-});
-
-test('photoreal zero-asset must declare multi-scale normals', () => {
-  const rules = checkCoherence({
-    paradigm: 'photoreal',
-    assetStrategy: 'zero-asset',
-    materialBehaviours: 'A stock PBR material',
-    palette: [
-      { role: 'sky',     hex: '#b9d2ea', area: 'large' },
-      { role: 'snow',    hex: '#eef2f6', area: 'large' },
-      { role: 'rock',    hex: '#5d5a55', area: 'medium' },
-      { role: 'shadow',  hex: '#31445e', area: 'medium' },
-      { role: 'sun',     hex: '#ffd9a0', area: 'accent' },
-    ],
-  }).map((c) => c.rule);
-  assert.ok(rules.includes('photoreal-multiscale-normals'));
-});
-
-test('accent-heavy palettes are capped', () => {
-  const rules = checkCoherence({
-    paradigm: 'painterly',
-    assetStrategy: 'zero-asset',
-    materialBehaviours: 'palette table, cel ramp',
-    palette: [
-      { role: 'sky',  hex: '#a8c8e8', area: 'large' },
-      { role: 'base', hex: '#f2ece0', area: 'large' },
-      { role: 'mid',  hex: '#6b6256', area: 'medium' },
-      { role: 'a',    hex: '#ff0066', area: 'accent' },
-      { role: 'b',    hex: '#00ffcc', area: 'accent' },
-      { role: 'c',    hex: '#ffaa00', area: 'accent' },
-      { role: 'd',    hex: '#ff00ff', area: 'accent' },
-    ],
-  }).map((c) => c.rule);
-  assert.ok(rules.includes('accent-cap'));
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `node --test tests/coherence.test.mjs`
-Expected: FAIL — cannot find `../lib/color.mjs`
-
-- [ ] **Step 3: Implement colour maths**
-
-Create `lib/color.mjs`:
-
-```js
-/** '#rrggbb' → [r, g, b] each 0..1 in sRGB space. */
-export function hexToRgb01(hex) {
-  const h = hex.replace('#', '');
-  if (h.length !== 6) throw new Error(`Expected #rrggbb, got: ${hex}`);
-  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
-}
-
-const toLinear = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-
-/** WCAG relative luminance, 0 (black) .. 1 (white). */
-export function relativeLuminance(hex) {
-  const [r, g, b] = hexToRgb01(hex).map(toLinear);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-/** HSV saturation, 0 (neutral grey) .. 1 (fully saturated). */
-export function saturation(hex) {
-  const [r, g, b] = hexToRgb01(hex);
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  return max === 0 ? 0 : (max - min) / max;
-}
-```
-
-- [ ] **Step 4: Implement the coherence rules**
-
-Create `lib/coherence.mjs`:
-
-```js
-import { relativeLuminance, saturation } from './color.mjs';
-
-const LIGHT_ANCHOR_MIN_LUM = 0.55;
-const LIGHT_ANCHOR_MAX_SAT = 0.35;
-const LARGE_AREA_MIN_MEAN_LUM = 0.30;
-const ACCENT_MAX_FRACTION = 0.35;
-const TIER_DARK = 0.15;
-const TIER_LIGHT = 0.55;
-
-const conflict = (rule, severity, message, fix) => ({ rule, severity, message, fix });
-
-/**
- * Evaluate a demo config against the art-direction rules.
- * @returns {Array<{rule:string,severity:'error'|'warn',message:string,fix:string}>}
- */
-export function checkCoherence(config) {
-  const out = [];
-  const palette = config.palette ?? [];
-  const lums = palette.map((p) => relativeLuminance(p.hex));
-
-  // R1 — light anchor. A saturated neon is not a light value. Without a
-  // desaturated bright tone the scene reads as murk with glowing bits.
-  const hasAnchor = palette.some(
-    (p) =>
-      relativeLuminance(p.hex) >= LIGHT_ANCHOR_MIN_LUM &&
-      saturation(p.hex) <= LIGHT_ANCHOR_MAX_SAT,
-  );
-  if (palette.length > 0 && !hasAnchor) {
-    out.push(conflict(
-      'light-anchor', 'error',
-      `No light anchor: the palette has no colour with luminance >= ${LIGHT_ANCHOR_MIN_LUM} and saturation <= ${LIGHT_ANCHOR_MAX_SAT}. Saturated neons do not count.`,
-      'Add a desaturated bright tone — a warm off-white, pale sky tint, or bleached stone (e.g. #f2ece0, #d8d0b8) — and give it large or medium area.',
-    ));
-  }
-
-  // R2 — value tiers. Needs something in each of dark / mid / light.
-  if (palette.length > 0) {
-    const hasDark = lums.some((l) => l < TIER_DARK);
-    const hasMid = lums.some((l) => l >= TIER_DARK && l <= TIER_LIGHT);
-    const hasLight = lums.some((l) => l > TIER_LIGHT);
-    if (!(hasDark && hasMid && hasLight)) {
-      const missing = [
-        !hasDark && 'dark (<0.15)',
-        !hasMid && 'mid (0.15-0.55)',
-        !hasLight && 'light (>0.55)',
-      ].filter(Boolean).join(', ');
-      out.push(conflict(
-        'value-tiers', 'error',
-        `Palette is missing value tiers: ${missing}. Flat-value palettes read as unlit.`,
-        'Add one colour per missing tier so the scene has readable separation between shadow, midtone, and highlight.',
-      ));
-    }
-  }
-
-  // R3 — large-area luminance. Painterly rendering reads as beautiful because
-  // it is high-key; the colours covering most of the screen must carry light.
-  const large = palette.filter((p) => p.area === 'large');
-  if (config.paradigm === 'painterly' && large.length > 0) {
-    const mean =
-      large.reduce((s, p) => s + relativeLuminance(p.hex), 0) / large.length;
-    if (mean < LARGE_AREA_MIN_MEAN_LUM) {
-      out.push(conflict(
-        'large-area-luminance', 'error',
-        `Painterly paradigm with mean large-area luminance ${mean.toFixed(3)} (floor ${LARGE_AREA_MIN_MEAN_LUM}). Sky, terrain, and vegetation carry most of the frame; dark values there produce muddy frames.`,
-        'Either raise the sky/terrain/vegetation values into the 0.30-0.70 range, or switch paradigm to photoreal where a low-key palette is supportable.',
-      ));
-    }
-  }
-
-  // R4 — accent cap. Emissive/neon should punctuate, not dominate.
-  if (palette.length > 0) {
-    const accents = palette.filter((p) => p.area === 'accent').length;
-    const fraction = accents / palette.length;
-    if (fraction > ACCENT_MAX_FRACTION) {
-      out.push(conflict(
-        'accent-cap', 'warn',
-        `${accents} of ${palette.length} palette entries are accents (${(fraction * 100).toFixed(0)}%, cap ${ACCENT_MAX_FRACTION * 100}%). Emissive should stay under ~15% of screen area.`,
-        'Demote some accents to medium area, or fold them into a single accent hue used sparingly.',
-      ));
-    }
-  }
-
-  // R5 / R6 — technique requirements implied by paradigm + zero assets.
-  const behaviours = (config.materialBehaviours ?? '').toLowerCase();
-  if (config.paradigm === 'photoreal' && config.assetStrategy === 'zero-asset') {
-    if (!/multi-scale|multiscale/.test(behaviours)) {
-      out.push(conflict(
-        'photoreal-multiscale-normals', 'error',
-        'Photoreal with zero assets requires multi-scale procedural normals; none declared in material behaviours.',
-        'Add multi-scale procedural normal detail (three octaves minimum) so the surface reads at close, mid, and far range.',
-      ));
-    }
-  }
-  if (config.paradigm === 'painterly' && config.assetStrategy === 'zero-asset') {
-    const hasTable = /palette table/.test(behaviours);
-    const hasRamp = /cel ramp|toon ramp|cel-shad/.test(behaviours);
-    if (!hasTable || !hasRamp) {
-      out.push(conflict(
-        'painterly-palette-table', 'error',
-        'Painterly with zero assets requires both an explicit palette table and a cel ramp; material behaviours declare ' +
-          `${hasTable ? 'a palette table' : 'no palette table'} and ${hasRamp ? 'a cel ramp' : 'no cel ramp'}.`,
-        'Declare a single-source sRGB palette table converted to linear on load, plus a 2-step cel ramp with shadow-boundary wobble.',
-      ));
-    }
-  }
-
-  return out;
-}
-```
-
-- [ ] **Step 5: Run tests to verify they pass**
-
-Run: `node --test tests/coherence.test.mjs`
-Expected: PASS, 9 tests. In particular the reference config is flagged on both
-`light-anchor` and `large-area-luminance`.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add "lib/color.mjs" "lib/coherence.mjs" "tests/coherence.test.mjs"
-git commit -m "feat(envizzle): add colour maths and art-direction coherence rules"
-```
-
----
-
-### Task 4: Ambition dial and biome presets
-
-**Files:**
-- Create: `lib/ambition.mjs`
-- Create: `lib/presets/biomes.mjs`
-- Test: `tests/presets-biomes.test.mjs`
-
-**Interfaces:**
-- Consumes: `checkCoherence` (Task 3).
-- Produces:
-  - `AMBITION_LEVELS: Record<'slice'|'showcase'|'everything', string[]>` — enabled section names
-  - `sectionsFor(level: string): Set<string>`
-  - `BIOMES: Record<string, BiomePreset>` where each preset has keys
-    `label, paradigm, palette, tokens` and `tokens` is a `Record<string,string>`
-    of brief token values.
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `tests/presets-biomes.test.mjs`:
-
-```js
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { AMBITION_LEVELS, sectionsFor } from '../lib/ambition.mjs';
-import { BIOMES } from '../lib/presets/biomes.mjs';
-import { checkCoherence } from '../lib/coherence.mjs';
-
-test('slice enables fewer sections than showcase, which is fewer than everything', () => {
-  assert.ok(sectionsFor('slice').size < sectionsFor('showcase').size);
-  assert.ok(sectionsFor('showcase').size < sectionsFor('everything').size);
-});
-
-test('slice excludes vegetation, state-buffer, and audio', () => {
-  const s = sectionsFor('slice');
-  assert.ok(!s.has('vegetation'));
-  assert.ok(!s.has('state-buffer'));
-  assert.ok(!s.has('audio'));
-});
-
-test('unknown ambition level throws with the valid names listed', () => {
-  assert.throws(() => sectionsFor('nope'), /slice.*showcase.*everything/);
-});
-
-test('every biome ships at least six named biomes', () => {
-  assert.ok(Object.keys(BIOMES).length >= 6);
-});
-
-test('every biome palette is coherence-clean against its own paradigm', () => {
-  for (const [name, biome] of Object.entries(BIOMES)) {
-    const conflicts = checkCoherence({
-      paradigm: biome.paradigm,
-      assetStrategy: 'zero-asset',
-      materialBehaviours: biome.tokens.MATERIAL_BEHAVIOURS,
-      palette: biome.palette,
-    }).filter((c) => c.severity === 'error');
-    assert.deepEqual(
-      conflicts.map((c) => c.rule), [],
-      `biome "${name}" has coherence errors`,
-    );
-  }
-});
-
-test('every biome supplies numeric noise layers, not adjectives', () => {
-  for (const [name, biome] of Object.entries(BIOMES)) {
-    const layers = biome.tokens.TERRAIN_NOISE_LAYERS;
-    assert.match(layers, /\d+\s*m/, `biome "${name}" noise layers lack metre scales`);
-    assert.match(layers, /amp/i, `biome "${name}" noise layers lack amplitudes`);
-  }
-});
-
-test('every biome tags palette entries with an area class', () => {
-  for (const [name, biome] of Object.entries(BIOMES)) {
-    for (const entry of biome.palette) {
-      assert.ok(
-        ['large', 'medium', 'accent'].includes(entry.area),
-        `biome "${name}" role "${entry.role}" has invalid area "${entry.area}"`,
-      );
-    }
-  }
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `node --test tests/presets-biomes.test.mjs`
-Expected: FAIL — cannot find `../lib/ambition.mjs`
-
-- [ ] **Step 3: Implement the ambition dial**
-
-Create `lib/ambition.mjs`:
-
-```js
-/**
- * Which optional brief sections each ambition level turns on. Sections not
- * listed are deleted from the brief entirely rather than left unfilled, so the
- * target agent never sees a dead placeholder.
- *
- * 'slice' is the default: a true one-shot collapses under a dozen systems.
- */
-export const AMBITION_LEVELS = {
-  slice: ['post-processing'],
-  showcase: [
-    'post-processing', 'vegetation', 'state-buffer', 'audio', 'atmospheric-life',
-  ],
-  everything: [
-    'post-processing', 'vegetation', 'state-buffer', 'audio', 'atmospheric-life',
-    'weather', 'water', 'architecture', 'destructibility',
-  ],
-};
-
-/** @returns {Set<string>} enabled section names for a level. */
-export function sectionsFor(level) {
-  const sections = AMBITION_LEVELS[level];
-  if (!sections) {
-    throw new Error(
-      `Unknown ambition level "${level}". Valid: slice, showcase, everything.`,
-    );
-  }
-  return new Set(sections);
-}
-```
-
-- [ ] **Step 4: Implement biome presets**
-
-Create `lib/presets/biomes.mjs` with at least six biomes:
-`alpineSnow`, `gribliValley`, `duneDesert`, `oceanShelf`, `volcanic`, `nightCity`.
-
-Each entry follows this shape exactly. Here is `alpineSnow` complete as the
-worked example — write the other five to match, changing values not structure:
-
-```js
-export const BIOMES = {
-  alpineSnow: {
-    label: 'Alpine Snow — high-key photoreal snowfield',
-    paradigm: 'photoreal',
-    palette: [
-      { role: 'sky-zenith',  hex: '#5f8fc4', area: 'large' },
-      { role: 'sky-horizon', hex: '#cfe0f0', area: 'large' },
-      { role: 'snow-lit',    hex: '#f4f7fa', area: 'large' },
-      { role: 'snow-shadow', hex: '#7d92b4', area: 'medium' },
-      { role: 'rock',        hex: '#544f4a', area: 'medium' },
-      { role: 'sun-warm',    hex: '#ffd9a0', area: 'accent' },
-    ],
-    tokens: {
-      PRIMARY_ENVIRONMENT:
-        'a wind-scoured alpine snowfield ringed by granite peaks',
-      PRIMARY_MATERIAL_NAME: 'Snow',
-      NAIVE_DEFAULT: 'flat white',
-      TERRAIN_PHILOSOPHY_SENTENCE:
-        'A flat plane reads as a default asset. The field needs drifts, sastrugi ridges, and wind-carved scallops.',
-      TERRAIN_NOISE_LAYERS:
-        'broad drift ridges (scale 320 m, amp 38 m), dune-scale drifts (scale 40 m, amp 6 m), sastrugi wind ripples (scale 3 m, amp 0.18 m), and micro grain (scale 0.4 m, amp 0.02 m)',
-      TERRAIN_LANDMARKS:
-        'Landmarks: exposed granite outcrops with wind-scoured lee faces, a frozen tarn, and a cornice ridge that catches rim light.',
-      FAR_FIELD_TREATMENT:
-        'layered granite peaks with strong aerial perspective, ice-blue shadow fill, and a high thin cirrus deck',
-      MATERIAL_BEHAVIOURS: [
-        '1. Multi-scale procedural normals — three octaves (drift, ripple, grain) composited so surface reads at 30 m, 3 m, and 0.3 m simultaneously.',
-        '2. Wrapped-diffuse subsurface scattering with a 0.35 wrap term, tinted #9fc4e8 on the shadow side.',
-        '3. TAA-stabilised specular glints from a hash-driven microfacet distribution — glints must not crawl under camera motion.',
-        '4. Compaction darkening — trodden snow reads denser, wetter, and slightly blue.',
-      ].join('\n'),
-      STATE_BUFFER_CHANNELS: [
-        '- R: Compression depth (0..1)',
-        '- G: Displaced berm height (0..1)',
-        '- B: Wetness / refreeze (0..1)',
-        '- A: Ice glaze (0..1)',
-      ].join('\n'),
-      DEFORMATION_TYPE: 'Snow Deformation',
-      DEFORMATION_MARKS: 'trails, berms, and boot prints',
-      RECOVERY_MECHANISM: 'wind-driven infill and light refreeze',
-      RECOVERY_OUTCOME: 'soften into shallow undulations without vanishing',
-      FOOT_INTERACTION: 'compress snow, raise a small berm, and kick up spray',
-      AUDIO_ENGINE_SPEC:
-        'Synthesise wind (filtered pink noise with gust envelopes), snow crunch (short filtered noise bursts with pitch jitter per footfall), and a sparse high-string drone.',
-      ATMOSPHERIC_LIFE_SPEC:
-        'Low spindrift streaming off drift crests, occasional high-altitude bird silhouettes, and sun-shaft ice crystals.',
-      GRASS_SYSTEM_SPEC:
-        'No grass. Instead render 3 rings of wind-blown spindrift ribbons (0-30 m, 25-120 m, 100-600 m) as camera-facing strips whose density follows the same min(1,(dn/d)^1.5) law.',
-    },
-  },
-
-  // ... gribliValley, duneDesert, oceanShelf, volcanic, nightCity
-};
-```
-
-Constraints when authoring the remaining five:
-- `volcanic` is the deliberate low-key case. Set `paradigm: 'photoreal'` (not
-  painterly) so the `large-area-luminance` rule does not apply, and still include
-  a desaturated light anchor such as `#e8dcc8` ash-lit steam so `light-anchor`
-  passes. This biome is what teaches a disciplined dark scene.
-- `nightCity` likewise uses `paradigm: 'photoreal'` with a light anchor from wet
-  road sheen (e.g. `#c9d4dc`).
-- `gribliValley` is `paradigm: 'painterly'` and must keep mean large-area
-  luminance above 0.30 — this is the corrected version of the reference config.
-- Every `MATERIAL_BEHAVIOURS` for a painterly biome must contain the literal
-  substrings `palette table` and `cel ramp`, or rule R6 fails.
-- Every `MATERIAL_BEHAVIOURS` for a photoreal biome must contain `multi-scale`,
-  or rule R5 fails.
-
-- [ ] **Step 5: Run tests to verify they pass**
-
-Run: `node --test tests/presets-biomes.test.mjs`
-Expected: PASS, 7 tests
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add "lib/ambition.mjs" "lib/presets/biomes.mjs" "tests/presets-biomes.test.mjs"
-git commit -m "feat(envizzle): add ambition dial and six biome presets"
-```
-
----
-
-### Task 5: Archetype, mechanic, camera, and optional-system presets
-
-**Files:**
-- Create: `lib/presets/archetypes.mjs`
-- Create: `lib/presets/mechanics.mjs`
-- Create: `lib/presets/cameras.mjs`
-- Create: `lib/presets/optional-systems.mjs`
-- Test: `tests/presets-other.test.mjs`
-
-**Interfaces:**
-- Consumes: nothing.
-- Produces: `ARCHETYPES`, `MECHANICS`, `CAMERAS`, `OPTIONAL_SYSTEMS` — each a
-  `Record<string, { label: string, tokens: Record<string,string> }>`.
-  `ARCHETYPES` entries additionally carry `rig: { heightM, ringRadiusScale, hiddenLowerBody }`.
-
-The critical constraint: archetypes are **parameters on the one rig from Task 2**,
-never alternative bodies.
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `tests/presets-other.test.mjs`:
-
-```js
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { ARCHETYPES } from '../lib/presets/archetypes.mjs';
-import { MECHANICS } from '../lib/presets/mechanics.mjs';
-import { CAMERAS } from '../lib/presets/cameras.mjs';
-import { OPTIONAL_SYSTEMS } from '../lib/presets/optional-systems.mjs';
-import { AMBITION_LEVELS } from '../lib/ambition.mjs';
-
-test('ships at least five archetypes', () => {
-  assert.ok(Object.keys(ARCHETYPES).length >= 5);
-});
-
-test('every archetype parameterises the shared rig rather than replacing it', () => {
-  for (const [name, a] of Object.entries(ARCHETYPES)) {
-    assert.equal(typeof a.rig.heightM, 'number', `${name}: rig.heightM`);
-    assert.ok(a.rig.heightM > 1.2 && a.rig.heightM < 2.6, `${name}: implausible height`);
-    assert.equal(typeof a.rig.ringRadiusScale, 'number', `${name}: rig.ringRadiusScale`);
-    assert.equal(typeof a.rig.hiddenLowerBody, 'boolean', `${name}: rig.hiddenLowerBody`);
-  }
-});
-
-test('no archetype description names a primitive geometry', () => {
-  for (const [name, a] of Object.entries(ARCHETYPES)) {
-    const text = JSON.stringify(a.tokens);
-    for (const prim of ['BoxGeometry', 'SphereGeometry', 'CylinderGeometry', 'CapsuleGeometry']) {
-      assert.doesNotMatch(text, new RegExp(prim), `${name} mentions ${prim}`);
-    }
-  }
-});
-
-test('archetypes with a hidden lower body declare ground-reaching cloth', () => {
-  for (const [name, a] of Object.entries(ARCHETYPES)) {
-    if (a.rig.hiddenLowerBody) {
-      assert.match(
-        a.tokens.CLOTH_PANELS, /ground|floor|hem/i,
-        `${name} hides the lower body but does not reach the ground`,
-      );
-    }
-  }
-});
-
-test('every archetype specifies cloth panels with Verlet grid dimensions', () => {
-  for (const [name, a] of Object.entries(ARCHETYPES)) {
-    assert.match(a.tokens.CLOTH_PANELS, /\d+\s*[x×]\s*\d+/, `${name}: no grid dims`);
-  }
-});
-
-test('every mechanic declares an input binding and a state-buffer interaction', () => {
-  for (const [name, m] of Object.entries(MECHANICS)) {
-    assert.ok(m.tokens.CENTREPIECE_INPUT?.length > 0, `${name}: no input`);
-    assert.ok(m.tokens.CENTREPIECE_DESCRIPTION?.length > 80, `${name}: description too thin`);
-  }
-});
-
-test('every mechanic supplies three distinct named abilities', () => {
-  for (const [name, m] of Object.entries(MECHANICS)) {
-    const abilities = [m.tokens.ABILITY_1_NAME, m.tokens.ABILITY_2_NAME, m.tokens.ABILITY_3_NAME];
-    assert.equal(new Set(abilities).size, 3, `${name}: abilities not distinct`);
-  }
-});
-
-test('cameras cover third-person, first-person, cinematic, and xr', () => {
-  for (const key of ['thirdPerson', 'firstPerson', 'cinematic', 'xr']) {
-    assert.ok(CAMERAS[key], `missing camera mode: ${key}`);
-  }
-});
-
-test('every camera states the character framing requirement', () => {
-  for (const [name, c] of Object.entries(CAMERAS)) {
-    assert.ok(
-      c.tokens.CAMERA_SPEC.length > 60,
-      `${name}: camera spec too thin to guide framing`,
-    );
-  }
-});
-
-test('every optional system maps to a section name the ambition dial knows', () => {
-  const known = new Set(AMBITION_LEVELS.everything);
-  for (const [name, s] of Object.entries(OPTIONAL_SYSTEMS)) {
-    assert.ok(known.has(s.section), `optional system "${name}" has unknown section "${s.section}"`);
-  }
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `node --test tests/presets-other.test.mjs`
-Expected: FAIL — cannot find `../lib/presets/archetypes.mjs`
-
-- [ ] **Step 3: Implement archetypes**
-
-Create `lib/presets/archetypes.mjs` with at least five:
-`robedMage`, `travellerCoat`, `armoredSoldier`, `desertNomad`, `voidWanderer`.
-
-Worked example — write the rest to match:
-
-```js
-export const ARCHETYPES = {
-  robedMage: {
-    label: 'Robed Mage — deep cowl, trailing hem, fur trim',
-    rig: { heightM: 1.78, ringRadiusScale: 1.0, hiddenLowerBody: true },
-    tokens: {
-      CHARACTER_DESCRIPTION:
-        'A hooded figure in a layered robe: deep cowl, long sleeves, an over-mantle, and a trailing hem that sweeps the ground. Silhouette is the whole read — the face stays in shadow beneath the cowl and is never modelled in detail. Shell-based fur at hood and cuffs, 24 shells with alpha-tested strands.',
-      CLOTH_PANELS:
-        'the over-mantle (Verlet grid 36x12, reconstructed to 72x32 in the vertex shader), the trailing hem which must reach the ground and fully occlude the lower legs, and both sleeve cuffs (12x8 each)',
-      CLOTH_SHADING_REQUIREMENTS:
-        'Cloth needs sheen with an anisotropic response for a woven read, plus subsurface scattering on thin backlit regions. A plain PBR dielectric is not acceptable.',
-      HEAD_COVERING: 'deep cowl',
-    },
-  },
-
-  // ... travellerCoat, armoredSoldier, desertNomad, voidWanderer
-};
-```
-
-Notes: `armoredSoldier` and `travellerCoat` set `hiddenLowerBody: false` and so
-must show legs, which the Task 2 rig provides. `voidWanderer` is the corrected
-version of the reference output's character — set `hiddenLowerBody: true` with a
-ground-reaching mantle, so the "no legs" path is legitimate rather than an excuse.
-
-- [ ] **Step 4: Implement mechanics, cameras, and optional systems**
-
-`mechanics.mjs` — at least five: `surfCarve`, `flightGlide`, `beamCannon`,
-`grappleSwing`, `summonVehicle`. Each supplies `CENTREPIECE_MECHANIC`,
-`CENTREPIECE_INPUT`, `CENTREPIECE_DESCRIPTION` (>80 chars, naming the
-state-buffer channels it writes), and three distinct `ABILITY_N_NAME` values.
-
-`cameras.mjs` — exactly the four keys the test requires plus optional extras.
-Each supplies `CAMERA_SPEC` (>60 chars) covering framing, FOV behaviour, and what
-the character must look good from. `xr` must state that the character is seen at
-arm's length and the rig therefore needs correct proportions, not just silhouette.
-
-`optional-systems.mjs` — one entry per section name in
-`AMBITION_LEVELS.everything` that is not already covered by a biome:
-`weather`, `water`, `architecture`, `destructibility`. Each has shape
-`{ label, section, tokens }` where `section` matches the ambition dial name.
-
-- [ ] **Step 5: Run tests to verify they pass**
-
-Run: `node --test tests/presets-other.test.mjs`
-Expected: PASS, 10 tests
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add "lib/presets/" "tests/presets-other.test.mjs"
-git commit -m "feat(envizzle): add archetype, mechanic, camera, and optional-system presets"
-```
-
----
-
-### Task 6: Showcase configs and end-to-end assembly
-
-**Files:**
-- Create: `lib/presets/showcase.mjs`
-- Modify: `lib/assemble.mjs` (add `buildConfig` and CLI)
-- Test: `tests/showcase.test.mjs`
-
-**Interfaces:**
-- Consumes: `BIOMES`, `ARCHETYPES`, `MECHANICS`, `CAMERAS`, `sectionsFor`, `checkCoherence`, `assemble`, `loadAssets`.
-- Produces:
-  - `SHOWCASE: Record<string, { label, why, ambition, biome, archetype, mechanic, camera, tokenOverrides }>`
-  - `buildConfig(name: string): { tokens, enabledSections, palette, paradigm }` in `assemble.mjs`
-  - `buildBrief(name: string): string` in `assemble.mjs`
-  - CLI: `node lib/assemble.mjs <showcase-name> [--out path]`
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `tests/showcase.test.mjs`:
-
-```js
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { SHOWCASE } from '../lib/presets/showcase.mjs';
-import { buildConfig, buildBrief } from '../lib/assemble.mjs';
-import { checkCoherence } from '../lib/coherence.mjs';
-
-const names = Object.keys(SHOWCASE);
-
-test('ships six showcase configs', () => {
-  assert.equal(names.length, 6);
-});
-
-test('every showcase config references presets that exist', () => {
-  for (const name of names) {
-    assert.doesNotThrow(() => buildConfig(name), `config "${name}" does not resolve`);
-  }
-});
-
-test('every showcase config is coherence-clean', () => {
-  for (const name of names) {
-    const cfg = buildConfig(name);
-    const errors = checkCoherence({
-      paradigm: cfg.paradigm,
-      assetStrategy: 'zero-asset',
-      materialBehaviours: cfg.tokens.MATERIAL_BEHAVIOURS,
-      palette: cfg.palette,
-    }).filter((c) => c.severity === 'error');
-    assert.deepEqual(errors.map((c) => c.rule), [], `showcase "${name}" is incoherent`);
-  }
-});
-
-test('every showcase config assembles with zero unresolved tokens', () => {
-  for (const name of names) {
-    assert.doesNotThrow(() => buildBrief(name), `showcase "${name}" failed to assemble`);
-  }
-});
-
-test('every assembled brief inlines the character recipe in full', () => {
-  for (const name of names) {
-    const brief = buildBrief(name);
-    assert.match(brief, /law of cosines/i, `${name}: recipe not inlined`);
-    assert.match(brief, /BoxGeometry/, `${name}: prohibitions not inlined`);
-    assert.match(brief, /gaitPhase/, `${name}: gait maths not inlined`);
-  }
-});
-
-test('every assembled brief mandates the window.__demo hook', () => {
-  for (const name of names) {
-    assert.match(buildBrief(name), /window\.__demo/, `${name}: no verification hook`);
-  }
-});
-
-test('a slice-level brief omits disabled sections entirely', () => {
-  const sliceName = names.find((n) => SHOWCASE[n].ambition === 'slice');
-  assert.ok(sliceName, 'expected at least one slice-level showcase config');
-  const brief = buildBrief(sliceName);
-  assert.doesNotMatch(brief, /SECTION/, 'section markers leaked into output');
-});
-
-test('every showcase config explains why it reads as AAA', () => {
-  for (const name of names) {
-    assert.ok(SHOWCASE[name].why.length > 40, `${name}: "why" is too thin`);
-  }
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `node --test tests/showcase.test.mjs`
-Expected: FAIL — cannot find `../lib/presets/showcase.mjs`
-
-- [ ] **Step 3: Implement the showcase configs**
-
-Create `lib/presets/showcase.mjs`. Exactly six entries.
-At least one must use `ambition: 'slice'` so the omission test has a subject.
-
-```js
-export const SHOWCASE = {
-  alpineDawn: {
-    label: 'Alpine Dawn',
-    why: 'High-key snow with a low sun gives strong value separation and long rim-lit shadows — the cheapest route to a frame that reads as photoreal.',
-    ambition: 'showcase',
-    biome: 'alpineSnow',
-    archetype: 'robedMage',
-    mechanic: 'surfCarve',
-    camera: 'thirdPerson',
-    tokenOverrides: {
-      PROJECT_NAME: 'ALPINE_DAWN',
-      ENGINE: 'Babylon.js WebGPU',
-      SHADER_LANG: 'WGSL',
-      SHADER_LANG_EXT: 'wgsl',
-    },
-  },
-
-  // hoshiNoTani  — gribliValley  + travellerCoat  + flightGlide   + thirdPerson (showcase)
-  // duneSea      — duneDesert    + desertNomad    + surfCarve     + thirdPerson (showcase)
-  // tidalShelf   — oceanShelf    + travellerCoat  + grappleSwing  + cinematic   (slice)
-  // emberfall    — volcanic      + armoredSoldier + beamCannon    + thirdPerson (showcase)
-  // neonMonsoon  — nightCity     + voidWanderer   + summonVehicle + thirdPerson (everything)
-};
-```
-
-- [ ] **Step 4: Add config resolution and the CLI to the assembler**
-
-Append to `lib/assemble.mjs`:
-
-```js
-import { BIOMES } from './presets/biomes.mjs';
-import { ARCHETYPES } from './presets/archetypes.mjs';
-import { MECHANICS } from './presets/mechanics.mjs';
-import { CAMERAS } from './presets/cameras.mjs';
-import { OPTIONAL_SYSTEMS } from './presets/optional-systems.mjs';
-import { SHOWCASE } from './presets/showcase.mjs';
-import { sectionsFor } from './ambition.mjs';
-
-const pick = (collection, key, kind) => {
-  const found = collection[key];
-  if (!found) {
-    throw new Error(
-      `Unknown ${kind} "${key}". Valid: ${Object.keys(collection).join(', ')}.`,
-    );
-  }
-  return found;
-};
-
-/** Resolve a showcase name into merged tokens, sections, and palette. */
-export function buildConfig(name) {
-  const cfg = pick(SHOWCASE, name, 'showcase config');
-  const biome = pick(BIOMES, cfg.biome, 'biome');
-  const archetype = pick(ARCHETYPES, cfg.archetype, 'archetype');
-  const mechanic = pick(MECHANICS, cfg.mechanic, 'mechanic');
-  const camera = pick(CAMERAS, cfg.camera, 'camera');
-
-  const enabledSections = sectionsFor(cfg.ambition);
-  const optionalTokens = Object.values(OPTIONAL_SYSTEMS)
-    .filter((s) => enabledSections.has(s.section))
-    .reduce((acc, s) => ({ ...acc, ...s.tokens }), {});
-
-  return {
-    paradigm: biome.paradigm,
-    palette: biome.palette,
-    enabledSections,
-    tokens: {
-      ...biome.tokens,
-      ...archetype.tokens,
-      ...mechanic.tokens,
-      ...camera.tokens,
-      ...optionalTokens,
-      RENDERING_PARADIGM: biome.paradigm === 'painterly'
-        ? 'Painterly / Stylised Anime'
-        : 'AAA Photoreal',
-      ASSET_STRATEGY:
-        '100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)',
-      TARGET_BROWSER_AND_HARDWARE:
-        'Chrome stable on Windows 11, discrete GPU, 2560x1440',
-      CHARACTER_RIG_HEIGHT_M: String(archetype.rig.heightM),
-      CHARACTER_RING_RADIUS_SCALE: String(archetype.rig.ringRadiusScale),
-      ...cfg.tokenOverrides,
-    },
-  };
-}
-
-/** Resolve a showcase name straight through to a finished brief. */
-export function buildBrief(name) {
-  const { template, characterRecipe } = loadAssets();
-  const { tokens, enabledSections } = buildConfig(name);
-  return assemble({ template, tokens, enabledSections, characterRecipe });
-}
-
-// CLI: node lib/assemble.mjs <showcase-name> [--out path]
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const [name, ...rest] = process.argv.slice(2);
-  if (!name) {
-    console.error(`Usage: node lib/assemble.mjs <showcase-name> [--out path]`);
-    console.error(`Available: ${Object.keys(SHOWCASE).join(', ')}`);
-    process.exit(1);
-  }
-  const outIdx = rest.indexOf('--out');
-  const brief = buildBrief(name);
-  if (outIdx !== -1 && rest[outIdx + 1]) {
-    fs.writeFileSync(rest[outIdx + 1], brief, 'utf8');
-    console.log(`Wrote ${rest[outIdx + 1]} (${brief.length} bytes)`);
-  } else {
-    process.stdout.write(brief);
-  }
-}
-```
-
-- [ ] **Step 5: Run the full test suite**
-
-Run: `node --test tests/`
-Expected: PASS, all tests across all five test files
-
-- [ ] **Step 6: Smoke-test the CLI by eye**
-
-Run: `node lib/assemble.mjs alpineDawn --out /tmp/brief.md && head -60 /tmp/brief.md`
-Expected: a clean brief with no `{{` and no `SECTION` markers.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add "lib/presets/showcase.mjs" "lib/assemble.mjs" "tests/showcase.test.mjs"
-git commit -m "feat(envizzle): add six showcase configs and brief assembly CLI"
-```
-
----
-
-### Task 7: Verification gates
+### Task 3: Verification with teeth
 
 **Files:**
 - Create: `verify/gates.mjs`
+- Create: `verify/verify_demo.mjs`
+- Create: `verify/README.md`
 - Create: `tests/fixtures/make-synthetic.mjs`
+- Create: `tests/fixtures/real-black-frame.png` (copied)
+- Create: `tests/fixtures/real-idle-frame.png` (copied)
 - Create: `tests/gates.test.mjs`
-- Copy: `tests/fixtures/real-black-frame.png` (from the reference output)
-- Copy: `tests/fixtures/real-idle-frame.png`
+- Modify: `check.mjs` (add coherence rules — see Step 8)
+- Create: `tests/coherence.test.mjs`
 
 **Interfaces:**
-- Consumes: `pngjs`.
-- Produces (all pure over `{ width, height, data: Uint8Array /* RGBA */ }`):
+- Produces from `verify/gates.mjs`, all pure over `{ width, height, data: Uint8Array /* RGBA */ }`:
   - `meanLuminance(img): number`
   - `flatFrameRatio(img, bucketCount = 50): number`
   - `changedAreaFraction(a, b, threshold = 0.02): number`
-  - `evaluateGates({ frames, cameraDepthM, frameStats }): { pass: boolean, failures: string[] }`
-  - `THRESHOLDS` — the frozen threshold constants
+  - `evaluateGates({ frames, cameraDepthM, frameStats }): { pass, failures: string[], info: string[] }`
+  - `THRESHOLDS` — frozen constants
+- Produces from `check.mjs`: `relativeLuminance(hex)`, `saturation(hex)`, `hexToRgb01(hex)`, `checkCoherence(config): Conflict[]`
 
-Gates operate on decoded buffers rather than file paths so unit tests use exact
-synthetic images and the browser run passes buffers straight through.
+The predecessor's `legacy/verify_demo.mjs:133` logged `PASS: Screenshots successfully saved` without inspecting a single pixel — which is how a near-black frame with the camera clipped inside a spire passed as success.
 
-- [ ] **Step 1: Install the PNG decoder**
+**Controller decision, already made — do not gate on performance.** The brief targets 90 FPS, but verification runs headless, often on software rendering, where nothing reaches it (the reference run measured 60.1 FPS / 16.6 ms). Frame time measured headless says nothing about the target machine. `evaluateGates` reports median and p99 in an `info` array and they **never** contribute to `failures`. Image gates stay hard.
+
+- [ ] **Step 1: Install dependencies**
 
 Run: `npm install`
-Expected: `pngjs` and `playwright` present in `node_modules`.
+Expected: `pngjs` and `playwright` present.
 
 - [ ] **Step 2: Copy the real known-bad fixtures**
 
+The reference output is the demo built from the predecessor template by Gemini Flash 3.6. Set `REFERENCE_OUTPUT` to its path — ask the controller if you do not have it.
+
 ```bash
-mkdir -p "tests/fixtures"
-cp "$REFERENCE_OUTPUT/screenshots/milestone_locomotion.png" \
-   "tests/fixtures/real-black-frame.png"
-cp "$REFERENCE_OUTPUT/screenshots/milestone_idle.png" \
-   "tests/fixtures/real-idle-frame.png"
+mkdir -p tests/fixtures
+cp "$REFERENCE_OUTPUT/screenshots/milestone_locomotion.png" tests/fixtures/real-black-frame.png
+cp "$REFERENCE_OUTPUT/screenshots/milestone_idle.png"       tests/fixtures/real-idle-frame.png
 ```
 
-`real-black-frame.png` is the frame from the reference run where the camera
-clipped inside a spire and the old script still reported success.
+`real-black-frame.png` is the frame the old script passed.
 
 - [ ] **Step 3: Write the synthetic fixture generator**
 
@@ -1459,7 +567,7 @@ export function solid(width, height, [r, g, b]) {
   return { width, height, data };
 }
 
-/** A mid-grey field with a smooth gradient, so it is not flat. */
+/** A grey field with a horizontal gradient, so it is not flat. */
 export function gradient(width, height) {
   const data = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y++) {
@@ -1473,8 +581,8 @@ export function gradient(width, height) {
 }
 
 /**
- * Copy an image and paint a centred rectangle covering `fraction` of the area.
- * Used to simulate "character present" vs "character hidden".
+ * Copy an image and paint a centred square covering `fraction` of the area.
+ * Simulates "character present" vs "character hidden".
  */
 export function withBlob(img, fraction, [r, g, b] = [255, 0, 0]) {
   const out = { width: img.width, height: img.height, data: Uint8Array.from(img.data) };
@@ -1491,7 +599,7 @@ export function withBlob(img, fraction, [r, g, b] = [255, 0, 0]) {
 }
 ```
 
-- [ ] **Step 4: Write the failing tests**
+- [ ] **Step 4: Write the failing gate tests**
 
 Create `tests/gates.test.mjs`:
 
@@ -1499,18 +607,17 @@ Create `tests/gates.test.mjs`:
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
-import { meanLuminance, flatFrameRatio, changedAreaFraction, evaluateGates, THRESHOLDS }
-  from '../verify/gates.mjs';
+import {
+  meanLuminance, flatFrameRatio, changedAreaFraction, evaluateGates, THRESHOLDS,
+} from '../verify/gates.mjs';
 import { solid, gradient, withBlob } from './fixtures/make-synthetic.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
 const decode = (name) => {
-  const png = PNG.sync.read(fs.readFileSync(path.join(HERE, 'fixtures', name)));
+  const png = PNG.sync.read(fs.readFileSync(`tests/fixtures/${name}`));
   return { width: png.width, height: png.height, data: png.data };
 };
+const okStats = { medianMs: 11, p99Ms: 15, samples: 600 };
 
 test('meanLuminance is 0 for black and 1 for white', () => {
   assert.ok(meanLuminance(solid(8, 8, [0, 0, 0])) < 0.001);
@@ -1524,8 +631,7 @@ test('flatFrameRatio is 1 for a solid fill and low for a gradient', () => {
 
 test('changedAreaFraction measures the painted area', () => {
   const base = gradient(200, 200);
-  const withChar = withBlob(base, 0.10);
-  const measured = changedAreaFraction(base, withChar);
+  const measured = changedAreaFraction(base, withBlob(base, 0.10));
   assert.ok(Math.abs(measured - 0.10) < 0.02, `measured ${measured}`);
 });
 
@@ -1534,14 +640,17 @@ test('changedAreaFraction is ~0 for identical images', () => {
   assert.ok(changedAreaFraction(base, base) < 0.001);
 });
 
-// --- The regression the whole rewrite exists for --------------------------
+test('changedAreaFraction rejects mismatched sizes', () => {
+  assert.throws(() => changedAreaFraction(gradient(8, 8), gradient(16, 16)), /different size/i);
+});
+
+// --- The regression the rewrite exists for -------------------------------
 
 test('the real black frame from the reference run FAILS the gates', () => {
-  const black = decode('real-black-frame.png');
   const result = evaluateGates({
-    frames: [{ name: 'locomotion', image: black }],
+    frames: [{ name: 'locomotion', image: decode('real-black-frame.png') }],
     cameraDepthM: 5,
-    frameStats: { medianMs: 16, p99Ms: 20, samples: 600 },
+    frameStats: okStats,
   });
   assert.equal(result.pass, false, 'the old script passed this frame; the new one must not');
   assert.ok(
@@ -1550,41 +659,35 @@ test('the real black frame from the reference run FAILS the gates', () => {
   );
 });
 
-test('the real idle frame passes the luminance and flatness gates', () => {
-  const idle = decode('real-idle-frame.png');
-  assert.ok(meanLuminance(idle) >= THRESHOLDS.meanLuminanceMin);
-  assert.ok(flatFrameRatio(idle) <= THRESHOLDS.flatFrameMaxRatio);
-});
+// --- Character visibility ------------------------------------------------
 
-// --- Character visibility -------------------------------------------------
-
-test('a character occupying 8% of frame passes the visibility gate', () => {
+test('a character occupying 8% of frame passes', () => {
   const base = gradient(300, 300);
   const result = evaluateGates({
     frames: [{ name: 'idle', image: withBlob(base, 0.08), imageWithoutCharacter: base }],
     cameraDepthM: 5,
-    frameStats: { medianMs: 11, p99Ms: 15, samples: 600 },
+    frameStats: okStats,
   });
   assert.equal(result.pass, true, result.failures.join(' | '));
 });
 
-test('an invisible character fails the visibility gate', () => {
+test('an invisible character fails', () => {
   const base = gradient(300, 300);
   const result = evaluateGates({
     frames: [{ name: 'idle', image: base, imageWithoutCharacter: base }],
     cameraDepthM: 5,
-    frameStats: { medianMs: 11, p99Ms: 15, samples: 600 },
+    frameStats: okStats,
   });
   assert.equal(result.pass, false);
   assert.ok(result.failures.some((f) => /character/i.test(f)));
 });
 
-test('a character filling half the frame also fails (camera too close)', () => {
+test('a character filling half the frame fails (camera too close)', () => {
   const base = gradient(300, 300);
   const result = evaluateGates({
     frames: [{ name: 'idle', image: withBlob(base, 0.5), imageWithoutCharacter: base }],
     cameraDepthM: 5,
-    frameStats: { medianMs: 11, p99Ms: 15, samples: 600 },
+    frameStats: okStats,
   });
   assert.equal(result.pass, false);
 });
@@ -1593,10 +696,70 @@ test('a camera inside geometry fails', () => {
   const result = evaluateGates({
     frames: [{ name: 'idle', image: gradient(64, 64) }],
     cameraDepthM: 0.05,
-    frameStats: { medianMs: 11, p99Ms: 15, samples: 600 },
+    frameStats: okStats,
   });
   assert.equal(result.pass, false);
   assert.ok(result.failures.some((f) => /camera/i.test(f)));
+});
+
+// --- Performance is reported, never gated -------------------------------
+
+test('terrible frame times are reported but do not fail the run', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: 5,
+    frameStats: { medianMs: 240, p99Ms: 900, samples: 100 },
+  });
+  assert.equal(result.pass, true, `perf must not gate; failures: ${result.failures.join(' | ')}`);
+  assert.ok(result.info.some((i) => /240/.test(i)), 'median frame time not reported');
+  assert.ok(result.info.some((i) => /900/.test(i)), 'p99 frame time not reported');
+});
+
+test('THRESHOLDS carries no frame-time gate', () => {
+  const keys = Object.keys(THRESHOLDS).join(' ');
+  assert.doesNotMatch(keys, /FrameMs|frameMs/, 'frame time must not be a threshold');
+});
+
+// --- Malformed input must never pass vacuously ---------------------------
+// Every numeric comparison is false for NaN and undefined, so without explicit
+// guards a hook that returns nothing sails through every gate.
+
+test('a NaN camera depth fails instead of passing silently', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: NaN,
+    frameStats: okStats,
+  });
+  assert.equal(result.pass, false, 'NaN < 0.30 is false — this must not pass');
+  assert.ok(result.failures.some((f) => /cameraNearestDepth/.test(f)));
+});
+
+test('an undefined camera depth fails instead of passing silently', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: undefined,
+    frameStats: okStats,
+  });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /cameraNearestDepth/.test(f)));
+});
+
+test('an empty frame list fails instead of trivially satisfying zero gates', () => {
+  const result = evaluateGates({ frames: [], cameraDepthM: 5, frameStats: okStats });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /no frames captured/i.test(f)));
+});
+
+test('malformed frameStats is diagnosed, not thrown', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: 5,
+    frameStats: { medianMs: 11 },   // missing p99Ms and samples
+  });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /frameStats/.test(f)));
+  // Must not crash on toFixed of undefined.
+  assert.ok(Array.isArray(result.info));
 });
 ```
 
@@ -1614,6 +777,10 @@ Create `verify/gates.mjs`:
  * Pure image gates. Every function takes {width, height, data} where data is
  * RGBA bytes, so unit tests use synthetic buffers and the browser run passes
  * Playwright screenshots through the same code.
+ *
+ * Frame time is REPORTED, never gated: verification runs headless, often on
+ * software rendering, so a frame time here says nothing about the target
+ * machine. Gating on it would fail every honest run.
  */
 
 export const THRESHOLDS = Object.freeze({
@@ -1623,8 +790,6 @@ export const THRESHOLDS = Object.freeze({
   characterAreaMin: 0.03,
   characterAreaMax: 0.20,
   cameraMinDepthM: 0.30,
-  medianFrameMsMax: 11.2,   // 90 FPS target
-  p99FrameMsMax: 16.7,      // 60 FPS floor
 });
 
 // Perceptual weights on non-linear sRGB. Deliberately not linearised: this
@@ -1671,16 +836,38 @@ export function changedAreaFraction(a, b, threshold = 0.02) {
 
 /**
  * Run every gate over a captured run.
- * @param {{ frames: Array<{name:string, image:object, imageWithoutCharacter?:object}>,
- *           cameraDepthM: number,
- *           frameStats: {medianMs:number, p99Ms:number, samples:number} }} run
- * @returns {{ pass: boolean, failures: string[] }}
+ * @returns {{pass: boolean, failures: string[], info: string[]}}
  */
 export function evaluateGates({ frames, cameraDepthM, frameStats }) {
   const failures = [];
+  const info = [];
 
-  for (const { name, image, imageWithoutCharacter } of frames) {
+  // Guard the inputs before gating on them. Every numeric comparison below is
+  // false for NaN and undefined, so a hook that returns nothing would sail
+  // through every threshold and report success — exactly the vacuous pass this
+  // module exists to eliminate. An empty frame list is the same failure: zero
+  // frames trivially satisfy zero image gates.
+  if (!Array.isArray(frames) || frames.length === 0) {
+    failures.push(
+      'no frames captured — window.__demo.setPose() produced nothing to inspect. Verification cannot pass on an empty capture.',
+    );
+  }
+  if (typeof cameraDepthM !== 'number' || !Number.isFinite(cameraDepthM)) {
+    failures.push(
+      `window.__demo.cameraNearestDepth() returned ${JSON.stringify(cameraDepthM)} instead of a finite number — the camera-clipping gate cannot run. Implement it to return metres.`,
+    );
+  }
+  for (const key of ['medianMs', 'p99Ms', 'samples']) {
+    if (typeof frameStats?.[key] !== 'number' || !Number.isFinite(frameStats[key])) {
+      failures.push(
+        `window.__demo.frameStats() is missing a finite "${key}" — got ${JSON.stringify(frameStats?.[key])}. Frame time is informational, but a malformed hook is still a defect.`,
+      );
+    }
+  }
+
+  for (const { name, image, imageWithoutCharacter } of frames ?? []) {
     const lum = meanLuminance(image);
+    info.push(`[${name}] mean luminance ${lum.toFixed(3)}`);
     if (lum < THRESHOLDS.meanLuminanceMin || lum > THRESHOLDS.meanLuminanceMax) {
       failures.push(
         `[${name}] mean luminance ${lum.toFixed(3)} outside [${THRESHOLDS.meanLuminanceMin}, ${THRESHOLDS.meanLuminanceMax}] — frame is near-black or blown out.`,
@@ -1696,6 +883,7 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
 
     if (imageWithoutCharacter) {
       const area = changedAreaFraction(image, imageWithoutCharacter);
+      info.push(`[${name}] character covers ${(area * 100).toFixed(1)}% of frame`);
       if (area < THRESHOLDS.characterAreaMin) {
         failures.push(
           `[${name}] character covers ${(area * 100).toFixed(1)}% of frame (floor ${THRESHOLDS.characterAreaMin * 100}%) — character is missing, off-screen, or occluded.`,
@@ -1708,64 +896,437 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
     }
   }
 
-  if (cameraDepthM < THRESHOLDS.cameraMinDepthM) {
+  if (Number.isFinite(cameraDepthM) && cameraDepthM < THRESHOLDS.cameraMinDepthM) {
     failures.push(
       `camera nearest depth ${cameraDepthM.toFixed(2)} m below ${THRESHOLDS.cameraMinDepthM} m — camera is inside geometry.`,
     );
   }
 
-  if (frameStats.medianMs > THRESHOLDS.medianFrameMsMax) {
-    failures.push(
-      `median frame time ${frameStats.medianMs.toFixed(1)} ms exceeds ${THRESHOLDS.medianFrameMsMax} ms (90 FPS target).`,
-    );
-  }
-  if (frameStats.p99Ms > THRESHOLDS.p99FrameMsMax) {
-    failures.push(
-      `p99 frame time ${frameStats.p99Ms.toFixed(1)} ms exceeds ${THRESHOLDS.p99FrameMsMax} ms (60 FPS floor).`,
+  // Reported only. See the module comment. Guarded so a malformed hook yields
+  // the diagnosis pushed above rather than a TypeError from toFixed().
+  if (Number.isFinite(frameStats?.medianMs) && Number.isFinite(frameStats?.p99Ms)) {
+    info.push(
+      `frame time: median ${frameStats.medianMs.toFixed(1)} ms, p99 ${frameStats.p99Ms.toFixed(1)} ms over ${frameStats.samples} samples (informational — headless timing is not gated)`,
     );
   }
 
-  return { pass: failures.length === 0, failures };
+  return { pass: failures.length === 0, failures, info };
 }
 ```
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [ ] **Step 7: Run gate tests and calibrate**
 
 Run: `node --test tests/gates.test.mjs`
-Expected: PASS, 11 tests.
+Expected: PASS, 16 tests.
 
-If `the real idle frame passes` fails, print the actuals and calibrate:
-`node -e "import('./verify/gates.mjs').then(async g=>{const {PNG}=await import('pngjs');const fs=await import('node:fs');const p=PNG.sync.read(fs.readFileSync('tests/fixtures/real-idle-frame.png'));console.log('lum',g.meanLuminance(p),'flat',g.flatFrameRatio(p));})"`
-Adjust `THRESHOLDS` only if the real frame is genuinely acceptable to the eye —
-the black frame must keep failing.
-
-- [ ] **Step 8: Commit**
+Then print the real fixtures' actual statistics and record them in your report:
 
 ```bash
-git add "verify/gates.mjs" "tests/gates.test.mjs" "tests/fixtures/" "package-lock.json"
-git commit -m "feat(envizzle): add image verification gates with real known-bad fixtures"
+node -e "
+import('pngjs').then(async ({PNG}) => {
+  const g = await import('./verify/gates.mjs');
+  const fs = await import('node:fs');
+  for (const f of ['real-black-frame.png','real-idle-frame.png']) {
+    const p = PNG.sync.read(fs.readFileSync('tests/fixtures/'+f));
+    console.log(f, 'lum', g.meanLuminance(p).toFixed(4), 'flat', g.flatFrameRatio(p).toFixed(4));
+  }
+});
+"
 ```
 
----
+The black frame must fail. If the idle frame *also* fails the luminance floor, **do not lower the threshold to accommodate it** — report the numbers and note that the reference idle frame is itself a dark, mediocre frame. That is a finding, not a calibration error.
 
-### Task 8: Browser orchestrator
+- [ ] **Step 8: Add coherence rules to check.mjs**
 
-**Files:**
-- Create: `verify/verify_demo.mjs`
-- Create: `verify/README.md`
+Append colour maths and rules to `check.mjs`. Palette schema used by `references/presets.md`:
 
-**Interfaces:**
-- Consumes: `evaluateGates`, `THRESHOLDS` (Task 7), `playwright`, `pngjs`.
-- Produces: CLI `node verify/verify_demo.mjs <path-to-demo>`, exit code 0 pass / 1 fail.
+```js
+palette: [ { role: 'sky', hex: '#a8c8e8', area: 'large' }, ... ]
+// area: 'large' (sky, terrain base, vegetation base) | 'medium' | 'accent'
+```
 
-The replacement for `legacy/verify_demo.mjs`, whose line 133 logged
-`PASS: Screenshots successfully saved` without inspecting any pixel.
+```js
+// ---------------------------------------------------------------- colour ---
 
-- [ ] **Step 1: Write the orchestrator**
+/** '#rrggbb' → [r, g, b] each 0..1 in sRGB space. */
+export function hexToRgb01(hex) {
+  const h = hex.replace('#', '');
+  if (h.length !== 6) throw new Error(`Expected #rrggbb, got: ${hex}`);
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+}
 
-Create `verify/verify_demo.mjs` implementing this flow.
-Reuse the structure of the old script for the parts that worked — directory
-audit, `npx vite build`, dev-server spawn, Playwright launch flags.
+const toLinear = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+
+/** WCAG relative luminance, 0 (black) .. 1 (white). */
+export function relativeLuminance(hex) {
+  const [r, g, b] = hexToRgb01(hex).map(toLinear);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** HSV saturation, 0 (neutral grey) .. 1 (fully saturated). */
+export function saturation(hex) {
+  const [r, g, b] = hexToRgb01(hex);
+  const max = Math.max(r, g, b);
+  return max === 0 ? 0 : (max - Math.min(r, g, b)) / max;
+}
+
+// ------------------------------------------------------------- coherence ---
+
+const LIGHT_ANCHOR_MIN_LUM = 0.55;
+const LIGHT_ANCHOR_MAX_SAT = 0.35;
+const LARGE_AREA_MIN_MEAN_LUM = 0.30;   // painterly only
+const LARGE_AREA_MIN_MEAN_ANY = 0.10;   // every paradigm; tracks the runtime gate
+const ACCENT_MAX_FRACTION = 0.35;
+const TIER_DARK = 0.15;
+const TIER_LIGHT = 0.55;
+
+const conflict = (rule, severity, message, fix) => ({ rule, severity, message, fix });
+
+/**
+ * Evaluate a demo config against the art-direction rules.
+ * @returns {Array<{rule:string,severity:'error'|'warn',message:string,fix:string}>}
+ */
+export function checkCoherence(config) {
+  const out = [];
+  const palette = config.palette ?? [];
+  const lums = palette.map((p) => relativeLuminance(p.hex));
+
+  // R1 — light anchor. A saturated neon is not a light value. Without a
+  // desaturated bright tone the scene reads as murk with glowing bits.
+  // The anchor must also occupy real screen area: a light tone confined to a
+  // 2%-of-frame accent anchors nothing.
+  const hasAnchor = palette.some(
+    (p) => relativeLuminance(p.hex) >= LIGHT_ANCHOR_MIN_LUM
+        && saturation(p.hex) <= LIGHT_ANCHOR_MAX_SAT
+        && (p.area === 'large' || p.area === 'medium'),
+  );
+  if (palette.length > 0 && !hasAnchor) {
+    out.push(conflict(
+      'light-anchor', 'error',
+      `No light anchor: no large- or medium-area colour has luminance >= ${LIGHT_ANCHOR_MIN_LUM} AND saturation <= ${LIGHT_ANCHOR_MAX_SAT}. Saturated neons do not count, and an accent-area highlight is too small to anchor a frame.`,
+      'Add a desaturated bright tone — warm off-white, pale sky tint, bleached stone (e.g. #f2ece0, #d8d0b8) — at large or medium area.',
+    ));
+  }
+
+  // R2 — value tiers. Needs something dark, mid, and light.
+  if (palette.length > 0) {
+    const hasDark = lums.some((l) => l < TIER_DARK);
+    const hasMid = lums.some((l) => l >= TIER_DARK && l <= TIER_LIGHT);
+    const hasLight = lums.some((l) => l > TIER_LIGHT);
+    if (!(hasDark && hasMid && hasLight)) {
+      const missing = [
+        !hasDark && 'dark (<0.15)',
+        !hasMid && 'mid (0.15-0.55)',
+        !hasLight && 'light (>0.55)',
+      ].filter(Boolean).join(', ');
+      out.push(conflict(
+        'value-tiers', 'error',
+        `Palette is missing value tiers: ${missing}. Flat-value palettes read as unlit.`,
+        'Add one colour per missing tier so shadow, midtone, and highlight separate.',
+      ));
+    }
+  }
+
+  // R3 — large-area luminance. Painterly reads as beautiful because it is
+  // high-key; the colours covering most of the screen must carry light.
+  const large = palette.filter((p) => p.area === 'large');
+  if (config.paradigm === 'painterly' && large.length > 0) {
+    const mean = large.reduce((s, p) => s + relativeLuminance(p.hex), 0) / large.length;
+    if (mean < LARGE_AREA_MIN_MEAN_LUM) {
+      out.push(conflict(
+        'large-area-luminance', 'error',
+        `Painterly paradigm with mean large-area luminance ${mean.toFixed(3)} (floor ${LARGE_AREA_MIN_MEAN_LUM}). Sky, terrain, and vegetation carry most of the frame; dark values there produce muddy frames.`,
+        'Raise sky/terrain/vegetation into the 0.30-0.70 range, or switch to photoreal where a low-key palette is supportable.',
+      ));
+    }
+  }
+
+  // R3b — no all-dark large areas, EVERY paradigm. R3 exempts photoreal so a
+  // deliberate night or volcanic scene stays possible, but that exemption must
+  // not become a licence for an all-obsidian frame. A disciplined dark scene
+  // still has something big carrying light: moonlit wet road, ash-lit steam,
+  // a bright sky band. If every large area is in the dark tier, the frame is
+  // murk regardless of paradigm.
+  if (large.length > 0) {
+    const largeLums = large.map((p) => relativeLuminance(p.hex));
+    const brightest = Math.max(...largeLums);
+    const meanLarge = largeLums.reduce((s, l) => s + l, 0) / largeLums.length;
+
+    if (brightest <= TIER_DARK) {
+      out.push(conflict(
+        'large-area-all-dark', 'error',
+        `Every large-area colour is in the dark tier (brightest is ${brightest.toFixed(3)}, needs one above ${TIER_DARK}). The frame will read as murk whatever the paradigm.`,
+        'Give at least one large-area colour a value above 0.15 — a lit sky band, a wet or reflective ground plane, or a mist layer. A dark scene needs one big surface carrying light, not only small emissive accents.',
+      ));
+    }
+
+    // An existence check on the brightest value alone is gameable: one large
+    // area a hair over 0.15 would license arbitrarily black remaining large
+    // areas. This floor is deliberately aligned with the runtime image gate's
+    // meanLuminanceMin of 0.12 — a palette below it would very likely fail
+    // that gate after the build, and catching it here is far cheaper.
+    if (meanLarge < LARGE_AREA_MIN_MEAN_ANY) {
+      out.push(conflict(
+        'large-area-mean-floor', 'error',
+        `Mean large-area luminance is ${meanLarge.toFixed(3)} (floor ${LARGE_AREA_MIN_MEAN_ANY}). One lit band over otherwise black surfaces still renders as murk, and the runtime luminance gate would likely reject the frame.`,
+        'Raise a second large-area surface out of the dark tier, or promote a mid-value colour from medium to large area. A dark scene needs more than a single bright stripe.',
+      ));
+    }
+  }
+
+  // R4 — accent cap. Emissive should punctuate, not dominate.
+  if (palette.length > 0) {
+    const accents = palette.filter((p) => p.area === 'accent').length;
+    const fraction = accents / palette.length;
+    if (fraction > ACCENT_MAX_FRACTION) {
+      out.push(conflict(
+        'accent-cap', 'warn',
+        `${accents} of ${palette.length} entries are accents (${(fraction * 100).toFixed(0)}%, cap ${ACCENT_MAX_FRACTION * 100}%). Emissive should stay under ~15% of screen area.`,
+        'Demote some accents to medium area, or fold them into one accent hue used sparingly.',
+      ));
+    }
+  }
+
+  // R5 / R6 — techniques implied by paradigm + zero assets.
+  const behaviours = (config.materialBehaviours ?? '').toLowerCase();
+  if (config.paradigm === 'photoreal' && config.assetStrategy === 'zero-asset'
+      && !/multi-scale|multiscale/.test(behaviours)) {
+    out.push(conflict(
+      'photoreal-multiscale-normals', 'error',
+      'Photoreal with zero assets requires multi-scale procedural normals; none declared.',
+      'Declare multi-scale procedural normal detail (three octaves minimum) so the surface reads close, mid, and far.',
+    ));
+  }
+  if (config.paradigm === 'painterly' && config.assetStrategy === 'zero-asset') {
+    const hasTable = /palette table/.test(behaviours);
+    const hasRamp = /cel ramp|toon ramp|cel-shad/.test(behaviours);
+    if (!hasTable || !hasRamp) {
+      out.push(conflict(
+        'painterly-palette-table', 'error',
+        `Painterly with zero assets requires both a palette table and a cel ramp; declared ${hasTable ? 'a palette table' : 'no palette table'} and ${hasRamp ? 'a cel ramp' : 'no cel ramp'}.`,
+        'Declare a single-source sRGB palette table converted to linear on load, plus a 2-step cel ramp with shadow-boundary wobble.',
+      ));
+    }
+  }
+
+  return out;
+}
+```
+
+- [ ] **Step 9: Write and run the coherence tests**
+
+Create `tests/coherence.test.mjs`:
+
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { relativeLuminance, saturation, checkCoherence } from '../check.mjs';
+
+// Verified by hand against the WCAG formula.
+test('relativeLuminance matches known values', () => {
+  assert.ok(Math.abs(relativeLuminance('#000000') - 0.0) < 1e-6);
+  assert.ok(Math.abs(relativeLuminance('#ffffff') - 1.0) < 1e-6);
+  assert.ok(Math.abs(relativeLuminance('#00ffcc') - 0.759) < 0.01);
+  assert.ok(Math.abs(relativeLuminance('#d8d0b8') - 0.632) < 0.01);
+  assert.ok(Math.abs(relativeLuminance('#0d3b4c') - 0.037) < 0.01);
+});
+
+test('saturation separates neon from tinted neutral', () => {
+  assert.ok(Math.abs(saturation('#00ffcc') - 1.0) < 1e-6);
+  assert.ok(saturation('#d8d0b8') < 0.35);
+});
+
+test('hexToRgb01 rejects malformed hex', async () => {
+  const { hexToRgb01 } = await import('../check.mjs');
+  assert.throws(() => hexToRgb01('#fff'), /#rrggbb/);
+});
+
+// The config that produced the muddy dark frames in the reference output.
+const REFERENCE_BAD = {
+  paradigm: 'painterly',
+  assetStrategy: 'zero-asset',
+  materialBehaviours: 'Palette table, cel ramp, bioluminescent veins',
+  palette: [
+    { role: 'sky',        hex: '#2b0052', area: 'large' },
+    { role: 'terrain',    hex: '#080810', area: 'large' },
+    { role: 'vegetation', hex: '#0d3b4c', area: 'large' },
+    { role: 'accent-a',   hex: '#ff0066', area: 'accent' },
+    { role: 'accent-b',   hex: '#00ffcc', area: 'accent' },
+    { role: 'accent-c',   hex: '#ffaa00', area: 'accent' },
+  ],
+};
+
+test('flags the reference config on the light-anchor rule', () => {
+  // Regression guard: a naive "must contain a bright colour" rule PASSES this
+  // config, because #00ffcc has luminance 0.76. The anchor must be desaturated.
+  const rules = checkCoherence(REFERENCE_BAD).map((c) => c.rule);
+  assert.ok(rules.includes('light-anchor'), `rules were: ${rules.join(', ')}`);
+});
+
+test('flags the reference config on large-area luminance', () => {
+  assert.ok(checkCoherence(REFERENCE_BAD).map((c) => c.rule).includes('large-area-luminance'));
+});
+
+test('every conflict carries a usable fix and a valid severity', () => {
+  for (const c of checkCoherence(REFERENCE_BAD)) {
+    assert.ok(c.fix.length > 10, `rule ${c.rule} has no usable fix text`);
+    assert.ok(['error', 'warn'].includes(c.severity));
+  }
+});
+
+test('a coherent high-key painterly palette passes clean', () => {
+  assert.deepEqual(checkCoherence({
+    paradigm: 'painterly',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'Single-source palette table converted to linear, cel ramp, shadow wobble',
+    palette: [
+      { role: 'sky',        hex: '#a8c8e8', area: 'large' },
+      { role: 'cloud',      hex: '#f2ece0', area: 'large' },
+      { role: 'vegetation', hex: '#7a9a54', area: 'large' },
+      { role: 'rock',       hex: '#6b6256', area: 'medium' },
+      { role: 'shadow',     hex: '#2c3348', area: 'medium' },
+      { role: 'sun-accent', hex: '#f0b24a', area: 'accent' },
+    ],
+  }), []);
+});
+
+test('photoreal zero-asset must declare multi-scale normals', () => {
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'A stock PBR material',
+    palette: [
+      { role: 'sky',    hex: '#b9d2ea', area: 'large' },
+      { role: 'snow',   hex: '#eef2f6', area: 'large' },
+      { role: 'rock',   hex: '#5d5a55', area: 'medium' },
+      { role: 'shadow', hex: '#31445e', area: 'medium' },
+      { role: 'night',  hex: '#0a0d12', area: 'medium' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('photoreal-multiscale-normals'));
+});
+
+test('accent-heavy palettes are capped', () => {
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale normals',
+    palette: [
+      { role: 'sky',  hex: '#a8c8e8', area: 'large' },
+      { role: 'base', hex: '#f2ece0', area: 'large' },
+      { role: 'dark', hex: '#0a0d12', area: 'medium' },
+      { role: 'a',    hex: '#ff0066', area: 'accent' },
+      { role: 'b',    hex: '#00ffcc', area: 'accent' },
+      { role: 'c',    hex: '#ffaa00', area: 'accent' },
+      { role: 'd',    hex: '#ff00ff', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('accent-cap'));
+});
+
+test('an empty palette produces no palette conflicts', () => {
+  assert.deepEqual(
+    checkCoherence({ paradigm: 'painterly', assetStrategy: 'other', materialBehaviours: '' })
+      .map((c) => c.rule),
+    [],
+  );
+});
+
+test('an all-obsidian photoreal palette cannot slip through', () => {
+  // The painterly exemption on large-area luminance must not become a licence
+  // for an all-dark frame. This palette is DARKER than the reference config
+  // (mean large-area luminance 0.009) yet has a bright desaturated accent and
+  // all three value tiers, so it passed every rule before large-area-all-dark.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'sky',        hex: '#0b0b14', area: 'large' },
+      { role: 'terrain',    hex: '#080810', area: 'large' },
+      { role: 'vegetation', hex: '#122b2b', area: 'large' },
+      { role: 'rock-rim',   hex: '#8a8378', area: 'medium' },
+      { role: 'moon-spec',  hex: '#e8e8e8', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('large-area-all-dark'), `rules were: ${rules.join(', ')}`);
+});
+
+test('a light anchor confined to an accent does not count', () => {
+  // R1's own fix text says the anchor belongs at large or medium area.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'sky',      hex: '#3a4450', area: 'large' },
+      { role: 'ground',   hex: '#2b2f36', area: 'large' },
+      { role: 'shadow',   hex: '#0a0d12', area: 'medium' },
+      { role: 'headlamp', hex: '#f2ece0', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('light-anchor'), `rules were: ${rules.join(', ')}`);
+});
+
+test('one lit band over near-black large areas does not buy a pass', () => {
+  // large-area-all-dark is an existence check on the brightest value, so a
+  // single large area a hair over 0.15 would otherwise license arbitrarily
+  // black remaining large areas. Mean here is 0.056.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'haze-band',  hex: '#707070', area: 'large' },
+      { role: 'terrain',    hex: '#050508', area: 'large' },
+      { role: 'vegetation', hex: '#060b0b', area: 'large' },
+      { role: 'cliff-lip',  hex: '#d8d0b8', area: 'medium' },
+      { role: 'ember',      hex: '#ff5a1e', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('large-area-mean-floor'), `rules were: ${rules.join(', ')}`);
+});
+
+test('a volcanic palette authored to the floor passes', () => {
+  // Proof the floor leaves the deliberate low-key biome buildable — Task 4
+  // must ship this preset. Two large areas carrying light, not one stripe.
+  assert.deepEqual(checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals, emissive crust fissures',
+    palette: [
+      { role: 'ash-sky',      hex: '#9a8578', area: 'large' },
+      { role: 'ash-plain',    hex: '#6b5f57', area: 'large' },
+      { role: 'basalt',       hex: '#14100f', area: 'large' },
+      { role: 'steam-lit',    hex: '#e8dcc8', area: 'medium' },
+      { role: 'lava-fissure', hex: '#ff5a1e', area: 'accent' },
+    ],
+  }), []);
+});
+
+test('a disciplined dark photoreal scene still passes', () => {
+  // Night city: dark overall, but the wet road carries light at large area.
+  assert.deepEqual(checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals, wet-surface reflectance',
+    palette: [
+      { role: 'wet-road-sheen', hex: '#c9d4dc', area: 'large' },
+      { role: 'sky-glow',       hex: '#3d4658', area: 'large' },
+      { role: 'facade',         hex: '#1b1f26', area: 'medium' },
+      { role: 'deep-shadow',    hex: '#080a0e', area: 'medium' },
+      { role: 'sodium-lamp',    hex: '#ffb45e', area: 'accent' },
+    ],
+  }), []);
+});
+```
+
+Run: `node --test tests/coherence.test.mjs`
+Expected: PASS, 15 tests.
+
+- [ ] **Step 10: Write the Playwright orchestrator**
+
+Create `verify/verify_demo.mjs`. Reuse what worked in `legacy/verify_demo.mjs` — the directory audit, `npx vite build`, dev-server spawn, and Playwright launch flags — and add the gates.
 
 ```js
 import { execSync, spawn } from 'node:child_process';
@@ -1779,13 +1340,11 @@ const failures = [];
 const fail = (m) => { failures.push(m); console.error(`FAIL: ${m}`); };
 const pass = (m) => console.log(`PASS: ${m}`);
 
-// 1. Structure audit — required files.
 for (const rel of ['index.html', 'package.json', 'vite.config.js', 'DECISIONS.md', 'PERF.md', 'src/main.js']) {
   if (fs.existsSync(path.join(targetDir, rel))) pass(`found ${rel}`);
   else fail(`missing required path: ${rel}`);
 }
 
-// 2. Production build must compile clean.
 try {
   execSync('npx vite build', { cwd: targetDir, stdio: 'pipe' });
   pass('production build compiled with zero errors');
@@ -1798,9 +1357,77 @@ const toImage = (buf) => {
   return { width: png.width, height: png.height, data: png.data };
 };
 
+/**
+ * Kill a spawned server and everything it started.
+ *
+ * `spawn(..., {shell: true}).kill()` kills the shell, not the tree, so on
+ * Windows vite and its esbuild child survive and keep holding the port. A
+ * leaked server is not merely untidy: the next run can poll it and verify a
+ * stale demo, reporting success for code that never ran.
+ */
+function killTree(child) {
+  if (!child.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+    } else {
+      process.kill(-child.pid, 'SIGKILL');   // negative pid = process group
+    }
+  } catch {
+    // Already dead, or never started. Fall through to the direct kill.
+  }
+  try { child.kill(); } catch { /* nothing left to kill */ }
+}
+
+/** Poll until the dev server answers, or throw after timeoutMs. */
+async function waitForServer(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(url, { method: 'GET' });
+      return;
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  throw new Error(
+    `dev server at ${url} never accepted a connection within ${timeoutMs} ms (last error: ${lastErr?.message}). The demo's vite setup may be broken.`,
+  );
+}
+
 async function run() {
-  const playwright = await import('playwright');   // hard dependency now, not optional
-  const server = spawn('npx', ['vite', '--port', '5173'], { cwd: targetDir, shell: true });
+  const playwright = await import('playwright');
+
+  // A random high port, not the well-known 5173. If a previous run leaked a
+  // vite process, binding 5173 again would make the readiness poll succeed
+  // against THAT server and verify the previous demo. --strictPort turns a
+  // collision into a loud failure instead of vite silently sliding to the
+  // next free port while we poll the wrong one.
+  const port = 5300 + Math.floor(Math.random() * 600);
+  const origin = `http://localhost:${port}`;
+  const server = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
+    cwd: targetDir,
+    shell: true,
+    detached: process.platform !== 'win32',
+  });
+
+  // Wait for the dev server to actually accept connections. Without this, a
+  // slow vite boot yields ERR_CONNECTION_REFUSED, which surfaces as
+  // "verification crashed" and reads like a defect in the demo.
+  //
+  // The kill-on-throw matters more than it looks: this happens BEFORE the
+  // try/finally below, so without it a timeout orphans the server process,
+  // and the next run could poll a stale one. Same vacuous-pass class this
+  // whole module exists to eliminate.
+  try {
+    await waitForServer(origin, 30000);
+  } catch (err) {
+    killTree(server);
+    throw err;
+  }
+
   const browser = await playwright.chromium.launch({
     headless: true,
     args: ['--enable-unsafe-webgpu', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
@@ -1812,46 +1439,48 @@ async function run() {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error') pageErrors.push(m.text()); });
 
-    await page.goto('http://localhost:5173', { waitUntil: 'networkidle' });
+    await page.goto(origin, { waitUntil: 'networkidle' });
 
-    // 3. The hook must exist — without it nothing below is checkable.
+    // Without the hook nothing below is checkable.
     try {
       await page.waitForFunction('window.__demo && window.__demo.ready === true', { timeout: 30000 });
       pass('window.__demo hook present and ready');
     } catch {
-      fail('window.__demo hook missing or never became ready — see brief section 6. Cannot verify.');
+      fail('window.__demo hook missing or never became ready — see the brief\'s verification-hook section. Cannot verify.');
       return;
     }
 
     if (pageErrors.length === 0) pass('zero console/runtime errors');
     else fail(`runtime errors: ${pageErrors.join(' | ')}`);
 
-    // 4. Capture each pose with and without the character.
     const frames = [];
+    const shotDir = path.join(targetDir, 'screenshots');
+    fs.mkdirSync(shotDir, { recursive: true });
+
     for (const pose of ['idle', 'locomotion', 'mechanic']) {
       await page.evaluate((p) => window.__demo.setPose(p), pose);
       await page.waitForTimeout(1200);
 
-      const withChar = toImage(await page.screenshot());
+      const withCharBuf = await page.screenshot();
       await page.evaluate(() => window.__demo.setCharacterVisible(false));
       await page.waitForTimeout(300);
-      const withoutChar = toImage(await page.screenshot());
+      const withoutCharBuf = await page.screenshot();
       await page.evaluate(() => window.__demo.setCharacterVisible(true));
 
-      frames.push({ name: pose, image: withChar, imageWithoutCharacter: withoutChar });
-
-      const dir = path.join(targetDir, 'screenshots');
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, `milestone_${pose}.png`), PNG.sync.write(
-        Object.assign(new PNG({ width: withChar.width, height: withChar.height }), { data: withChar.data }),
-      ));
+      frames.push({
+        name: pose,
+        image: toImage(withCharBuf),
+        imageWithoutCharacter: toImage(withoutCharBuf),
+      });
+      fs.writeFileSync(path.join(shotDir, `milestone_${pose}.png`), withCharBuf);
     }
 
-    // 5. Run the gates.
     const cameraDepthM = await page.evaluate(() => window.__demo.cameraNearestDepth());
     const frameStats = await page.evaluate(() => window.__demo.frameStats());
     const result = evaluateGates({ frames, cameraDepthM, frameStats });
-    if (result.pass) pass('all image and performance gates passed');
+
+    result.info.forEach((i) => console.log(`INFO: ${i}`));
+    if (result.pass) pass('all image gates passed');
     else result.failures.forEach(fail);
   } finally {
     await browser.close();
@@ -1874,39 +1503,224 @@ run()
   });
 ```
 
-- [ ] **Step 2: Write the verify README**
+Note the screenshot is written from the original PNG buffer, not re-encoded from the decoded image — simpler and lossless.
 
-Create `verify/README.md` documenting: how to run it, the
-`window.__demo` contract, each gate and its threshold, and why the character
-diff gate cannot be satisfied without a real character.
+- [ ] **Step 11: Write verify/README.md**
 
-- [ ] **Step 3: Verify it fails correctly against a demo with no hook**
+Document how to run it, the `window.__demo` contract, each gate and threshold, why frame time is informational, and why the character-diff gate cannot be satisfied without a real character.
 
-Run: `node verify/verify_demo.mjs "$REFERENCE_OUTPUT"`
-Expected: exit code 1, with `window.__demo hook missing` among the failures —
-the reference output predates the hook, so this is the correct result and
-confirms the gate is wired.
+- [ ] **Step 12: Confirm the orchestrator fails correctly on a demo with no hook**
 
-- [ ] **Step 4: Commit**
+Run against the reference output (ask the controller for `$REFERENCE_OUTPUT`):
+`node verify/verify_demo.mjs "$REFERENCE_OUTPUT"`
+Expected: exit code 1 with `window.__demo hook missing` among the failures. The reference output predates the hook, so this is the correct result and proves the gate is wired rather than vacuously passing.
+
+- [ ] **Step 13: Run the full suite and commit**
 
 ```bash
-git add "verify/verify_demo.mjs" "verify/README.md"
-git commit -m "feat(envizzle): rewrite verification to gate on pixels not file existence"
+npm test
+git add -A
+git commit -m "feat: add image verification gates and coherence rules
+
+Gates reject near-black frames, blank frames, and missing characters via a
+with/without-character diff. The predecessor logged PASS after saving
+screenshots without inspecting any pixel. Frame time is reported, not
+gated: headless timing says nothing about the target machine.
+
+Coherence rules catch the painterly-over-near-black contradiction. The
+light-anchor rule requires a DESATURATED bright tone, because a naive
+bright-colour check passes neon cyan at luminance 0.76."
 ```
 
 ---
 
-### Task 9: SKILL.md
+### Task 4: The presets
+
+**Files:**
+- Create: `references/presets.md`
+- Create: `tests/presets.test.mjs`
+
+**Interfaces:**
+- Consumes: `checkCoherence` from `check.mjs` (Task 3).
+- Produces: one markdown file Claude reads during the interview. It is documentation, not code — but its palettes are machine-checkable, so it carries them in fenced `json` blocks the test can parse.
+
+Mining source: `legacy/BIOME_TECHDEMO_TEMPLATE.md` and `legacy/TEMPLATE_GUIDE.md` hold the predecessor's biome examples and its paradigm comparison table. Read both before writing.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/presets.test.mjs`. The tests parse the markdown, so the format must be predictable: every biome section carries a fenced ```json block holding `{ "paradigm": ..., "palette": [...], "materialBehaviours": "..." }`.
+
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { checkCoherence } from '../check.mjs';
+
+const md = fs.readFileSync('references/presets.md', 'utf8');
+
+/** Extract every fenced json block, with the nearest preceding heading. */
+function jsonBlocks(text) {
+  const out = [];
+  const re = /^#{2,4}\s+(.+?)\s*$([\s\S]*?)```json\n([\s\S]*?)```/gm;
+  for (const m of text.matchAll(re)) {
+    out.push({ heading: m[1], config: JSON.parse(m[3]) });
+  }
+  return out;
+}
+
+test('presets file is substantial', () => {
+  assert.ok(md.length > 6000, `presets.md is only ${md.length} chars`);
+});
+
+test('declares the three ambition levels', () => {
+  for (const level of ['slice', 'showcase', 'everything']) {
+    assert.match(md, new RegExp(`\\b${level}\\b`), `missing ambition level: ${level}`);
+  }
+});
+
+test('slice is stated as the default', () => {
+  assert.match(md, /slice[^\n]{0,80}default|default[^\n]{0,80}slice/i);
+});
+
+test('ships at least six biomes with parseable palettes', () => {
+  const blocks = jsonBlocks(md);
+  assert.ok(blocks.length >= 6, `found only ${blocks.length} json config blocks`);
+});
+
+test('every palette entry is well-formed', () => {
+  for (const { heading, config } of jsonBlocks(md)) {
+    assert.ok(Array.isArray(config.palette), `${heading}: no palette array`);
+    for (const e of config.palette) {
+      assert.match(e.hex, /^#[0-9a-f]{6}$/i, `${heading}: bad hex ${e.hex}`);
+      assert.ok(['large', 'medium', 'accent'].includes(e.area), `${heading}: bad area ${e.area}`);
+      assert.ok(typeof e.role === 'string' && e.role.length > 0, `${heading}: missing role`);
+    }
+  }
+});
+
+test('every shipped palette is coherence-clean', () => {
+  for (const { heading, config } of jsonBlocks(md)) {
+    const errors = checkCoherence({ ...config, assetStrategy: 'zero-asset' })
+      .filter((c) => c.severity === 'error');
+    assert.deepEqual(
+      errors.map((c) => c.rule), [],
+      `"${heading}" has coherence errors: ${errors.map((c) => c.message).join(' | ')}`,
+    );
+  }
+});
+
+test('every biome gives numeric noise layers, not adjectives', () => {
+  // Each biome section must state scales in metres and amplitudes.
+  const biomeSections = md.split(/^##\s+/m).filter((s) => /noise|TERRAIN_NOISE/i.test(s));
+  assert.ok(biomeSections.length >= 6, 'fewer than six biomes describe noise layers');
+  for (const s of biomeSections) {
+    const name = s.split('\n')[0];
+    assert.match(s, /\d+\s*m\b/, `${name}: noise layers lack metre scales`);
+    assert.match(s, /amp/i, `${name}: noise layers lack amplitudes`);
+  }
+});
+
+test('archetypes parameterise the shared rig and never name a primitive', () => {
+  const section = md.split(/^##\s+/m).find((s) => /^Character archetypes/i.test(s));
+  assert.ok(section, 'no "Character archetypes" section');
+  for (const prim of ['BoxGeometry', 'SphereGeometry', 'CylinderGeometry', 'CapsuleGeometry']) {
+    assert.doesNotMatch(section, new RegExp(prim), `archetypes mention ${prim}`);
+  }
+  assert.match(section, /height/i);
+  assert.match(section, /hidden lower body/i);
+  assert.match(section, /\d+\s*[x×]\s*\d+/, 'no Verlet grid dimensions');
+});
+
+test('at least five archetypes, five mechanics, four camera modes', () => {
+  const count = (heading, min) => {
+    const section = md.split(/^##\s+/m).find((s) => s.toLowerCase().startsWith(heading));
+    assert.ok(section, `no "${heading}" section`);
+    const rows = section.split('\n').filter((l) => /^\s*###\s+/.test(l));
+    assert.ok(rows.length >= min, `${heading}: found ${rows.length}, need ${min}`);
+  };
+  count('character archetypes', 5);
+  count('centrepiece mechanics', 5);
+  count('camera', 4);
+});
+
+test('showcase configs are whole and never to be mixed', () => {
+  const section = md.split(/^##\s+/m).find((s) => /^Showcase configs/i.test(s));
+  assert.ok(section, 'no "Showcase configs" section');
+  assert.match(section, /never mix|do not mix|as a whole/i);
+  const entries = section.split('\n').filter((l) => /^\s*###\s+/.test(l));
+  assert.ok(entries.length >= 6, `found ${entries.length} showcase configs, need 6`);
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `node --test tests/presets.test.mjs`
+Expected: FAIL — `references/presets.md` does not exist.
+
+- [ ] **Step 3: Write references/presets.md**
+
+Structure, in this order. Section headings are load-bearing — the tests match on them.
+
+**`## Ambition levels`** — a table. `slice` (default): terrain, material, character, one mechanic, atmosphere. `showcase`: adds vegetation, wind field, state buffer, audio, atmospheric life. `everything`: adds weather, water, architecture, destructibility. State that unselected `<!--SECTION:name-->` blocks are deleted from the brief entirely, markers and all, and that `slice` is the default because a one-shot collapses under a dozen systems. Map each level to the section names in `TEMPLATE.md`: `vegetation`, `state-buffer`, `audio`.
+
+**`## Biomes`** — six `###` subsections: Alpine Snow, Ghibli Valley, Dune Desert, Ocean Shelf, Volcanic, Night City. Each carries prose token values (`PRIMARY_ENVIRONMENT`, `PRIMARY_MATERIAL_NAME`, `NAIVE_DEFAULT`, `TERRAIN_PHILOSOPHY_SENTENCE`, `TERRAIN_NOISE_LAYERS`, `TERRAIN_LANDMARKS`, `FAR_FIELD_TREATMENT`, `MATERIAL_BEHAVIOURS`, `STATE_BUFFER_CHANNELS`, `DEFORMATION_TYPE`, `DEFORMATION_MARKS`, `RECOVERY_MECHANISM`, `RECOVERY_OUTCOME`, `FOOT_INTERACTION`, `AUDIO_ENGINE_SPEC`, `ATMOSPHERIC_LIFE_SPEC`, `GRASS_SYSTEM_SPEC`, `WIND_FIELD_ARCH`, `STATE_BUFFER_COVERAGE`, `STATE_BUFFER_TEXEL_SIZE`) **plus** a fenced `json` block with `paradigm`, `materialBehaviours`, and `palette`.
+
+`TERRAIN_NOISE_LAYERS` must give scale in metres and amplitude for every layer — that specificity is why terrain came back good while the character did not.
+
+Constraints, or the coherence tests fail:
+- Painterly biomes (Ghibli Valley) need mean large-area luminance ≥ 0.30, and `materialBehaviours` containing the literal substrings `palette table` and `cel ramp`.
+- Photoreal biomes need `materialBehaviours` containing `multi-scale`.
+- Every palette needs a desaturated light anchor (luminance ≥ 0.55, saturation ≤ 0.35), all three value tiers, and accents ≤ 35% of entries.
+- **Volcanic and Night City are the deliberate low-key cases.** Make them `photoreal`, so the large-area rule does not apply, and still give each a desaturated light anchor — ash-lit steam `#e8dcc8` for Volcanic, wet-road sheen `#c9d4dc` for Night City. These two teach a disciplined dark scene, which is what the reference config failed at.
+
+**`## Character archetypes`** — at least five `###` entries: Robed Mage, Traveller Coat, Armored Soldier, Desert Nomad, Void Wanderer. Each states rig parameters (height in metres, ring-radius scale, whether the lower body is hidden), `CHARACTER_DESCRIPTION`, `CLOTH_PANELS` with Verlet grid dimensions like `36x12 reconstructed to 72x32`, cloth shading requirements, and head covering. Open the section by stating that archetypes are **parameters on the single rig in `character-recipe.md`**, never alternative bodies. Never name a primitive geometry.
+
+Void Wanderer is the corrected version of the reference output's character: hidden lower body with a ground-reaching mantle, so "no legs" is a deliberate silhouette rather than an excuse.
+
+**`## Centrepiece mechanics`** — at least five `###` entries: Surf/Carve, Flight/Glide, Beam Cannon, Grapple Swing, Summon Vehicle. Each gives `CENTREPIECE_MECHANIC`, `CENTREPIECE_INPUT`, `CENTREPIECE_DESCRIPTION` naming which state-buffer channels it writes, and three distinct ability names.
+
+**`## Camera modes`** — at least four `###` entries: Third Person, First Person, Cinematic, XR. Each states framing, FOV behaviour, and what the character must look good from. XR must note the character is seen at arm's length, so proportions matter, not just silhouette.
+
+**`## Showcase configs`** — six `###` entries, each naming its biome, archetype, mechanic, camera, ambition level, engine/shader choice, and one line on why it reads as AAA: Alpine Dawn, Hoshi-no-Tani, Dune Sea, Tidal Shelf, Emberfall, Neon Monsoon. At least one at `slice`.
+
+Open the section with the rule: **pick a showcase config as a whole; never mix pieces across configs.** Explain why — the reference config paired a painterly paradigm with a near-black palette, and recombination is how that happens.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `node --test tests/presets.test.mjs`
+Expected: PASS, 10 tests. If the coherence test fails on a palette you wrote, fix the palette — do not weaken the rule.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A
+git commit -m "feat: add preset library
+
+Six biomes, five archetypes, five mechanics, four camera modes, six
+showcase configs, three ambition levels. Palettes live in fenced json so
+the coherence rules can be asserted against every shipped preset.
+
+Volcanic and Night City are deliberately low-key photoreal cases that
+demonstrate a disciplined dark scene."
+```
+
+---
+
+### Task 5: SKILL.md, README, and cleanup
 
 **Files:**
 - Create: `SKILL.md`
-- Test: `tests/skill-md.test.mjs`
+- Create: `tests/skill-md.test.mjs`
+- Move: `legacy/prompt_builder.html` → `prompt_builder.html`
+- Delete: `legacy/` (remaining four files)
+- Modify: `README.md`
 
-**Interfaces:**
-- Consumes: every preset module, for the name lists it documents.
-- Produces: the skill entry point Claude reads.
+- [ ] **Step 1: Confirm the whole suite passes before deleting anything**
 
-- [ ] **Step 1: Write the failing tests**
+Run: `npm test`
+Expected: PASS across `check`, `character-recipe`, `gates`, `coherence`, `presets`. If anything fails, stop — `legacy/` is still the only copy of some content.
+
+- [ ] **Step 2: Write the failing tests**
 
 Create `tests/skill-md.test.mjs`:
 
@@ -1914,370 +1728,140 @@ Create `tests/skill-md.test.mjs`:
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { SHOWCASE } from '../lib/presets/showcase.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const skill = fs.readFileSync(path.join(HERE, '..', 'SKILL.md'), 'utf8');
+const skill = fs.readFileSync('SKILL.md', 'utf8');
 
-test('has valid frontmatter with name and description', () => {
+test('has frontmatter naming the skill envizzle', () => {
   const fm = skill.match(/^---\n([\s\S]*?)\n---/);
   assert.ok(fm, 'no frontmatter block');
-  assert.match(fm[1], /^name:\s*envizzle$/m);
+  assert.match(fm[1], /^name:\s*envizzle\s*$/m);
   assert.match(fm[1], /^description:\s*\S/m);
 });
 
-test('description states when to use the skill', () => {
+test('description says when to use the skill and is long enough to route on', () => {
   const desc = skill.match(/^description:\s*(.+)$/m)[1];
-  assert.ok(desc.length > 80, 'description too short to route on');
+  assert.ok(desc.length > 80, `description is only ${desc.length} chars`);
   assert.match(desc, /use when/i);
-});
-
-test('documents every showcase config by name', () => {
-  for (const name of Object.keys(SHOWCASE)) {
-    assert.match(skill, new RegExp(name), `SKILL.md does not mention "${name}"`);
-  }
 });
 
 test('documents the pick-for-me path and forbids mixing presets', () => {
   assert.match(skill, /pick for me/i);
-  assert.match(skill, /never mix|do not mix|whole/i);
+  assert.match(skill, /never mix|do not mix|as a whole/i);
 });
 
-test('instructs running the assembler rather than hand-writing the brief', () => {
-  assert.match(skill, /node lib\/assemble\.mjs/);
-});
-
-test('instructs running the coherence check before assembly', () => {
-  assert.match(skill, /checkCoherence|coherence/i);
-});
-
-test('names the three ambition levels', () => {
+test('names the three ambition levels and the default', () => {
   for (const level of ['slice', 'showcase', 'everything']) {
-    assert.match(skill, new RegExp(level));
+    assert.match(skill, new RegExp(`\\b${level}\\b`));
+  }
+  assert.match(skill, /slice[^\n]{0,80}default|default[^\n]{0,80}slice/i);
+});
+
+test('points at the real files it depends on', () => {
+  for (const f of [
+    'references/presets.md',
+    'references/character-recipe.md',
+    'TEMPLATE.md',
+    'check.mjs',
+    'verify/verify_demo.mjs',
+  ]) {
+    assert.match(skill, new RegExp(f.replace(/[/.]/g, '\\$&')), `does not mention ${f}`);
+  }
+});
+
+test('mandates inlining the character recipe verbatim', () => {
+  assert.match(skill, /inline/i);
+  assert.match(skill, /verbatim|in full/i);
+});
+
+test('instructs running the validator on the finished brief', () => {
+  assert.match(skill, /node check\.mjs/);
+});
+
+test('instructs running the coherence check and recording overrides', () => {
+  assert.match(skill, /coherence/i);
+  assert.match(skill, /deliberate deviation|override/i);
+});
+
+test('does not reference files that no longer exist', () => {
+  for (const gone of ['lib/assemble.mjs', 'legacy/', 'install.mjs']) {
+    assert.doesNotMatch(skill, new RegExp(gone.replace(/[/.]/g, '\\$&')), `references removed ${gone}`);
   }
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `node --test tests/skill-md.test.mjs`
-Expected: FAIL — `ENOENT` on `SKILL.md`
-
 - [ ] **Step 3: Write SKILL.md**
 
-Create `SKILL.md` with this frontmatter and structure:
+Frontmatter:
 
 ```markdown
 ---
 name: envizzle
-description: Use when the user wants to one-shot a visually impressive real-time graphics tech demo or game — generates a self-contained implementation brief with a numeric procedural character recipe, curated biome and archetype presets, coherence-checked palettes, and hardened visual verification. Triggers on "one-shot a game", "visually stunning demo", "tech demo brief", "make something that looks AAA".
+description: Use when the user wants to one-shot a visually impressive real-time graphics tech demo or game — writes a self-contained implementation brief with a numeric procedural character recipe, curated biome and archetype presets, coherence-checked palettes, and hardened visual verification. Triggers on "one-shot a game", "visually stunning demo", "tech demo brief", "make something that looks AAA".
 ---
 ```
 
-Body sections, in order:
+Body, in order:
 
-1. **What this produces** — one `<PROJECT>_TECHDEMO_PROMPT.md`, plus a copy of
-   `verify/` and a `HANDOFF.md`. The brief is self-contained; the target agent
-   may be any model.
+1. **What this produces** — one `<PROJECT>_TECHDEMO_PROMPT.md`, plus a copy of `verify/` and a short `HANDOFF.md`. Self-contained, because the target agent may be any model and sees only that file.
 
-2. **Step 1: Choose a route.** Offer three:
-   - *Pick for me* — select ONE showcase config whole. **Never mix presets across
-     configs**; recombination is what produced the incoherent reference config
-     (painterly paradigm over a near-black palette).
-   - *Start from a showcase config and adjust* — change tokens, then re-run the
-     coherence check.
-   - *Fully custom* — walk the interview.
+2. **Step 1: Choose a route.** Three: *pick for me* (select ONE showcase config from `references/presets.md` whole — never mix pieces across configs, since recombination is what pairs a painterly paradigm with a near-black palette); *start from a showcase config and adjust*; *fully custom*.
 
-3. **Step 2: The interview** (custom route only), in this order, one question at
-   a time: ambition level → biome → character archetype → centrepiece mechanic →
-   camera mode → optional systems. List the valid names for each from the preset
-   modules. Default ambition is `slice`.
+3. **Step 2: The interview** (custom route), one question at a time, in order: ambition level → biome → archetype → mechanic → camera → optional systems. Read the valid names from `references/presets.md`. Default ambition is `slice`.
 
-4. **Step 3: Coherence check.** Run the rules. Report every conflict with its
-   message and suggested fix. Ask the user to accept the fix or override. If they
-   override, record it in the brief under a `## Deliberate Deviations` heading so
-   the target agent knows the choice was intentional.
+4. **Step 3: Coherence check.** Extract the chosen palette and paradigm, run the rules in `check.mjs` (`checkCoherence`), and report every conflict with its message and suggested fix. Ask the user to accept or override. Record overrides in the brief under a `## Deliberate Deviations` heading so the target agent knows the choice was intentional.
 
-5. **Step 4: Assemble.** Run `node lib/assemble.mjs <config> --out <PROJECT>_TECHDEMO_PROMPT.md`.
-   Never hand-write the brief — the assembler guarantees no unresolved tokens and
-   inlines the character recipe in full.
+5. **Step 4: Write the brief.** Fill `TEMPLATE.md` from the chosen presets. Inline `references/character-recipe.md` **in full, verbatim**, at the `{{CHARACTER_RECIPE}}` slot. Delete `<!--SECTION:name-->` blocks not enabled by the ambition level — markers and bodies both. Then validate: `node check.mjs <PROJECT>_TECHDEMO_PROMPT.md`. Fix anything it reports before handing over.
 
-6. **Step 5: Hand off.** Copy `verify/` next to the target project. Write
-   `HANDOFF.md` telling the user which agent to give the brief to and to run
-   `node verify/verify_demo.mjs .` when the agent reports done.
+6. **Step 5: Hand off.** Copy `verify/` next to the target project. Write `HANDOFF.md` naming which agent gets the brief and telling the user to run `node verify/verify_demo.mjs .` when the agent reports done.
 
-7. **The character rule** — a short, prominent note that the character recipe is
-   non-negotiable and inlined verbatim, because prose character specs produce
-   primitive-assembled scarecrows.
+7. **The character rule** — short and prominent: the recipe is non-negotiable and inlined verbatim, because prose character specs produce primitive-assembled scarecrows. Cite the concrete failure: a cylinder torso, sphere head, and three boxes.
 
-8. **Reference tables** — showcase config names with their `why`, biome names,
-   archetype names, mechanic names, camera names, ambition levels.
+8. **Reference index** — a short table pointing at `references/presets.md` sections and `references/character-recipe.md`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run the skill tests**
 
 Run: `node --test tests/skill-md.test.mjs`
-Expected: PASS, 7 tests
+Expected: PASS, 9 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Verify no shipped file imports from legacy/**
 
-```bash
-git add "SKILL.md" "tests/skill-md.test.mjs"
-git commit -m "feat(envizzle): add SKILL.md entry point and interview flow"
-```
-
----
-
-### Task 10: Installer
-
-**Files:**
-- Create: `install.mjs`
-- Test: `tests/install.test.mjs`
-
-**Interfaces:**
-- Consumes: nothing.
-- Produces:
-  - `filesToInstall(rootDir: string): string[]` — repo-relative paths, excluding `tests/`, `node_modules/`, `package-lock.json`
-  - `install({ rootDir, destDir }): { copied: number, destDir: string }`
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `tests/install.test.mjs`:
-
-```js
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { filesToInstall, install } from '../install.mjs';
-
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-test('installs SKILL.md, TEMPLATE.md, references, lib, and verify', () => {
-  const files = filesToInstall(ROOT);
-  for (const required of [
-    'SKILL.md', 'TEMPLATE.md',
-    path.join('references', 'character-recipe.md'),
-    path.join('lib', 'assemble.mjs'),
-    path.join('verify', 'gates.mjs'),
-  ]) {
-    assert.ok(files.includes(required), `missing from install set: ${required}`);
-  }
-});
-
-test('excludes tests, legacy, docs, node_modules, and the lockfile', () => {
-  for (const f of filesToInstall(ROOT)) {
-    assert.doesNotMatch(f, /^tests[\\/]/, `tests leaked: ${f}`);
-    assert.doesNotMatch(f, /^legacy[\\/]/, `legacy mining source leaked: ${f}`);
-    assert.doesNotMatch(f, /^docs[\\/]/, `docs leaked: ${f}`);
-    assert.doesNotMatch(f, /node_modules/, `node_modules leaked: ${f}`);
-    assert.doesNotMatch(f, /package-lock\.json/, `lockfile leaked: ${f}`);
-  }
-});
-
-test('install copies the set into a fresh destination', () => {
-  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'envizzle-'));
-  try {
-    const { copied } = install({ rootDir: ROOT, destDir: dest });
-    assert.ok(copied > 5);
-    assert.ok(fs.existsSync(path.join(dest, 'SKILL.md')));
-    assert.ok(fs.existsSync(path.join(dest, 'references', 'character-recipe.md')));
-    assert.ok(!fs.existsSync(path.join(dest, 'tests')));
-  } finally {
-    fs.rmSync(dest, { recursive: true, force: true });
-  }
-});
-
-test('install is idempotent', () => {
-  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'envizzle-'));
-  try {
-    const a = install({ rootDir: ROOT, destDir: dest });
-    const b = install({ rootDir: ROOT, destDir: dest });
-    assert.equal(a.copied, b.copied);
-  } finally {
-    fs.rmSync(dest, { recursive: true, force: true });
-  }
-});
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `node --test tests/install.test.mjs`
-Expected: FAIL — cannot find `../install.mjs`
-
-- [ ] **Step 3: Implement the installer**
-
-Create `install.mjs`:
-
-```js
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-// legacy/ is mining source for the migration, never shipped. docs/ is the
-// spec and plan. Neither belongs in ~/.claude/skills/envizzle/.
-const EXCLUDE = [
-  /^tests[\\/]/, /^legacy[\\/]/, /^docs[\\/]/,
-  /node_modules/, /package-lock\.json$/, /^\.git/, /^README\.md$/, /^LICENSE$/,
-];
-
-/** Repo-relative paths that belong in the installed skill. */
-export function filesToInstall(rootDir) {
-  const walk = (dir, prefix = '') =>
-    fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-      const rel = path.join(prefix, entry.name);
-      if (EXCLUDE.some((re) => re.test(rel))) return [];
-      return entry.isDirectory() ? walk(path.join(dir, entry.name), rel) : [rel];
-    });
-  return walk(rootDir);
-}
-
-/** Copy the install set to destDir, creating directories as needed. */
-export function install({ rootDir = HERE, destDir } = {}) {
-  const target = destDir ?? path.join(os.homedir(), '.claude', 'skills', 'envizzle');
-  const files = filesToInstall(rootDir);
-  for (const rel of files) {
-    const dest = path.join(target, rel);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(path.join(rootDir, rel), dest);
-  }
-  return { copied: files.length, destDir: target };
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const { copied, destDir } = install();
-  console.log(`Installed ${copied} files to ${destDir}`);
-  console.log('Reminder: this is a generated copy. Edit the repo, then re-run.');
-}
-```
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `node --test tests/install.test.mjs`
-Expected: PASS, 4 tests
-
-- [ ] **Step 5: Install for real and confirm the skill is discovered**
-
-Run: `node install.mjs && ls ~/.claude/skills/envizzle/`
-Expected: `SKILL.md`, `TEMPLATE.md`, `references/`, `lib/`, `verify/`, `install.mjs`
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add "install.mjs" "tests/install.test.mjs"
-git commit -m "feat(envizzle): add installer to ~/.claude/skills"
-```
-
----
-
-### Task 11: Retire the mining sources
-
-**Files:**
-- Move: `legacy/prompt_builder.html` → `prompt_builder.html`
-- Delete: `legacy/BIOME_TECHDEMO_TEMPLATE.md`
-- Delete: `legacy/TEMPLATE_GUIDE.md`
-- Delete: `legacy/TEMPLATE.md`
-- Delete: `legacy/verify_demo.mjs`
-- Modify: `README.md`
-
-Deletion is last because Tasks 1, 2, 4, and 5 mine `legacy/` for content. Do not
-start this task until the full suite passes.
-
-Note this task is now entirely within the `envizzle` repo. The SnowVR side was
-already handled during repo setup: `SnowVR/prompt template/` was removed there in
-its own commit, and every file in `legacy/` is a working-tree copy taken *before*
-that removal, so uncommitted edits were preserved.
-
-- [ ] **Step 1: Confirm the whole suite passes before deleting anything**
-
-Run: `node --test tests/`
-Expected: PASS across all seven test files. If anything fails, stop — `legacy/` is
-still the only copy of some content in this repo.
-
-- [ ] **Step 2: Confirm the content was actually mined**
-
-Check each of these before deleting its source:
-
-| Mining source | Content must now live in |
-|---|---|
-| `legacy/BIOME_TECHDEMO_TEMPLATE.md` §2.6 guidance | `references/character-recipe.md` |
-| `legacy/BIOME_TECHDEMO_TEMPLATE.md` biome examples | `lib/presets/biomes.mjs` |
-| `legacy/TEMPLATE_GUIDE.md` paradigm comparison | `lib/coherence.mjs` rules |
-| `legacy/TEMPLATE_GUIDE.md` architectural checklist | `TEMPLATE.md` acceptance criteria |
-| `legacy/TEMPLATE.md` token set | `TEMPLATE.md` |
-| `legacy/verify_demo.mjs` structure audit + build check | `verify/verify_demo.mjs` |
-
-Spot check that biome content carried over:
-`grep -c "amp" lib/presets/biomes.mjs`
-Expected: at least 12 (two or more amplitude figures per biome across six biomes).
-
-Spot check that no shipped file imports from `legacy/`:
-`grep -rn "legacy/" lib/ verify/ SKILL.md TEMPLATE.md references/ || echo "clean"`
+Run: `grep -rn "legacy/" check.mjs verify/ SKILL.md TEMPLATE.md references/ tests/ || echo clean`
 Expected: `clean`.
 
-- [ ] **Step 3: Promote the prompt builder out of legacy**
+- [ ] **Step 6: Promote the prompt builder and delete the rest of legacy/**
 
-`prompt_builder.html` is not superseded — the spec keeps it as an optional manual
-path. It only lives in `legacy/` because that is where the migration put it.
-
-```bash
-git mv "legacy/prompt_builder.html" prompt_builder.html
-```
-
-- [ ] **Step 4: Delete the mining sources**
+`prompt_builder.html` is not superseded — it is the optional manual path, and only sits in `legacy/` because that is where the migration put it.
 
 ```bash
-git rm "legacy/BIOME_TECHDEMO_TEMPLATE.md" \
-       "legacy/TEMPLATE_GUIDE.md" \
-       "legacy/TEMPLATE.md" \
-       "legacy/verify_demo.mjs"
+git mv legacy/prompt_builder.html prompt_builder.html
+git rm "legacy/BIOME_TECHDEMO_TEMPLATE.md" "legacy/TEMPLATE_GUIDE.md" "legacy/TEMPLATE.md" "legacy/verify_demo.mjs"
 ```
 
-- [ ] **Step 5: Update the README**
+- [ ] **Step 7: Update README.md**
 
-Replace the `legacy/` bullet in `README.md` with a recovery note:
+Fix the layout table: remove `lib/`, `install.mjs`, and `legacy/`; add `check.mjs`, `references/presets.md`, `prompt_builder.html`. Replace the Status section — implementation is complete. Replace the install instructions: there is no `install.mjs`; clone or symlink the repo to `~/.claude/skills/envizzle/`. Add a recovery note:
 
 ```markdown
 The original prompt templates this skill was distilled from
 (`BIOME_TECHDEMO_TEMPLATE.md`, `TEMPLATE.md`, `TEMPLATE_GUIDE.md`,
-`verify_demo.mjs`, and the original `og prompt.txt`) lived in `legacy/` during the
-migration and
-were removed once their content was mined. Recover any of them with:
+`verify_demo.mjs`) lived in `legacy/` during the migration and were removed once
+their content was mined. Recover any with:
 
     git log --diff-filter=D --name-only
     git show <commit>^:legacy/<file>
 ```
 
-- [ ] **Step 6: Confirm nothing references the deleted files**
-
-Run: `grep -rn "BIOME_TECHDEMO_TEMPLATE\|TEMPLATE_GUIDE\|og prompt" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=docs . || echo "no dangling references"`
-Expected: `no dangling references`. `docs/` is excluded because the spec and this
-plan legitimately discuss those files by name.
-
-- [ ] **Step 7: Run the suite one final time and reinstall**
+- [ ] **Step 8: Full suite, then commit**
 
 ```bash
-node --test tests/
-node install.mjs
-```
-Expected: suite PASSES, and the install reports a file count with no `legacy/`
-or `docs/` entries.
-
-- [ ] **Step 8: Commit**
-
-```bash
+npm test
 git add -A
-git commit -m "chore: retire migration mining sources
+git commit -m "feat: add SKILL.md and retire migration sources
 
-Content distilled into references/character-recipe.md, lib/presets/,
-lib/coherence.mjs, and verify/. prompt_builder.html promoted to root as
-the optional manual path. Deleted files recoverable from git history;
-README documents how."
+SKILL.md is the entry point: route, interview, coherence check, write,
+validate, hand off. Content from legacy/ is now distilled into
+references/ and check.mjs, so the mining sources are removed;
+prompt_builder.html is promoted to root as the optional manual path."
 ```
 
 ---
@@ -2286,38 +1870,28 @@ README documents how."
 
 **Spec coverage**
 
-| Spec section | Task |
+| Spec requirement | Task |
 |---|---|
-| `character-recipe.md`, all six parts + prohibitions | 2 |
-| Showcase configs, pick-for-me selects whole | 6 |
-| `biomes.md` numeric noise layers, palettes | 4 |
-| `archetypes.md` as rig parameters | 5 |
-| `mechanics.md`, `cameras.md`, `systems-optional.md` | 5 |
-| `coherence.md` rules | 3 |
-| Ambition dial, sections omitted not blanked | 4 (dial), 1 (stripping), 6 (test) |
-| `window.__demo` hook mandated in brief | 1 (template), 6 (test), 8 (enforced) |
-| Gates: luminance, flat-frame, character diff, camera depth, perf | 7 |
-| Retake loop on failure | 8 (exit 1 + explicit instruction) |
-| Assembly tests, coherence tests, gate tests with real fixtures | 1, 3, 6, 7 |
-| Repo source of truth + `~/.claude/skills/` copy | 10 |
-| Standalone repo, root = skill root | repo setup (done) + 10 (install excludes non-skill dirs) |
-| `prompt_builder.html` unchanged | 11 (promoted out of `legacy/`, contents untouched) |
-| Old `verify_demo.mjs` deleted after new one passes | 11 (gated on Step 1) |
-| Error handling: unknown preset lists valid names | 6 (`pick()`), 4 (`sectionsFor`) |
-| Error handling: coherence override recorded in brief | 9 (`## Deliberate Deviations`) |
+| Numeric character recipe, all six parts + prohibitions | 2 |
+| Escape hatch deleted | 2 (asserted by test) |
+| Coherence rules, incl. desaturated light anchor | 3 |
+| Reference config flagged | 3 (asserted directly) |
+| Ambition dial, sections omitted not blanked | 4 (levels), 5 (SKILL.md instructs), 1 (validator catches stray markers) |
+| Biomes with numeric noise layers | 4 |
+| Archetypes as rig parameters | 4 |
+| Mechanics, cameras, optional systems | 4 |
+| Showcase configs, pick-for-me selects whole | 4, 5 |
+| `window.__demo` hook mandated | already in `TEMPLATE.md` §6; enforced in 3 |
+| Gates: luminance, flat-frame, character diff, camera depth | 3 |
+| Perf reported not gated | 3 (controller decision, asserted by test) |
+| Retake loop on failure | 3 (exit 1 + explicit instruction) |
+| Brief validated before handoff | 1, 5 |
+| Repo root = skill root, symlinkable | 5 (README) |
+| `prompt_builder.html` kept unchanged | 5 (promoted, contents untouched) |
+| Legacy deleted after mining | 5 (gated on suite passing) |
 
-No gaps found.
+**Dropped from the previous plan, deliberately:** preset `.mjs` modules (now markdown), the token-substituting assembler and its CLI (Claude assembles; `check.mjs` validates), showcase-config resolution code, and `install.mjs` (clone or symlink instead). None carried requirements that the lean shape loses.
 
-**Placeholder scan** — the `// ... name, name` comments in Tasks 4, 5, and 6 mark
-remaining preset entries whose full structure is given by a complete worked example
-in the same step, plus explicit authoring constraints. Tests enforce count, shape,
-and coherence for every entry, so a missing one fails rather than passing silently.
+**Placeholder scan:** Tasks 2 and 4 specify content structure plus exact required values rather than transcribable prose, because they produce documents, not code. Every structural requirement has a corresponding assertion, so an incomplete document fails rather than passing silently.
 
-**Type consistency** — verified across tasks: `assemble({template, tokens, enabledSections, characterRecipe})`
-is defined in Task 1 and called with those exact keys in Task 6. `checkCoherence(config)`
-returns `{rule, severity, message, fix}` in Task 3 and is destructured on those keys
-in Tasks 4, 6, and 9. `evaluateGates({frames, cameraDepthM, frameStats})` is defined
-in Task 7 and called with those keys in Task 8. Frames carry `{name, image, imageWithoutCharacter}`
-in both. `sectionsFor` returns a `Set` in Task 4 and is used as a `Set` in Tasks 1 and 6.
-Preset shape `{label, tokens}` is consistent, with `rig` added only for archetypes and
-`section` only for optional systems, both asserted in Task 5.
+**Type consistency:** `checkCoherence(config)` returns `{rule, severity, message, fix}` in Task 3 and is destructured on those keys in Tasks 3 and 4. Palette entries are `{role, hex, area}` in both the rules and the presets. `evaluateGates({frames, cameraDepthM, frameStats})` returns `{pass, failures, info}` in Task 3 and is consumed on those keys by the orchestrator in the same task. Frames carry `{name, image, imageWithoutCharacter}` in gates, tests, and orchestrator alike. `validateBrief` returns `{ok, problems}` in Task 1 and is used by the CLI in the same file.

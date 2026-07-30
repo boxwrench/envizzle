@@ -124,11 +124,19 @@ path.
 
 The core fix. Gives the character the same numeric treatment grass already receives.
 
-**Skeleton.** 18 bones with absolute rest positions in meters for a 1.75 m figure:
+**Skeleton.** 22 bones with absolute rest positions in meters for a 1.75 m figure:
 hips 0.95 · spine01 1.10 · spine02 1.28 · chest 1.42 · neck 1.52 · head 1.62 ·
 clavicle and upperArm ±0.19 at 1.44 · elbow 1.16 · wrist 0.90 · thigh ±0.09 at 0.92 ·
-knee 0.52 · ankle 0.10 · toe 0.02. Segment lengths stated explicitly so "build a rig"
+knee 0.50 · ankle 0.10 · toe 0.02. Segment lengths stated explicitly so "build a rig"
 has one interpretation.
+
+Two numbers here were wrong in the first draft and are corrected above. The count
+was written as 18 by miscounting the paired limb bones — the table defines 22
+(6 spine and head, 8 arm, 8 leg). And the knee was written as 0.52, which implies
+a 0.40 m thigh and a 0.42 m shin, contradicting the stated segment lengths of
+0.42 and 0.40 and making the femur shorter than the tibia. Every other segment
+reconciled exactly against the rest pose, which is what identified it as a lone
+typo rather than a design choice.
 
 **Geometry.** One continuous skinned mesh built from lofted cross-section rings. Each
 limb and the torso is a spline carrying N rings; each ring has a radius *and* an

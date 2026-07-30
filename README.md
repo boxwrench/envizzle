@@ -41,7 +41,7 @@ contradiction, and the resulting frames were unusable.
 
 ## What it does differently
 
-**The character gets a construction recipe, not an art brief.** An 18-bone
+**The character gets a construction recipe, not an art brief.** A 22-bone
 skeleton with rest positions in metres. One continuous skinned mesh generated from
 lofted cross-section rings, each with a radius *and* an ellipse ratio so limbs
 aren't tubes. Gait phase advanced by ground distance travelled, so stride length
@@ -83,20 +83,28 @@ npm install
 npm test
 ```
 
-Install as a personal skill, then invoke `/envizzle` in Claude Code:
+Install as a personal skill, then invoke `/envizzle` in Claude Code. The repo root
+*is* the skill root, so installation is a clone or a symlink — there is nothing to
+build and nothing to copy:
 
 ```bash
-node install.mjs          # copies to ~/.claude/skills/envizzle/
+git clone https://github.com/boxwrench/envizzle ~/.claude/skills/envizzle
 ```
-
-Or clone/symlink this repo directly to `~/.claude/skills/envizzle/` — the repo root
-*is* the skill root.
-
-Emit a brief without the interview:
 
 ```bash
-node lib/assemble.mjs alpineDawn --out ALPINE_DAWN_TECHDEMO_PROMPT.md
+# or, to keep working in your own checkout
+ln -s "$PWD" ~/.claude/skills/envizzle          # macOS/Linux
+New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\envizzle" -Target "$PWD"   # Windows
 ```
+
+Validate a brief you or the skill wrote:
+
+```bash
+node check.mjs ALPINE_DAWN_TECHDEMO_PROMPT.md
+```
+
+Or skip the interview entirely and fill the form by hand — open
+`prompt_builder.html` in a browser.
 
 Verify a demo an agent built from a brief:
 
@@ -112,23 +120,33 @@ image gates cannot run, and the verifier says so instead of passing.
 
 | Path | What it is |
 |---|---|
-| `SKILL.md` | Skill entry point — interview flow and assembly rules |
-| `TEMPLATE.md` | Brief skeleton with `{{TOKEN}}` slots |
-| `references/character-recipe.md` | The numeric humanoid spec, inlined into every brief |
-| `lib/presets/` | Biomes, archetypes, mechanics, cameras, showcase configs |
-| `lib/coherence.mjs` | Art-direction conflict rules |
-| `lib/assemble.mjs` | Brief assembler + CLI |
+| `SKILL.md` | Skill entry point — route, interview, coherence check, assembly rules |
+| `TEMPLATE.md` | Brief skeleton: 34 `{{TOKEN}}` slots and three optional sections |
+| `references/presets.md` | Biomes, archetypes, mechanics, cameras, showcase configs — the menu the interview reads from |
+| `references/character-recipe.md` | The numeric humanoid spec, inlined verbatim into every brief |
+| `check.mjs` | Brief validator (CLI) plus the art-direction coherence rules |
 | `verify/` | Playwright run with the image gates |
+| `tests/` | `node:test` suite over all of the above |
 | `docs/` | Design spec and implementation plan |
 | `prompt_builder.html` | Standalone manual form, an alternative to the interview |
-| `legacy/` | The original templates, kept until their content is mined out |
 
 ## Status
 
-**Design and plan are complete; implementation has not started.** `SKILL.md`,
-`lib/`, `verify/`, and `tests/` do not exist yet — see
-`docs/2026-07-29-envizzle-skill.md` for the 11-task plan, and
-`docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind it.
+**Implementation is complete.** The skill, the preset library, the character
+recipe, the validator, the coherence rules, and the verification gates all ship,
+with a `node:test` suite over them — run `npm test`. See
+`docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the design and
+`docs/2026-07-29-envizzle-skill.md` for the task plan it was built from.
+
+The original prompt templates this skill was distilled from
+(`BIOME_TECHDEMO_TEMPLATE.md`, `TEMPLATE.md`, `TEMPLATE_GUIDE.md`,
+`verify_demo.mjs`) lived in `legacy/` during the migration and were removed once
+their content was mined. Recover any with:
+
+```bash
+git log --diff-filter=D --name-only
+git show <commit>^:legacy/<file>
+```
 
 ## Attribution
 
