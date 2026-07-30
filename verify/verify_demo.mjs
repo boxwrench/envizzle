@@ -26,6 +26,28 @@ const toImage = (buf) => {
   return { width: png.width, height: png.height, data: png.data };
 };
 
+/**
+ * Kill a spawned server and everything it started.
+ *
+ * `spawn(..., {shell: true}).kill()` kills the shell, not the tree, so on
+ * Windows vite and its esbuild child survive and keep holding the port. A
+ * leaked server is not merely untidy: the next run can poll it and verify a
+ * stale demo, reporting success for code that never ran.
+ */
+function killTree(child) {
+  if (!child.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+    } else {
+      process.kill(-child.pid, 'SIGKILL');   // negative pid = process group
+    }
+  } catch {
+    // Already dead, or never started. Fall through to the direct kill.
+  }
+  try { child.kill(); } catch { /* nothing left to kill */ }
+}
+
 /** Poll until the dev server answers, or throw after timeoutMs. */
 async function waitForServer(url, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -46,21 +68,32 @@ async function waitForServer(url, timeoutMs) {
 
 async function run() {
   const playwright = await import('playwright');
-  const server = spawn('npx', ['vite', '--port', '5173'], { cwd: targetDir, shell: true });
+
+  // A random high port, not the well-known 5173. If a previous run leaked a
+  // vite process, binding 5173 again would make the readiness poll succeed
+  // against THAT server and verify the previous demo. --strictPort turns a
+  // collision into a loud failure instead of vite silently sliding to the
+  // next free port while we poll the wrong one.
+  const port = 5300 + Math.floor(Math.random() * 600);
+  const origin = `http://localhost:${port}`;
+  const server = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
+    cwd: targetDir,
+    shell: true,
+    detached: process.platform !== 'win32',
+  });
 
   // Wait for the dev server to actually accept connections. Without this, a
   // slow vite boot yields ERR_CONNECTION_REFUSED, which surfaces as
   // "verification crashed" and reads like a defect in the demo.
   //
   // The kill-on-throw matters more than it looks: this happens BEFORE the
-  // try/finally below, so without it a timeout orphans `npx vite` still
-  // holding port 5173 — and the NEXT run's readiness poll would succeed
-  // against that stale server, verifying nothing. Same vacuous-pass class
-  // this whole module exists to eliminate.
+  // try/finally below, so without it a timeout orphans the server process,
+  // and the next run could poll a stale one. Same vacuous-pass class this
+  // whole module exists to eliminate.
   try {
-    await waitForServer('http://localhost:5173', 30000);
+    await waitForServer(origin, 30000);
   } catch (err) {
-    server.kill();
+    killTree(server);
     throw err;
   }
 
@@ -75,7 +108,7 @@ async function run() {
     page.on('pageerror', (e) => pageErrors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error') pageErrors.push(m.text()); });
 
-    await page.goto('http://localhost:5173', { waitUntil: 'networkidle' });
+    await page.goto(origin, { waitUntil: 'networkidle' });
 
     // Without the hook nothing below is checkable.
     try {
@@ -120,7 +153,7 @@ async function run() {
     else result.failures.forEach(fail);
   } finally {
     await browser.close();
-    server.kill();
+    killTree(server);
   }
 }
 
