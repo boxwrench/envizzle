@@ -1,7 +1,8 @@
 # verify/
 
-Automated verification for a generated envizzle tech demo. This replaces
-`legacy/verify_demo.mjs`, whose final step logged `PASS: Screenshots
+Automated verification for a generated envizzle tech demo. This replaces the
+predecessor's verifier — retired with the other migration sources, and
+recoverable from git history — whose final step logged `PASS: Screenshots
 successfully saved` without looking at a single pixel — a near-black frame
 with the camera clipped inside a rock spire passed as a success. This
 directory adds gates that actually inspect the captured frames before

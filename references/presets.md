@@ -613,9 +613,13 @@ temperature, and expose a brief bright fissure that seals over roughly 8 s.
 Mean large-area luminance 0.125 — above the 0.10 floor and no higher than it needs to be.
 Read the structure: two of the three large areas (`ash-sky` 0.250, `ash-plain` 0.120) sit
 above the basalt, `steam-lit` at 0.725 is the desaturated light anchor at medium area, and
-exactly one accent carries the emissive. Remove the ash plain, or demote the steam, and
-the palette fails — try it, because seeing which single change breaks it is the fastest way
-to understand what the rule protects.
+exactly one accent carries the emissive. Darken the ash plain toward the basalt and the
+palette fails `large-area-mean-floor`; demote or darken the ash sky and it fails
+`large-area-all-dark` as well; demote the steam out of medium area and it fails
+`light-anchor`. Note which entry is actually load-bearing: `ash-sky` at 0.250 carries the
+margin, and the ash plain sits *below* the mean, so deleting it nudges the mean up rather
+than down. That is the whole argument for running `checkCoherence` on an edited palette
+instead of reasoning about it.
 
 ### Night City
 
