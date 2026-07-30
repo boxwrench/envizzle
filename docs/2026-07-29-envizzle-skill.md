@@ -325,7 +325,7 @@ test('recipe names all 18 bones', () => {
 });
 
 test('recipe gives numeric rest positions, not prose', () => {
-  for (const v of ['0.95', '1.10', '1.28', '1.42', '1.52', '1.62', '0.92', '0.52']) {
+  for (const v of ['0.95', '1.10', '1.28', '1.42', '1.52', '1.62', '0.92', '0.50']) {
     assert.match(recipe, new RegExp(v.replace('.', '\\.')), `missing rest height ${v}`);
   }
 });
@@ -392,7 +392,7 @@ Replace `references/character-recipe.md` entirely. Six parts, with these exact v
 
 **Part 1 — Skeleton.** A markdown table of 18 bones for a 1.75 m figure, columns `bone | parent | rest position (x, y, z) metres`:
 
-hips `(0, 0.95, 0)`, spine01 `(0, 1.10, 0)`, spine02 `(0, 1.28, 0)`, chest `(0, 1.42, 0)`, neck `(0, 1.52, 0)`, head `(0, 1.62, 0)`, clavicle.L/R `(±0.06, 1.45, 0)`, upperArm.L/R `(±0.19, 1.44, 0)`, forearm.L/R `(±0.19, 1.16, 0)`, hand.L/R `(±0.19, 0.90, 0)`, thigh.L/R `(±0.09, 0.92, 0)`, shin.L/R `(±0.09, 0.52, 0)`, foot.L/R `(±0.09, 0.10, 0)`, toe.L/R `(±0.09, 0.02, 0.14)`.
+hips `(0, 0.95, 0)`, spine01 `(0, 1.10, 0)`, spine02 `(0, 1.28, 0)`, chest `(0, 1.42, 0)`, neck `(0, 1.52, 0)`, head `(0, 1.62, 0)`, clavicle.L/R `(±0.06, 1.45, 0)`, upperArm.L/R `(±0.19, 1.44, 0)`, forearm.L/R `(±0.19, 1.16, 0)`, hand.L/R `(±0.19, 0.90, 0)`, thigh.L/R `(±0.09, 0.92, 0)`, shin.L/R `(±0.09, 0.50, 0)`, foot.L/R `(±0.09, 0.10, 0)`, toe.L/R `(±0.09, 0.02, 0.14)`.
 
 Segment lengths: upperArm 0.28, forearm 0.26, thigh 0.42, shin 0.40, foot 0.16.
 
@@ -401,10 +401,17 @@ Segment lengths: upperArm 0.28, forearm 0.26, thigh 0.42, shin 0.40, foot 0.16.
 | Chain | Rings | Radius profile (m) | Ellipse ratio (x:z) |
 |---|---|---|---|
 | Torso (hips→neck) | 12 | 0.16 → 0.19 → 0.17 → 0.14 | 1.00 → 1.35 |
+| Head (neck→crown) | 6 | 0.055 → 0.098 → 0.072 | 0.86 (narrower than deep) |
 | Arm (shoulder→wrist) | 8 | 0.055 → 0.040 → 0.032 | 1.00 |
+| Hand (wrist→fingertip) | 3 | 0.032 → 0.040 → 0.018 | 0.45 (flat paddle) |
 | Leg (hip→ankle) | 10 | 0.085 → 0.055 → 0.038 | 1.10 |
+| Foot (ankle→toe) | 4 | 0.038 → 0.045 → 0.030 | 0.62 (wider than tall) |
 
-Ring resolution 12–16 segments. Rings stitch into triangle strips; ends capped. Skin weights derived from normalized arc-length position along the chain, blended across a 0.08 m falloff either side of each joint — deterministic, requiring no hand-rigging. Budget ~3–4 k triangles. Explain *why* the ellipse ratio matters: a chest that is as deep as it is wide reads as a barrel, and that single number is much of the difference between a figure and a tube stack.
+**Every chain in that table is required.** The torso/arm/leg rows alone leave a figure with no head, no hands, and no feet — and an agent that caps the arm at the wrist and finds spheres forbidden will ship a headless torso. Foot geometry is also load-bearing for Part 5, which blends foot orientation to the terrain normal; there must be a foot to orient.
+
+Ring resolution 12–16 segments (6–8 for hand and foot). Rings stitch into triangle strips; ends capped at the crown, fingertips, and toe tips. Skin weights derived from normalized arc-length position along the chain, blended across a 0.08 m falloff either side of each joint — deterministic, requiring no hand-rigging. Budget ~3–4 k triangles. Explain *why* the ellipse ratio matters: a chest that is as deep as it is wide reads as a barrel, and that single number is much of the difference between a figure and a tube stack.
+
+**Scaling for non-1.75 m archetypes.** Both rest positions *and* ring radii scale by `H / 1.75`, with the archetype's ring-radius multiplier applied on top. Radii must scale too — a 1.45 m figure with a 0.19 m adult chest radius reads as dwarfish rather than short.
 
 **Part 3 — Gait.** State that sliding is prevented by construction, not by discipline:
 
@@ -417,7 +424,18 @@ gaitPhase = (gaitPhase + distanceThisFrame / strideLength) % 1;
 
 Stance spans phase 0 → 0.6 and holds the locked world position. Swing spans 0.6 → 1.0 and arcs 0.12 m to predicted touchdown via smoothstep. Per-leg phase offset 0.5. Two-bone analytic IK by law of cosines for hip → knee → ankle, knee pole vector forward — roughly 20 lines, no solver dependency.
 
-**Part 4 — Secondary motion.** Pelvis bob `y -= 0.035 * (1 - cos(4π * gaitPhase)) / 2`. Pelvis roll ±3°, shoulders counter-rotate ±5°. Arm swing shoulder pitch `±22° * sin(2π * (gaitPhase + 0.5))`, elbow flex 12–35°. Spine lean into acceleration: chest pitch `clamp(accelAlongForward * 0.04, -8°, +12°)`. Head counter-rotated to hold a level gaze.
+**Part 4 — Secondary motion.** Pelvis bob `y -= bobAmplitude * (1 - cos(4π * gaitPhase)) / 2`. Pelvis roll ±3°, shoulders counter-rotate ±5°. Arm swing shoulder pitch `±22° * sin(2π * (gaitPhase + 0.5))`, elbow flex 12–35°. Spine lean into acceleration: chest pitch `clamp(accelAlongForward * 0.04, -8°, +12°)`. Head counter-rotated to hold a level gaze.
+
+**Every length in the gait must derive from `legLength`, not from a literal**, or a short archetype bobs like an adult and over-lifts its feet. At the 1.75 m reference figure `legLength` is 0.82 m, giving:
+
+| Quantity | Reference value | Expressed relative to legLength |
+|---|---|---|
+| stride length | — | `0.78 * legLength * (1 + 0.35 * speedNorm)` |
+| pelvis bob amplitude | 0.035 m | `0.043 * legLength` |
+| swing arc height | 0.12 m | `0.146 * legLength` |
+| joint weight falloff | 0.08 m | `0.098 * legLength` |
+
+State both columns. Angles (roll, pitch, elbow flex) are scale-invariant and stay as degrees.
 
 **Part 5 — Foot planting.** Give the mechanism, not the goal:
 
