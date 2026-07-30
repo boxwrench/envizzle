@@ -63,7 +63,7 @@ Build a custom material using {{ENGINE}}'s ShaderMaterial or custom shader plugi
 Build the material's core lighting response as a shared shader include inside `src/shaders/lib/lighting.{{SHADER_LANG_EXT — default: wgsl}}` (or `.glsl`) that every surface in the scene imports — terrain, vegetation, character, wake, particles, abilities, vehicles. One function, used everywhere.
 
 <!--SECTION:state-buffer-->
-### 2.3 Wind Field & Terrain State Buffer (${DEFORMATION_TYPE})
+### 2.3 Wind Field & Terrain State Buffer ({{DEFORMATION_TYPE}})
 
 **Wind Field Architecture:**
 {{WIND_FIELD_ARCH — default: Maintain a 256x256 GPU wind render target covering a 440m world area. Simulates mean wind speed, gustiness, and directional advection. Sampled per-frame by grass Bezier vertices, tree foliage, cloth, pollen motes, train smoke, and river ripples.}}
