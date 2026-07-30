@@ -17,9 +17,29 @@ test('description says when to use the skill and is long enough to route on', ()
   assert.match(desc, /use when/i);
 });
 
-test('documents the pick-for-me path and forbids mixing presets', () => {
+test('documents the pick-for-me path and creative modes constraints', () => {
   assert.match(skill, /pick for me/i);
-  assert.match(skill, /never mix|do not mix|as a whole/i);
+  assert.match(skill, /Proven/);
+  assert.match(skill, /Signature/);
+  assert.match(skill, /Experimental/);
+  assert.match(skill, /at most 1 changed major axis/i);
+});
+
+test('creative modes rules and novelty budgets are documented in SKILL.md', () => {
+  assert.match(skill, /\bProven\b/);
+  assert.match(skill, /\bSignature\b/);
+  assert.match(skill, /\bExperimental\b/);
+  assert.match(skill, /Signature[\s\S]{0,100}default/i);
+  assert.match(skill, /pick for me[\s\S]{0,200}Signature/i);
+  assert.match(skill, /Proven[\s\S]{0,100}no independent novelty/i);
+  assert.match(skill, /Signature[\s\S]{0,100}one bounded Signature Moment/i);
+  assert.match(skill, /Never selected automatically/i);
+  assert.match(skill, /at most 1 changed major axis/i);
+  assert.match(skill, /custom interview/i);
+  assert.match(skill, /Creative Spark/i);
+  assert.match(skill, /reuses? an existing/i);
+  assert.match(skill, /hard contracts/i);
+  assert.match(skill, /DECISIONS\.md/i);
 });
 
 test('names the three ambition levels and the default', () => {

@@ -23,6 +23,52 @@ conflicts. If you edit one, re-run the check; do not relax the rule.
 
 ---
 
+## Creative modes
+
+Envizzle provides three explicit creative modes. Every brief specifies one creative mode that defines the freedom budget for artistic novelty and system customization.
+
+### Proven
+
+- Select one showcase configuration as a whole.
+- Do not change its ambition, biome, archetype, mechanic, camera, or rendering profile.
+- Do not add an independent Signature Moment.
+- Treat the configured centrepiece mechanic and its strongest existing visual consequence as the signature shot.
+- Permit implementation creativity only inside existing specified systems (composition, timing, shader mechanics, and polish).
+
+### Signature
+
+- **Signature is the default creative mode.**
+- Select one showcase configuration as a whole.
+- Do not change its ambition, biome, archetype, mechanic, camera, or rendering profile.
+- Invent exactly one Signature Moment that reuses existing specified systems.
+- Permit an optional user-supplied creative spark (visual memory, material, emotion, or natural phenomenon) to influence the Signature Moment.
+- If no spark is supplied, use "surprise me."
+
+### Experimental
+
+Experimental permits controlled customization via two explicit paths:
+
+1. **Base-showcase path:**
+   - Begin from one named showcase configuration.
+   - Change at most one major axis: Ambition, Biome (including palette, paradigm, material behavior, and terrain values), Archetype, Mechanic, or Camera.
+   - A rendering-profile change does not count as the single creative axis, provided it uses a complete supported Batch 3 profile tuple.
+   - Project name and hardware-target edits do not count as creative axes.
+   - Do not copy isolated token values from unrelated showcase configurations — substitute a complete preset axis.
+
+2. **Fully custom path:**
+   - Run the one-question-at-a-time interview.
+   - Use only named biome, archetype, mechanic, camera, ambition, and rendering-profile options from the preset reference.
+   - Originality comes from their deliberate combination and the Signature Moment, not from inventing unsupported engine or system contracts.
+
+**Experimental Mode Rules:**
+- Never select Experimental automatically; require explicit user selection.
+- Run `checkCoherence` on the final configuration.
+- Manually verify mechanic writes against biome state-buffer channels, camera and character compatibility, and ambition-level sections.
+- Record all changes and compatibility decisions in `DECISIONS.md`.
+- Note: Batch 5 will strengthen these checks programmatically.
+
+---
+
 ## Ambition levels
 
 `TEMPLATE.md` wraps three of its subsections in `<!--SECTION:name-->` markers. The

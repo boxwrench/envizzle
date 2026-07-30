@@ -151,3 +151,21 @@ test('showcase configs follow strict profile contracts', () => {
     }
   }
 });
+
+test('Creative modes section exists and documents mode rules', () => {
+  const s = section('Creative modes');
+  assert.ok(s, 'no "Creative modes" section');
+
+  const subsections = s.split('\n').filter((l) => /^\s*###\s+/.test(l));
+  assert.equal(subsections.length, 3, `expected 3 creative mode subsections, got ${subsections.length}`);
+  assert.match(s, /### Proven/);
+  assert.match(s, /### Signature/);
+  assert.match(s, /### Experimental/);
+
+  assert.match(s, /Signature is the default creative mode|Signature is the default/i);
+  assert.match(s, /Never select Experimental automatically|Never select Experimental/i);
+  assert.match(s, /named showcase/i);
+  assert.match(s, /at most one major axis/i);
+  assert.match(s, /complete supported/i);
+  assert.match(s, /checkCoherence/i);
+});

@@ -61,9 +61,14 @@ test('the shipped TEMPLATE.md has no ${} leaks', () => {
 test('the shipped TEMPLATE.md still has its tokens and sections', () => {
   const tpl = fs.readFileSync('TEMPLATE.md', 'utf8');
   const tokens = findUnresolvedTokens(tpl);
-  assert.equal(tokens.length, 35, `template tokens count is ${tokens.length}, expected 35`);
+  assert.equal(tokens.length, 37, `template tokens count is ${tokens.length}, expected 37`);
+  assert.ok(tokens.includes('CREATIVE_MODE'), 'template missing CREATIVE_MODE token');
+  assert.ok(tokens.includes('SIGNATURE_MOMENT'), 'template missing SIGNATURE_MOMENT token');
   assert.ok(tokens.includes('MATERIAL_API'), 'template missing MATERIAL_API token');
   assert.ok(tokens.includes('CHARACTER_RECIPE'), 'template missing CHARACTER_RECIPE token');
   assert.ok(findStraySectionMarkers(tpl).length >= 4, 'template lost its section markers');
   assert.doesNotMatch(tpl, /guarantee 100% hardware compatibility/i, 'template contains stale compatibility claim');
+  assert.doesNotMatch(tpl, /break the requirement/i, 'template contains old universal break the requirement phrase');
+  assert.match(tpl, /ENABLE_SIGNATURE_MOMENT/, 'template missing ENABLE_SIGNATURE_MOMENT setting');
+  assert.match(tpl, /mechanic verification capture/i, 'template missing mechanic verification capture visibility requirement');
 });

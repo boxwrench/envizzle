@@ -26,43 +26,39 @@ these, and Step 4 runs it.
 
 **Files this skill reads** (all paths relative to the skill root):
 
-- `references/presets.md` — the menu: ambition levels, biomes, archetypes, mechanics, camera modes, showcase configs.
+- `references/presets.md` — the menu: creative modes, ambition levels, biomes, archetypes, mechanics, camera modes, showcase configs.
 - `references/character-recipe.md` — the numeric humanoid spec, inlined into every brief.
-- `TEMPLATE.md` — the brief skeleton: 35 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
+- `TEMPLATE.md` — the brief skeleton: 37 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
 - `check.mjs` — `validateBrief` (also a CLI) and `checkCoherence`.
 - `verify/verify_demo.mjs` — the post-build visual verifier.
 
 ---
 
-## Step 1 — Choose a route
+## Step 1 — Choose a creative mode
 
 Ask this first, before anything else:
 
-> How would you like to start?
-> 1. **Pick for me** — I choose one proven showcase config and write the brief now.
-> 2. **Start from a showcase config and adjust** — pick one, then change specific fields.
-> 3. **Fully custom** — I interview you piece by piece.
+> Which creative mode would you like to use?
+> 1. **Proven** — Use one showcase configuration intact. Add no independent novelty behavior. Creativity remains in composition, timing, shader implementation, and polish.
+> 2. **Signature** *(default)* — Use one showcase configuration intact. Invent exactly one bounded Signature Moment. This is the default when you say "pick for me" or do not select a mode.
+> 3. **Experimental** — Permit controlled recombination (at most one changed major axis from a showcase) or the fully custom interview. Never selected automatically; requires explicit choice.
 
-**Route 1 (pick for me).** Read the *Showcase configs* section of
-`references/presets.md` and select **one config as a whole**: Alpine Dawn,
-Hoshi-no-Tani, Dune Sea, Tidal Shelf, Emberfall, or Neon Monsoon. Take its biome,
-archetype, mechanic, camera, ambition level, and its nine own tokens together.
-Say which one you picked and why in one sentence, then go to Step 3.
+After Proven or Signature is selected, ask whether the user wants Envizzle to choose the showcase config ("pick for me") or whether they want to select one.
 
-**Never mix pieces across configs.** Recombination is the failure this project
-exists to correct: a painterly paradigm taken from one config and a near-black
-palette taken from another produced unusable frames, and neither half was wrong
-alone. If the user asks for a hybrid, that is route 2 or 3 — and then Step 3's
-coherence check is mandatory, not advisory.
+For Experimental, ask whether to:
+- Start from a named showcase and modify it (at most 1 changed major axis: ambition, biome, archetype, mechanic, or camera), or
+- Use the fully custom interview.
 
-**Route 2 (adjust).** Pick the config, name every field the user changes, then run
-Step 3 on the *result*. Changing the biome changes the palette; changing the
-paradigm changes which rules apply.
+At any later question, "pick for me" means:
+- Use Signature mode.
+- Select one whole compatible showcase configuration.
+- Treat the creative spark as "surprise me."
+- Invent one bounded Signature Moment.
 
-**Route 3 (fully custom).** Run the interview in Step 2.
+Do not maintain a second, competing route-number system.
 
-At any question in any route, the user may say "pick for me" and you choose the
-option that best fits what they have already said, stating the choice out loud.
+**Creative authority and hard contracts:**
+Creative authority operates only inside the selected creative mode. Creative decisions cannot override hard contracts (rendering profile, ambition ceiling, asset strategy, palette coherence decisions, character recipe, verification hook, acceptance gates, and required project deliverables).
 
 ---
 
@@ -92,7 +88,7 @@ The level decides which of `TEMPLATE.md`'s three marked sections survive:
 
 **2. Biome** — one of: Alpine Snow, Ghibli Valley, Dune Desert, Ocean Shelf,
 Volcanic, Night City. This is the single largest decision: it supplies 19 of the
-35 tokens and the palette that Step 3 checks.
+37 tokens and the palette that Step 3 checks.
 
 **3. Archetype** — one of: Robed Mage, Traveller Coat, Armored Soldier, Desert
 Nomad, Void Wanderer. Archetypes are **parameters on one rig**, never alternative
@@ -127,6 +123,17 @@ so phrase it accordingly:
   **architecture**, and **destructibility**, appended as `§2.9`–`§2.12`. Confirm
   which the user wants. If they want none, they are at `showcase` — say so and
   change the level rather than writing an `everything` brief with nothing extra.
+
+**7. Creative Spark (Signature and Experimental modes only)** — Ask once:
+
+> Do you want to give me one visual memory, material, emotion, or natural phenomenon to influence the Signature Moment, or should I surprise you?
+
+Rules:
+- The spark is inspiration, not a literal new requirement.
+- Do not turn it into an additional system.
+- Do not alter the palette or paradigm unless Experimental mode explicitly assigns the biome axis as its one changed axis.
+- If the user says "pick for me," skip this question and use "surprise me."
+- Proven mode skips this question entirely.
 
 Also collect, in the same pass:
 
@@ -216,7 +223,7 @@ directory — `PROJECT_NAME` upper-cased with hyphens turned into underscores, e
 `ALPINE-DAWN` → `ALPINE_DAWN_TECHDEMO_PROMPT.md`. Then do the five things below,
 in this order.
 
-### 4a. Fill the 35 tokens
+### 4a. Fill the 37 tokens
 
 Paste preset text **as written**. It is token text, not inspiration: every value
 carries metres, counts, amplitudes, or grid dimensions, and rewriting one into an
@@ -224,20 +231,45 @@ adjective undoes the only thing that makes the brief work.
 
 | Source | Tokens it supplies |
 |---|---|
-| **Showcase config** (or you, on the custom route) — 9 | `PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API`, `ASSET_STRATEGY`, `TARGET_BROWSER_AND_HARDWARE`, `CORE_INTERACTION_SENTENCE` |
+| **Creative mode** — 2 | `CREATIVE_MODE`, `SIGNATURE_MOMENT` |
+| **Showcase config** (or you, on Experimental custom route) — 9 | `PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API`, `ASSET_STRATEGY`, `TARGET_BROWSER_AND_HARDWARE`, `CORE_INTERACTION_SENTENCE` |
 | **Biome** — 19 | `PRIMARY_ENVIRONMENT`, `PRIMARY_MATERIAL_NAME`, `NAIVE_DEFAULT`, `TERRAIN_PHILOSOPHY_SENTENCE`, `TERRAIN_NOISE_LAYERS`, `TERRAIN_LANDMARKS`, `FAR_FIELD_TREATMENT`, `MATERIAL_BEHAVIOURS`, `DEFORMATION_TYPE`, `DEFORMATION_MARKS`, `RECOVERY_MECHANISM`, `RECOVERY_OUTCOME`, `STATE_BUFFER_COVERAGE`, `STATE_BUFFER_TEXEL_SIZE`, `STATE_BUFFER_CHANNELS`, `WIND_FIELD_ARCH`, `GRASS_SYSTEM_SPEC`, `AUDIO_ENGINE_SPEC`, `ATMOSPHERIC_LIFE_SPEC` |
 | **Mechanic** — 6 | `CENTREPIECE_MECHANIC`, `CENTREPIECE_INPUT`, `CENTREPIECE_DESCRIPTION`, `ABILITY_1_NAME`, `ABILITY_2_NAME`, `ABILITY_3_NAME` |
 | **Character recipe + archetype** — 1 | `CHARACTER_RECIPE` (see 4c) |
 | **Archetype** | none — its content goes inside `CHARACTER_RECIPE` |
 | **Camera mode** | none — it substitutes §2.6 (see 4d) |
 
-On the custom route, derive the nine config-level tokens like this:
+On the Experimental custom route, derive the nine config-level tokens like this:
 
 - `RENDERING_PARADIGM` — from the biome's `paradigm` field: `photoreal` → `AAA Photoreal`; `painterly` → `Ghibli-Style Painterly Anime`. Never contradict the biome's own `json` block.
 - `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API` — from the chosen rendering profile (default Babylon WebGPU or alternative Three WebGL2).
 - `ASSET_STRATEGY` — `100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)`.
 - `TARGET_BROWSER_AND_HARDWARE` — `Chrome stable on Windows 11, RTX-class GPU, 2560×1440`, unless the camera mode is XR (see 4d).
 - `CORE_INTERACTION_SENTENCE` — you write it. It is a lower-case verb fragment that slots into "…walk around {{PRIMARY_ENVIRONMENT}} for ninety seconds, **{{CORE_INTERACTION_SENTENCE}}**, and either think 'this is AAA' or close the tab." Name the mechanic and one thing the biome does, e.g. `carve a trail across a drift field, watch the wake break behind them`.
+
+**Deriving `CREATIVE_MODE` and `SIGNATURE_MOMENT`:**
+
+- `CREATIVE_MODE` — `Proven`, `Signature`, or `Experimental`.
+- `SIGNATURE_MOMENT` —
+  - In **Proven** mode, use this exact meaning:
+    > Do not add an independent novelty behavior. Treat the configured centrepiece mechanic and its strongest existing visual consequence as the signature shot. Improve only composition, timing, shading, and polish within the systems already specified.
+  - In **Signature** and **Experimental** modes:
+    1. Generate three candidate Signature Moments internally.
+    2. Reject any candidate that merely restates an existing preset behavior.
+    3. Reject any candidate that requires a new major system.
+    4. Select the candidate with the strongest distinctiveness-to-cost ratio.
+    5. Fill `SIGNATURE_MOMENT` with a single paragraph naming its trigger, visible behavior, existing system reused, implementation boundary, and appearance in `window.__demo.setPose('mechanic')`.
+
+**Bounded novelty budget rules for Signature Moment:**
+- Be distinct from the preset's existing centrepiece behavior.
+- Reuse an existing material, shader, particle system, state buffer, atmospheric system, camera behavior, or mechanic.
+- Use the existing mechanic input or an automatic environmental trigger.
+- Add no new engine, renderer, asset category, persistent GPU buffer, major render pass, simulation subsystem, or separate gameplay input.
+- Add no new optional section and never increase the ambition level. At `slice`, the Signature Moment must reuse a system that survives at `slice`.
+- Remain compatible with the zero-asset strategy.
+- Be controlled by `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` and be removable without breaking the base showcase.
+- Be visible when `window.__demo.setPose('mechanic')` is called.
+- Remain exactly one behavior, not a bundle of related features.
 
 **At `slice`, edit the mechanic text as you paste it.** Every mechanic's
 `CENTREPIECE_DESCRIPTION` ends with a **Writes:** paragraph naming state-buffer
@@ -300,7 +332,7 @@ This slot takes three pieces, in this order:
 3. **The biome's `FOOT_INTERACTION` text**, headed
    `### Foot interaction — <PRIMARY_MATERIAL_NAME>`.
 
-**`FOOT_INTERACTION` is not one of the 35 tokens.** It has no slot in
+**`FOOT_INTERACTION` is not one of the 37 tokens.** It has no slot in
 `TEMPLATE.md`. Every biome supplies it, and it is appended to the inlined
 `CHARACTER_RECIPE` here — nowhere else. Under it, add one sentence tying it to the
 recipe: *these effects fire from the single touchdown call site in Part 5, reading
@@ -365,6 +397,7 @@ wrong biome's text, a mechanic writing a channel the biome does not declare, and
 - **On failure:** the verifier lists each problem. Hand the list back to the agent and have it fix and re-run. Do not accept the demo with failures outstanding.
 - **Frame times are reported, not gated** — a slow demo is a decision for you, not a build failure.
 - **Engine version pinning:** When installing the engine during a generated project build, pin the exact resolved engine version in `package.json` and the lockfile, record that version in `DECISIONS.md`, and avoid floating CDN imports.
+- **Mode decisions:** Record in `DECISIONS.md`: creative mode, base showcase or custom path, creative spark or surprise me, final Signature Moment, existing system reused by Signature Moment, any Experimental changed axis, compatibility checks performed, and permitted implementation deviations.
 ```
 
 3. Tell the user, in one line, what to paste where.
@@ -394,6 +427,7 @@ you are reproducing the failure this skill exists to prevent.
 
 | Where | What is in it |
 |---|---|
+| `references/presets.md` → *Creative modes* | 3 modes: Proven, Signature (default), Experimental |
 | `references/presets.md` → *Ambition levels* | The three levels, what each keeps, which tokens each requires |
 | `references/presets.md` → *Biomes* | 6 biomes: 19 tokens each, `FOOT_INTERACTION`, and a machine-checkable palette |
 | `references/presets.md` → *Character archetypes* | 5 archetypes as rig parameters, with cloth panels and shading |
@@ -401,6 +435,6 @@ you are reproducing the failure this skill exists to prevent.
 | `references/presets.md` → *Camera modes* | 4 modes; substituted into §2.6, no tokens |
 | `references/presets.md` → *Showcase configs* | 6 checked combinations; take one whole |
 | `references/character-recipe.md` | The humanoid spec, inlined verbatim at `{{CHARACTER_RECIPE}}` |
-| `TEMPLATE.md` | The skeleton: 35 tokens, 3 marked sections, the `window.__demo` hook in §6 |
+| `TEMPLATE.md` | The skeleton: 37 tokens, 3 marked sections, the `window.__demo` hook in §6 |
 | `check.mjs` | `validateBrief` (CLI: `node check.mjs <brief>`) and `checkCoherence(config)` |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |
