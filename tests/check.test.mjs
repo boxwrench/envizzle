@@ -60,7 +60,10 @@ test('the shipped TEMPLATE.md has no ${} leaks', () => {
 
 test('the shipped TEMPLATE.md still has its tokens and sections', () => {
   const tpl = fs.readFileSync('TEMPLATE.md', 'utf8');
-  assert.ok(findUnresolvedTokens(tpl).length >= 30, 'template lost its token slots');
-  assert.ok(findUnresolvedTokens(tpl).includes('CHARACTER_RECIPE'));
+  const tokens = findUnresolvedTokens(tpl);
+  assert.equal(tokens.length, 35, `template tokens count is ${tokens.length}, expected 35`);
+  assert.ok(tokens.includes('MATERIAL_API'), 'template missing MATERIAL_API token');
+  assert.ok(tokens.includes('CHARACTER_RECIPE'), 'template missing CHARACTER_RECIPE token');
   assert.ok(findStraySectionMarkers(tpl).length >= 4, 'template lost its section markers');
+  assert.doesNotMatch(tpl, /guarantee 100% hardware compatibility/i, 'template contains stale compatibility claim');
 });

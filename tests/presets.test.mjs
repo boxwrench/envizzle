@@ -114,3 +114,40 @@ test('showcase configs are whole and never to be mixed', () => {
   const entries = s.split('\n').filter((l) => /^\s*###\s+/.test(l));
   assert.ok(entries.length >= 6, `found ${entries.length} showcase configs, need 6`);
 });
+
+test('rendering profiles section documents exactly two supported profiles', () => {
+  const s = section('Rendering profiles');
+  assert.ok(s, 'no "Rendering profiles" section');
+  assert.match(s, /Default profile:\s*Babylon WebGPU/i);
+  assert.match(s, /Alternative profile:\s*Three WebGL2/i);
+  assert.match(s, /Envizzle v0\.1 supports exactly two rendering profiles/i);
+});
+
+test('showcase configs follow strict profile contracts', () => {
+  const s = section('Showcase configs');
+  assert.ok(s, 'no "Showcase configs" section');
+  assert.doesNotMatch(s, /Three\.js.*WebGPU/i, 'showcase config contains Three.js with WebGPU');
+  assert.doesNotMatch(s, /WebGL.*fallback/i, 'showcase config describes WebGL as fallback');
+
+  const configs = s.split(/^###\s+/m).slice(1);
+  assert.equal(configs.length, 6, `expected 6 showcase configs, got ${configs.length}`);
+
+  for (const cfg of configs) {
+    const name = cfg.split('\n')[0].trim();
+    assert.match(cfg, /`MATERIAL_API`/, `${name} missing MATERIAL_API token`);
+
+    if (/Three\.js/i.test(cfg)) {
+      assert.match(cfg, /WebGLRenderer \(WebGL2 only\)/, `${name} missing WebGLRenderer (WebGL2 only)`);
+      assert.match(cfg, /GLSL ES 3\.00 raw modules/, `${name} missing GLSL ES 3.00 raw modules`);
+      assert.match(cfg, /`glsl`/, `${name} missing glsl extension`);
+      assert.match(cfg, /Three\.js RawShaderMaterial on WebGLRenderer/, `${name} missing Three.js RawShaderMaterial on WebGLRenderer`);
+    } else if (/Babylon\.js/i.test(cfg)) {
+      assert.match(cfg, /WebGPU only/, `${name} missing WebGPU only`);
+      assert.match(cfg, /WGSL/, `${name} missing WGSL`);
+      assert.match(cfg, /`wgsl`/, `${name} missing wgsl extension`);
+      assert.match(cfg, /Babylon\.js ShaderMaterial configured with ShaderLanguage\.WGSL/, `${name} missing Babylon.js ShaderMaterial API`);
+    } else {
+      assert.fail(`${name} does not specify a recognized engine`);
+    }
+  }
+});

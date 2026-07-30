@@ -1112,6 +1112,33 @@ it out of the far field, which stereo compresses anyway.
 
 ---
 
+## Rendering profiles
+
+Envizzle v0.1 supports exactly two rendering profiles. Every brief selects one profile for engine, shader language, and material construction. Automatic backend fallback (such as falling back from WebGPU to WebGL) is forbidden — the selected profile's backend is mandatory.
+
+### Default profile: Babylon WebGPU
+
+- **`ENGINE`**: `Babylon.js latest stable, WebGPU only`
+- **`SHADER_LANG`**: `WGSL`
+- **`SHADER_LANG_EXT`**: `wgsl`
+- **`MATERIAL_API`**: `Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL`
+
+WebGPU is mandatory. If WebGPU is unavailable, report an unsupported-browser/device diagnostic. Do not fall back automatically.
+
+### Alternative profile: Three WebGL2
+
+- **`ENGINE`**: `Three.js latest stable, WebGLRenderer (WebGL2 only)`
+- **`SHADER_LANG`**: `GLSL ES 3.00 raw modules`
+- **`SHADER_LANG_EXT`**: `glsl`
+- **`MATERIAL_API`**: `Three.js RawShaderMaterial on WebGLRenderer`
+
+WebGL2 is the selected primary backend, not a fallback.
+
+> [!NOTE]
+> Envizzle v0.1 does not support Three.js `WebGPURenderer` with raw WGSL, `ShaderMaterial`, or `RawShaderMaterial`. A future Three WebGPU profile would require a deliberate TSL/NodeMaterial contract.
+
+---
+
 ## Showcase configs
 
 **Pick a showcase config as a whole. Never mix pieces across configs.**
@@ -1128,8 +1155,8 @@ If you do want to recombine, that is allowed — but re-run `checkCoherence` on 
 first, and re-check that the mechanic's channel writes exist in the biome's
 `STATE_BUFFER_CHANNELS`. Do the check before the build, not after.
 
-Each config supplies the eight tokens the biome, archetype, mechanic, and camera do not:
-`PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`,
+Each config supplies the nine tokens the biome, archetype, mechanic, and camera do not:
+`PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API`,
 `ASSET_STRATEGY`, `TARGET_BROWSER_AND_HARDWARE`, and `CORE_INTERACTION_SENTENCE`.
 
 ### Alpine Dawn
@@ -1142,9 +1169,10 @@ Each config supplies the eight tokens the biome, archetype, mechanic, and camera
 | Mechanic | Surf / Carve |
 | Camera | Third Person |
 | Ambition | `showcase` |
-| `RENDERING_PARADIGM` | AAA Photoreal WebGPU |
+| `RENDERING_PARADIGM` | AAA Photoreal |
 | `ENGINE` | Babylon.js latest stable, WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
+| `MATERIAL_API` | Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
 | `TARGET_BROWSER_AND_HARDWARE` | Chrome stable on Windows 11, RTX-class GPU, 2560×1440 |
 | `CORE_INTERACTION_SENTENCE` | carve a trail across a drift field, watch the wake break behind them |
@@ -1164,8 +1192,9 @@ persistent groove that proves the world is simulated rather than decorated.
 | Camera | Cinematic |
 | Ambition | `everything` |
 | `RENDERING_PARADIGM` | Ghibli-Style Painterly Anime |
-| `ENGINE` | Three.js latest stable (WebGPU with WebGL fallback disabled) |
-| `SHADER_LANG` / `SHADER_LANG_EXT` | GLSL raw modules / `glsl` |
+| `ENGINE` | Three.js latest stable, WebGLRenderer (WebGL2 only) |
+| `SHADER_LANG` / `SHADER_LANG_EXT` | GLSL ES 3.00 raw modules / `glsl` |
+| `MATERIAL_API` | Three.js RawShaderMaterial on WebGLRenderer |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
 | `TARGET_BROWSER_AND_HARDWARE` | Chrome stable on Windows 11, RTX-class GPU, 2560×1440 |
 | `CORE_INTERACTION_SENTENCE` | walk through Bezier grass, glide over the viaduct, watch the train cross beneath them |
@@ -1185,9 +1214,10 @@ screenshot someone shares.
 | Mechanic | Surf / Carve (sandboard) |
 | Camera | Third Person |
 | Ambition | `slice` |
-| `RENDERING_PARADIGM` | AAA Photoreal WebGPU |
-| `ENGINE` | Three.js latest stable, WebGPU |
+| `RENDERING_PARADIGM` | AAA Photoreal |
+| `ENGINE` | Babylon.js latest stable, WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
+| `MATERIAL_API` | Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
 | `TARGET_BROWSER_AND_HARDWARE` | Chrome stable on Windows 11, RTX-class GPU, 2560×1440 |
 | `CORE_INTERACTION_SENTENCE` | ride a slip face down a barchan crest, throw a sand plume into the sun |
@@ -1207,9 +1237,10 @@ complete image with four systems in it. Start here if you are building a first d
 | Mechanic | Grapple Swing |
 | Camera | XR |
 | Ambition | `showcase` |
-| `RENDERING_PARADIGM` | AAA Photoreal WebGPU |
+| `RENDERING_PARADIGM` | AAA Photoreal |
 | `ENGINE` | Babylon.js latest stable, WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
+| `MATERIAL_API` | Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
 | `TARGET_BROWSER_AND_HARDWARE` | Chrome stable on Windows 11 with a PC-tethered headset, 90 Hz per eye, RTX-class GPU |
 | `CORE_INTERACTION_SENTENCE` | wade the shallows, swing from a rock stack, watch a storm front close in |
@@ -1228,9 +1259,10 @@ distance cues. The XR budget on the rig is what makes the mage's hands hold up a
 | Mechanic | Beam Cannon |
 | Camera | First Person |
 | Ambition | `showcase` |
-| `RENDERING_PARADIGM` | AAA Photoreal WebGPU |
+| `RENDERING_PARADIGM` | AAA Photoreal |
 | `ENGINE` | Babylon.js latest stable, WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
+| `MATERIAL_API` | Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
 | `TARGET_BROWSER_AND_HARDWARE` | Chrome stable on Windows 11, RTX-class GPU, 2560×1440 |
 | `CORE_INTERACTION_SENTENCE` | walk an ash plain, crack the crust underfoot, cut a scorch line across a cooling flow |
@@ -1250,9 +1282,10 @@ armoured cuffs at contact range where the exposure work shows.
 | Mechanic | Summon Vehicle |
 | Camera | Third Person |
 | Ambition | `everything` |
-| `RENDERING_PARADIGM` | AAA Photoreal WebGPU |
-| `ENGINE` | Three.js latest stable, WebGPU |
-| `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
+| `RENDERING_PARADIGM` | AAA Photoreal |
+| `ENGINE` | Three.js latest stable, WebGLRenderer (WebGL2 only) |
+| `SHADER_LANG` / `SHADER_LANG_EXT` | GLSL ES 3.00 raw modules / `glsl` |
+| `MATERIAL_API` | Three.js RawShaderMaterial on WebGLRenderer |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
 | `TARGET_BROWSER_AND_HARDWARE` | Chrome stable on Windows 11, RTX-class GPU, 2560×1440 |
 | `CORE_INTERACTION_SENTENCE` | walk a rain-lit street, summon a machine out of the dark, ride it through standing water |

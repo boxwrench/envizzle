@@ -28,7 +28,7 @@ these, and Step 4 runs it.
 
 - `references/presets.md` — the menu: ambition levels, biomes, archetypes, mechanics, camera modes, showcase configs.
 - `references/character-recipe.md` — the numeric humanoid spec, inlined into every brief.
-- `TEMPLATE.md` — the brief skeleton: 34 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
+- `TEMPLATE.md` — the brief skeleton: 35 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
 - `check.mjs` — `validateBrief` (also a CLI) and `checkCoherence`.
 - `verify/verify_demo.mjs` — the post-build visual verifier.
 
@@ -46,7 +46,7 @@ Ask this first, before anything else:
 **Route 1 (pick for me).** Read the *Showcase configs* section of
 `references/presets.md` and select **one config as a whole**: Alpine Dawn,
 Hoshi-no-Tani, Dune Sea, Tidal Shelf, Emberfall, or Neon Monsoon. Take its biome,
-archetype, mechanic, camera, ambition level, and its eight own tokens together.
+archetype, mechanic, camera, ambition level, and its nine own tokens together.
 Say which one you picked and why in one sentence, then go to Step 3.
 
 **Never mix pieces across configs.** Recombination is the failure this project
@@ -92,7 +92,7 @@ The level decides which of `TEMPLATE.md`'s three marked sections survive:
 
 **2. Biome** — one of: Alpine Snow, Ghibli Valley, Dune Desert, Ocean Shelf,
 Volcanic, Night City. This is the single largest decision: it supplies 19 of the
-34 tokens and the palette that Step 3 checks.
+35 tokens and the palette that Step 3 checks.
 
 **3. Archetype** — one of: Robed Mage, Traveller Coat, Armored Soldier, Desert
 Nomad, Void Wanderer. Archetypes are **parameters on one rig**, never alternative
@@ -131,9 +131,11 @@ so phrase it accordingly:
 Also collect, in the same pass:
 
 - **`PROJECT_NAME`** — a short upper-case hyphenated name, e.g. `ALPINE-DAWN`.
-- **Engine and shader language** — default `Three.js latest stable (WebGPU)` with
-  `WGSL` / `wgsl`. Offer Babylon.js + WGSL as the alternative. Do not offer a
-  WebGL fallback path; the brief forbids fallbacks.
+- **Rendering profile (engine and shader language)** — offer exactly:
+  1. **Babylon.js WebGPU + WGSL** (default): `ENGINE` = `Babylon.js latest stable, WebGPU only`, `SHADER_LANG` = `WGSL`, `SHADER_LANG_EXT` = `wgsl`, `MATERIAL_API` = `Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL`.
+  2. **Three.js WebGL2 + GLSL ES 3.00** (alternative): `ENGINE` = `Three.js latest stable, WebGLRenderer (WebGL2 only)`, `SHADER_LANG` = `GLSL ES 3.00 raw modules`, `SHADER_LANG_EXT` = `glsl`, `MATERIAL_API` = `Three.js RawShaderMaterial on WebGLRenderer`.
+
+  State that these are primary rendering profiles and automatic backend fallback is forbidden.
 
 ---
 
@@ -214,7 +216,7 @@ directory — `PROJECT_NAME` upper-cased with hyphens turned into underscores, e
 `ALPINE-DAWN` → `ALPINE_DAWN_TECHDEMO_PROMPT.md`. Then do the five things below,
 in this order.
 
-### 4a. Fill the 34 tokens
+### 4a. Fill the 35 tokens
 
 Paste preset text **as written**. It is token text, not inspiration: every value
 carries metres, counts, amplitudes, or grid dimensions, and rewriting one into an
@@ -222,16 +224,17 @@ adjective undoes the only thing that makes the brief work.
 
 | Source | Tokens it supplies |
 |---|---|
-| **Showcase config** (or you, on the custom route) — 8 | `PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `ASSET_STRATEGY`, `TARGET_BROWSER_AND_HARDWARE`, `CORE_INTERACTION_SENTENCE` |
+| **Showcase config** (or you, on the custom route) — 9 | `PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API`, `ASSET_STRATEGY`, `TARGET_BROWSER_AND_HARDWARE`, `CORE_INTERACTION_SENTENCE` |
 | **Biome** — 19 | `PRIMARY_ENVIRONMENT`, `PRIMARY_MATERIAL_NAME`, `NAIVE_DEFAULT`, `TERRAIN_PHILOSOPHY_SENTENCE`, `TERRAIN_NOISE_LAYERS`, `TERRAIN_LANDMARKS`, `FAR_FIELD_TREATMENT`, `MATERIAL_BEHAVIOURS`, `DEFORMATION_TYPE`, `DEFORMATION_MARKS`, `RECOVERY_MECHANISM`, `RECOVERY_OUTCOME`, `STATE_BUFFER_COVERAGE`, `STATE_BUFFER_TEXEL_SIZE`, `STATE_BUFFER_CHANNELS`, `WIND_FIELD_ARCH`, `GRASS_SYSTEM_SPEC`, `AUDIO_ENGINE_SPEC`, `ATMOSPHERIC_LIFE_SPEC` |
 | **Mechanic** — 6 | `CENTREPIECE_MECHANIC`, `CENTREPIECE_INPUT`, `CENTREPIECE_DESCRIPTION`, `ABILITY_1_NAME`, `ABILITY_2_NAME`, `ABILITY_3_NAME` |
 | **Character recipe + archetype** — 1 | `CHARACTER_RECIPE` (see 4c) |
 | **Archetype** | none — its content goes inside `CHARACTER_RECIPE` |
 | **Camera mode** | none — it substitutes §2.6 (see 4d) |
 
-On the custom route, derive the eight config-level tokens like this:
+On the custom route, derive the nine config-level tokens like this:
 
-- `RENDERING_PARADIGM` — from the biome's `paradigm` field: `photoreal` → `AAA Photoreal WebGPU`; `painterly` → `Ghibli-Style Painterly Anime`. Never contradict the biome's own `json` block.
+- `RENDERING_PARADIGM` — from the biome's `paradigm` field: `photoreal` → `AAA Photoreal`; `painterly` → `Ghibli-Style Painterly Anime`. Never contradict the biome's own `json` block.
+- `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API` — from the chosen rendering profile (default Babylon WebGPU or alternative Three WebGL2).
 - `ASSET_STRATEGY` — `100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)`.
 - `TARGET_BROWSER_AND_HARDWARE` — `Chrome stable on Windows 11, RTX-class GPU, 2560×1440`, unless the camera mode is XR (see 4d).
 - `CORE_INTERACTION_SENTENCE` — you write it. It is a lower-case verb fragment that slots into "…walk around {{PRIMARY_ENVIRONMENT}} for ninety seconds, **{{CORE_INTERACTION_SENTENCE}}**, and either think 'this is AAA' or close the tab." Name the mechanic and one thing the biome does, e.g. `carve a trail across a drift field, watch the wake break behind them`.
@@ -297,7 +300,7 @@ This slot takes three pieces, in this order:
 3. **The biome's `FOOT_INTERACTION` text**, headed
    `### Foot interaction — <PRIMARY_MATERIAL_NAME>`.
 
-**`FOOT_INTERACTION` is not one of the 34 tokens.** It has no slot in
+**`FOOT_INTERACTION` is not one of the 35 tokens.** It has no slot in
 `TEMPLATE.md`. Every biome supplies it, and it is appended to the inlined
 `CHARACTER_RECIPE` here — nowhere else. Under it, add one sentence tying it to the
 recipe: *these effects fire from the single touchdown call site in Part 5, reading
@@ -361,6 +364,7 @@ wrong biome's text, a mechanic writing a channel the biome does not declare, and
 - **When the agent says it is done:** `npm install -D playwright pngjs && node verify/verify_demo.mjs .`
 - **On failure:** the verifier lists each problem. Hand the list back to the agent and have it fix and re-run. Do not accept the demo with failures outstanding.
 - **Frame times are reported, not gated** — a slow demo is a decision for you, not a build failure.
+- **Engine version pinning:** When installing the engine during a generated project build, pin the exact resolved engine version in `package.json` and the lockfile, record that version in `DECISIONS.md`, and avoid floating CDN imports.
 ```
 
 3. Tell the user, in one line, what to paste where.
@@ -397,6 +401,6 @@ you are reproducing the failure this skill exists to prevent.
 | `references/presets.md` → *Camera modes* | 4 modes; substituted into §2.6, no tokens |
 | `references/presets.md` → *Showcase configs* | 6 checked combinations; take one whole |
 | `references/character-recipe.md` | The humanoid spec, inlined verbatim at `{{CHARACTER_RECIPE}}` |
-| `TEMPLATE.md` | The skeleton: 34 tokens, 3 marked sections, the `window.__demo` hook in §6 |
+| `TEMPLATE.md` | The skeleton: 35 tokens, 3 marked sections, the `window.__demo` hook in §6 |
 | `check.mjs` | `validateBrief` (CLI: `node check.mjs <brief>`) and `checkCoherence(config)` |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |
