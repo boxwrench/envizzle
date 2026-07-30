@@ -719,6 +719,48 @@ test('THRESHOLDS carries no frame-time gate', () => {
   const keys = Object.keys(THRESHOLDS).join(' ');
   assert.doesNotMatch(keys, /FrameMs|frameMs/, 'frame time must not be a threshold');
 });
+
+// --- Malformed input must never pass vacuously ---------------------------
+// Every numeric comparison is false for NaN and undefined, so without explicit
+// guards a hook that returns nothing sails through every gate.
+
+test('a NaN camera depth fails instead of passing silently', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: NaN,
+    frameStats: okStats,
+  });
+  assert.equal(result.pass, false, 'NaN < 0.30 is false — this must not pass');
+  assert.ok(result.failures.some((f) => /cameraNearestDepth/.test(f)));
+});
+
+test('an undefined camera depth fails instead of passing silently', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: undefined,
+    frameStats: okStats,
+  });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /cameraNearestDepth/.test(f)));
+});
+
+test('an empty frame list fails instead of trivially satisfying zero gates', () => {
+  const result = evaluateGates({ frames: [], cameraDepthM: 5, frameStats: okStats });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /no frames captured/i.test(f)));
+});
+
+test('malformed frameStats is diagnosed, not thrown', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: 5,
+    frameStats: { medianMs: 11 },   // missing p99Ms and samples
+  });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /frameStats/.test(f)));
+  // Must not crash on toFixed of undefined.
+  assert.ok(Array.isArray(result.info));
+});
 ```
 
 - [ ] **Step 5: Run tests to verify they fail**
@@ -800,7 +842,30 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
   const failures = [];
   const info = [];
 
-  for (const { name, image, imageWithoutCharacter } of frames) {
+  // Guard the inputs before gating on them. Every numeric comparison below is
+  // false for NaN and undefined, so a hook that returns nothing would sail
+  // through every threshold and report success — exactly the vacuous pass this
+  // module exists to eliminate. An empty frame list is the same failure: zero
+  // frames trivially satisfy zero image gates.
+  if (!Array.isArray(frames) || frames.length === 0) {
+    failures.push(
+      'no frames captured — window.__demo.setPose() produced nothing to inspect. Verification cannot pass on an empty capture.',
+    );
+  }
+  if (typeof cameraDepthM !== 'number' || !Number.isFinite(cameraDepthM)) {
+    failures.push(
+      `window.__demo.cameraNearestDepth() returned ${JSON.stringify(cameraDepthM)} instead of a finite number — the camera-clipping gate cannot run. Implement it to return metres.`,
+    );
+  }
+  for (const key of ['medianMs', 'p99Ms', 'samples']) {
+    if (typeof frameStats?.[key] !== 'number' || !Number.isFinite(frameStats[key])) {
+      failures.push(
+        `window.__demo.frameStats() is missing a finite "${key}" — got ${JSON.stringify(frameStats?.[key])}. Frame time is informational, but a malformed hook is still a defect.`,
+      );
+    }
+  }
+
+  for (const { name, image, imageWithoutCharacter } of frames ?? []) {
     const lum = meanLuminance(image);
     info.push(`[${name}] mean luminance ${lum.toFixed(3)}`);
     if (lum < THRESHOLDS.meanLuminanceMin || lum > THRESHOLDS.meanLuminanceMax) {
@@ -831,16 +896,19 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
     }
   }
 
-  if (cameraDepthM < THRESHOLDS.cameraMinDepthM) {
+  if (Number.isFinite(cameraDepthM) && cameraDepthM < THRESHOLDS.cameraMinDepthM) {
     failures.push(
       `camera nearest depth ${cameraDepthM.toFixed(2)} m below ${THRESHOLDS.cameraMinDepthM} m — camera is inside geometry.`,
     );
   }
 
-  // Reported only. See the module comment.
-  info.push(
-    `frame time: median ${frameStats.medianMs.toFixed(1)} ms, p99 ${frameStats.p99Ms.toFixed(1)} ms over ${frameStats.samples} samples (informational — headless timing is not gated)`,
-  );
+  // Reported only. See the module comment. Guarded so a malformed hook yields
+  // the diagnosis pushed above rather than a TypeError from toFixed().
+  if (Number.isFinite(frameStats?.medianMs) && Number.isFinite(frameStats?.p99Ms)) {
+    info.push(
+      `frame time: median ${frameStats.medianMs.toFixed(1)} ms, p99 ${frameStats.p99Ms.toFixed(1)} ms over ${frameStats.samples} samples (informational — headless timing is not gated)`,
+    );
+  }
 
   return { pass: failures.length === 0, failures, info };
 }
@@ -924,14 +992,17 @@ export function checkCoherence(config) {
 
   // R1 — light anchor. A saturated neon is not a light value. Without a
   // desaturated bright tone the scene reads as murk with glowing bits.
+  // The anchor must also occupy real screen area: a light tone confined to a
+  // 2%-of-frame accent anchors nothing.
   const hasAnchor = palette.some(
     (p) => relativeLuminance(p.hex) >= LIGHT_ANCHOR_MIN_LUM
-        && saturation(p.hex) <= LIGHT_ANCHOR_MAX_SAT,
+        && saturation(p.hex) <= LIGHT_ANCHOR_MAX_SAT
+        && (p.area === 'large' || p.area === 'medium'),
   );
   if (palette.length > 0 && !hasAnchor) {
     out.push(conflict(
       'light-anchor', 'error',
-      `No light anchor: no colour has luminance >= ${LIGHT_ANCHOR_MIN_LUM} AND saturation <= ${LIGHT_ANCHOR_MAX_SAT}. Saturated neons do not count.`,
+      `No light anchor: no large- or medium-area colour has luminance >= ${LIGHT_ANCHOR_MIN_LUM} AND saturation <= ${LIGHT_ANCHOR_MAX_SAT}. Saturated neons do not count, and an accent-area highlight is too small to anchor a frame.`,
       'Add a desaturated bright tone — warm off-white, pale sky tint, bleached stone (e.g. #f2ece0, #d8d0b8) — at large or medium area.',
     ));
   }
@@ -967,6 +1038,21 @@ export function checkCoherence(config) {
         'Raise sky/terrain/vegetation into the 0.30-0.70 range, or switch to photoreal where a low-key palette is supportable.',
       ));
     }
+  }
+
+  // R3b — no all-dark large areas, EVERY paradigm. R3 exempts photoreal so a
+  // deliberate night or volcanic scene stays possible, but that exemption must
+  // not become a licence for an all-obsidian frame. A disciplined dark scene
+  // still has something big carrying light: moonlit wet road, ash-lit steam,
+  // a bright sky band. If every large area is in the dark tier, the frame is
+  // murk regardless of paradigm.
+  if (large.length > 0 && !large.some((p) => relativeLuminance(p.hex) > TIER_DARK)) {
+    const brightest = Math.max(...large.map((p) => relativeLuminance(p.hex)));
+    out.push(conflict(
+      'large-area-all-dark', 'error',
+      `Every large-area colour is in the dark tier (brightest is ${brightest.toFixed(3)}, needs one above ${TIER_DARK}). The frame will read as murk whatever the paradigm.`,
+      'Give at least one large-area colour a value above 0.15 — a lit sky band, a wet or reflective ground plane, or a mist layer. A dark scene needs one big surface carrying light, not only small emissive accents.',
+    ));
   }
 
   // R4 — accent cap. Emissive should punctuate, not dominate.
@@ -1126,10 +1212,62 @@ test('an empty palette produces no palette conflicts', () => {
     [],
   );
 });
+
+test('an all-obsidian photoreal palette cannot slip through', () => {
+  // The painterly exemption on large-area luminance must not become a licence
+  // for an all-dark frame. This palette is DARKER than the reference config
+  // (mean large-area luminance 0.009) yet has a bright desaturated accent and
+  // all three value tiers, so it passed every rule before large-area-all-dark.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'sky',        hex: '#0b0b14', area: 'large' },
+      { role: 'terrain',    hex: '#080810', area: 'large' },
+      { role: 'vegetation', hex: '#122b2b', area: 'large' },
+      { role: 'rock-rim',   hex: '#8a8378', area: 'medium' },
+      { role: 'moon-spec',  hex: '#e8e8e8', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('large-area-all-dark'), `rules were: ${rules.join(', ')}`);
+});
+
+test('a light anchor confined to an accent does not count', () => {
+  // R1's own fix text says the anchor belongs at large or medium area.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'sky',      hex: '#3a4450', area: 'large' },
+      { role: 'ground',   hex: '#2b2f36', area: 'large' },
+      { role: 'shadow',   hex: '#0a0d12', area: 'medium' },
+      { role: 'headlamp', hex: '#f2ece0', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('light-anchor'), `rules were: ${rules.join(', ')}`);
+});
+
+test('a disciplined dark photoreal scene still passes', () => {
+  // Night city: dark overall, but the wet road carries light at large area.
+  assert.deepEqual(checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals, wet-surface reflectance',
+    palette: [
+      { role: 'wet-road-sheen', hex: '#c9d4dc', area: 'large' },
+      { role: 'sky-glow',       hex: '#3d4658', area: 'large' },
+      { role: 'facade',         hex: '#1b1f26', area: 'medium' },
+      { role: 'deep-shadow',    hex: '#080a0e', area: 'medium' },
+      { role: 'sodium-lamp',    hex: '#ffb45e', area: 'accent' },
+    ],
+  }), []);
+});
 ```
 
 Run: `node --test tests/coherence.test.mjs`
-Expected: PASS, 10 tests.
+Expected: PASS, 13 tests.
 
 - [ ] **Step 10: Write the Playwright orchestrator**
 
@@ -1164,9 +1302,33 @@ const toImage = (buf) => {
   return { width: png.width, height: png.height, data: png.data };
 };
 
+/** Poll until the dev server answers, or throw after timeoutMs. */
+async function waitForServer(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(url, { method: 'GET' });
+      return;
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  throw new Error(
+    `dev server at ${url} never accepted a connection within ${timeoutMs} ms (last error: ${lastErr?.message}). The demo's vite setup may be broken.`,
+  );
+}
+
 async function run() {
   const playwright = await import('playwright');
   const server = spawn('npx', ['vite', '--port', '5173'], { cwd: targetDir, shell: true });
+
+  // Wait for the dev server to actually accept connections. Without this, a
+  // slow vite boot yields ERR_CONNECTION_REFUSED, which surfaces as
+  // "verification crashed" and reads like a defect in the demo.
+  await waitForServer('http://localhost:5173', 30000);
+
   const browser = await playwright.chromium.launch({
     headless: true,
     args: ['--enable-unsafe-webgpu', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
