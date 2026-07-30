@@ -1,0 +1,15 @@
+{
+  "name": "envizzle-skill",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/",
+    "assemble": "node lib/assemble.mjs",
+    "install-skill": "node install.mjs"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0",
+    "playwright": "^1.62.0"
+  }
+}
