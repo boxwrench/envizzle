@@ -110,14 +110,17 @@ export function checkCoherence(config) {
 
   // R1 — light anchor. A saturated neon is not a light value. Without a
   // desaturated bright tone the scene reads as murk with glowing bits.
+  // The anchor must also occupy real screen area: a light tone confined to a
+  // 2%-of-frame accent anchors nothing.
   const hasAnchor = palette.some(
     (p) => relativeLuminance(p.hex) >= LIGHT_ANCHOR_MIN_LUM
-        && saturation(p.hex) <= LIGHT_ANCHOR_MAX_SAT,
+        && saturation(p.hex) <= LIGHT_ANCHOR_MAX_SAT
+        && (p.area === 'large' || p.area === 'medium'),
   );
   if (palette.length > 0 && !hasAnchor) {
     out.push(conflict(
       'light-anchor', 'error',
-      `No light anchor: no colour has luminance >= ${LIGHT_ANCHOR_MIN_LUM} AND saturation <= ${LIGHT_ANCHOR_MAX_SAT}. Saturated neons do not count.`,
+      `No light anchor: no large- or medium-area colour has luminance >= ${LIGHT_ANCHOR_MIN_LUM} AND saturation <= ${LIGHT_ANCHOR_MAX_SAT}. Saturated neons do not count, and an accent-area highlight is too small to anchor a frame.`,
       'Add a desaturated bright tone — warm off-white, pale sky tint, bleached stone (e.g. #f2ece0, #d8d0b8) — at large or medium area.',
     ));
   }
@@ -153,6 +156,21 @@ export function checkCoherence(config) {
         'Raise sky/terrain/vegetation into the 0.30-0.70 range, or switch to photoreal where a low-key palette is supportable.',
       ));
     }
+  }
+
+  // R3b — no all-dark large areas, EVERY paradigm. R3 exempts photoreal so a
+  // deliberate night or volcanic scene stays possible, but that exemption must
+  // not become a licence for an all-obsidian frame. A disciplined dark scene
+  // still has something big carrying light: moonlit wet road, ash-lit steam,
+  // a bright sky band. If every large area is in the dark tier, the frame is
+  // murk regardless of paradigm.
+  if (large.length > 0 && !large.some((p) => relativeLuminance(p.hex) > TIER_DARK)) {
+    const brightest = Math.max(...large.map((p) => relativeLuminance(p.hex)));
+    out.push(conflict(
+      'large-area-all-dark', 'error',
+      `Every large-area colour is in the dark tier (brightest is ${brightest.toFixed(3)}, needs one above ${TIER_DARK}). The frame will read as murk whatever the paradigm.`,
+      'Give at least one large-area colour a value above 0.15 — a lit sky band, a wet or reflective ground plane, or a mist layer. A dark scene needs one big surface carrying light, not only small emissive accents.',
+    ));
   }
 
   // R4 — accent cap. Emissive should punctuate, not dominate.

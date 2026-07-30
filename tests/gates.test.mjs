@@ -113,3 +113,45 @@ test('THRESHOLDS carries no frame-time gate', () => {
   const keys = Object.keys(THRESHOLDS).join(' ');
   assert.doesNotMatch(keys, /FrameMs|frameMs/, 'frame time must not be a threshold');
 });
+
+// --- Malformed input must never pass vacuously ---------------------------
+// Every numeric comparison is false for NaN and undefined, so without explicit
+// guards a hook that returns nothing sails through every gate.
+
+test('a NaN camera depth fails instead of passing silently', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: NaN,
+    frameStats: okStats,
+  });
+  assert.equal(result.pass, false, 'NaN < 0.30 is false — this must not pass');
+  assert.ok(result.failures.some((f) => /cameraNearestDepth/.test(f)));
+});
+
+test('an undefined camera depth fails instead of passing silently', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: undefined,
+    frameStats: okStats,
+  });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /cameraNearestDepth/.test(f)));
+});
+
+test('an empty frame list fails instead of trivially satisfying zero gates', () => {
+  const result = evaluateGates({ frames: [], cameraDepthM: 5, frameStats: okStats });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /no frames captured/i.test(f)));
+});
+
+test('malformed frameStats is diagnosed, not thrown', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: 5,
+    frameStats: { medianMs: 11 },   // missing p99Ms and samples
+  });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((f) => /frameStats/.test(f)));
+  // Must not crash on toFixed of undefined.
+  assert.ok(Array.isArray(result.info));
+});

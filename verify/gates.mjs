@@ -67,7 +67,30 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
   const failures = [];
   const info = [];
 
-  for (const { name, image, imageWithoutCharacter } of frames) {
+  // Guard the inputs before gating on them. Every numeric comparison below is
+  // false for NaN and undefined, so a hook that returns nothing would sail
+  // through every threshold and report success — exactly the vacuous pass this
+  // module exists to eliminate. An empty frame list is the same failure: zero
+  // frames trivially satisfy zero image gates.
+  if (!Array.isArray(frames) || frames.length === 0) {
+    failures.push(
+      'no frames captured — window.__demo.setPose() produced nothing to inspect. Verification cannot pass on an empty capture.',
+    );
+  }
+  if (typeof cameraDepthM !== 'number' || !Number.isFinite(cameraDepthM)) {
+    failures.push(
+      `window.__demo.cameraNearestDepth() returned ${JSON.stringify(cameraDepthM)} instead of a finite number — the camera-clipping gate cannot run. Implement it to return metres.`,
+    );
+  }
+  for (const key of ['medianMs', 'p99Ms', 'samples']) {
+    if (typeof frameStats?.[key] !== 'number' || !Number.isFinite(frameStats[key])) {
+      failures.push(
+        `window.__demo.frameStats() is missing a finite "${key}" — got ${JSON.stringify(frameStats?.[key])}. Frame time is informational, but a malformed hook is still a defect.`,
+      );
+    }
+  }
+
+  for (const { name, image, imageWithoutCharacter } of frames ?? []) {
     const lum = meanLuminance(image);
     info.push(`[${name}] mean luminance ${lum.toFixed(3)}`);
     if (lum < THRESHOLDS.meanLuminanceMin || lum > THRESHOLDS.meanLuminanceMax) {
@@ -98,16 +121,19 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
     }
   }
 
-  if (cameraDepthM < THRESHOLDS.cameraMinDepthM) {
+  if (Number.isFinite(cameraDepthM) && cameraDepthM < THRESHOLDS.cameraMinDepthM) {
     failures.push(
       `camera nearest depth ${cameraDepthM.toFixed(2)} m below ${THRESHOLDS.cameraMinDepthM} m — camera is inside geometry.`,
     );
   }
 
-  // Reported only. See the module comment.
-  info.push(
-    `frame time: median ${frameStats.medianMs.toFixed(1)} ms, p99 ${frameStats.p99Ms.toFixed(1)} ms over ${frameStats.samples} samples (informational — headless timing is not gated)`,
-  );
+  // Reported only. See the module comment. Guarded so a malformed hook yields
+  // the diagnosis pushed above rather than a TypeError from toFixed().
+  if (Number.isFinite(frameStats?.medianMs) && Number.isFinite(frameStats?.p99Ms)) {
+    info.push(
+      `frame time: median ${frameStats.medianMs.toFixed(1)} ms, p99 ${frameStats.p99Ms.toFixed(1)} ms over ${frameStats.samples} samples (informational — headless timing is not gated)`,
+    );
+  }
 
   return { pass: failures.length === 0, failures, info };
 }

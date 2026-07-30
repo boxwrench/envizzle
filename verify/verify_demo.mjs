@@ -26,9 +26,33 @@ const toImage = (buf) => {
   return { width: png.width, height: png.height, data: png.data };
 };
 
+/** Poll until the dev server answers, or throw after timeoutMs. */
+async function waitForServer(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(url, { method: 'GET' });
+      return;
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  throw new Error(
+    `dev server at ${url} never accepted a connection within ${timeoutMs} ms (last error: ${lastErr?.message}). The demo's vite setup may be broken.`,
+  );
+}
+
 async function run() {
   const playwright = await import('playwright');
   const server = spawn('npx', ['vite', '--port', '5173'], { cwd: targetDir, shell: true });
+
+  // Wait for the dev server to actually accept connections. Without this, a
+  // slow vite boot yields ERR_CONNECTION_REFUSED, which surfaces as
+  // "verification crashed" and reads like a defect in the demo.
+  await waitForServer('http://localhost:5173', 30000);
+
   const browser = await playwright.chromium.launch({
     headless: true,
     args: ['--enable-unsafe-webgpu', '--use-angle=vulkan', '--ignore-gpu-blocklist'],

@@ -111,3 +111,55 @@ test('an empty palette produces no palette conflicts', () => {
     [],
   );
 });
+
+test('an all-obsidian photoreal palette cannot slip through', () => {
+  // The painterly exemption on large-area luminance must not become a licence
+  // for an all-dark frame. This palette is DARKER than the reference config
+  // (mean large-area luminance 0.009) yet has a bright desaturated accent and
+  // all three value tiers, so it passed every rule before large-area-all-dark.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'sky',        hex: '#0b0b14', area: 'large' },
+      { role: 'terrain',    hex: '#080810', area: 'large' },
+      { role: 'vegetation', hex: '#122b2b', area: 'large' },
+      { role: 'rock-rim',   hex: '#8a8378', area: 'medium' },
+      { role: 'moon-spec',  hex: '#e8e8e8', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('large-area-all-dark'), `rules were: ${rules.join(', ')}`);
+});
+
+test('a light anchor confined to an accent does not count', () => {
+  // R1's own fix text says the anchor belongs at large or medium area.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'sky',      hex: '#3a4450', area: 'large' },
+      { role: 'ground',   hex: '#2b2f36', area: 'large' },
+      { role: 'shadow',   hex: '#0a0d12', area: 'medium' },
+      { role: 'headlamp', hex: '#f2ece0', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('light-anchor'), `rules were: ${rules.join(', ')}`);
+});
+
+test('a disciplined dark photoreal scene still passes', () => {
+  // Night city: dark overall, but the wet road carries light at large area.
+  assert.deepEqual(checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals, wet-surface reflectance',
+    palette: [
+      { role: 'wet-road-sheen', hex: '#c9d4dc', area: 'large' },
+      { role: 'sky-glow',       hex: '#3d4658', area: 'large' },
+      { role: 'facade',         hex: '#1b1f26', area: 'medium' },
+      { role: 'deep-shadow',    hex: '#080a0e', area: 'medium' },
+      { role: 'sodium-lamp',    hex: '#ffb45e', area: 'accent' },
+    ],
+  }), []);
+});
