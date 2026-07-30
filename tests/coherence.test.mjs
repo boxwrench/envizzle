@@ -16,9 +16,100 @@ test('saturation separates neon from tinted neutral', () => {
   assert.ok(saturation('#d8d0b8') < 0.35);
 });
 
-test('hexToRgb01 rejects malformed hex', async () => {
+test('hexToRgb01 validates hex strings strictly', async () => {
   const { hexToRgb01 } = await import('../check.mjs');
+  assert.deepEqual(hexToRgb01('#ffffff'), [1, 1, 1]);
   assert.throws(() => hexToRgb01('#fff'), /#rrggbb/);
+  assert.throws(() => hexToRgb01('#gggggg'), /#rrggbb/);
+});
+
+test('validateConfig diagnoses missing or null config', async () => {
+  const { validateConfig } = await import('../check.mjs');
+  const rulesNull = validateConfig(null).map((c) => c.rule);
+  assert.ok(rulesNull.includes('config-required'));
+  const rulesUndefined = validateConfig(undefined).map((c) => c.rule);
+  assert.ok(rulesUndefined.includes('config-required'));
+});
+
+test('validateConfig diagnoses invalid paradigm', async () => {
+  const { validateConfig } = await import('../check.mjs');
+  const rules = validateConfig({
+    paradigm: 'invalid-paradigm',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'some behavior',
+    palette: [{ role: 'sky', hex: '#a8c8e8', area: 'large' }],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('paradigm-invalid'));
+});
+
+test('validateConfig diagnoses missing assetStrategy', async () => {
+  const { validateConfig } = await import('../check.mjs');
+  const rules = validateConfig({
+    paradigm: 'photoreal',
+    assetStrategy: '',
+    materialBehaviours: 'some behavior',
+    palette: [{ role: 'sky', hex: '#a8c8e8', area: 'large' }],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('asset-strategy-required'));
+});
+
+test('validateConfig diagnoses missing or blank material behavior text', async () => {
+  const { validateConfig } = await import('../check.mjs');
+  const rules = validateConfig({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: '   ',
+    palette: [{ role: 'sky', hex: '#a8c8e8', area: 'large' }],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('material-behaviours-required'));
+});
+
+test('validateConfig diagnoses missing or empty palette', async () => {
+  const { validateConfig, checkCoherence } = await import('../check.mjs');
+  const rulesEmpty = checkCoherence({
+    paradigm: 'painterly',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'some behavior',
+    palette: [],
+  }).map((c) => c.rule);
+  assert.ok(rulesEmpty.includes('palette-required'));
+
+  const rulesMissing = validateConfig({
+    paradigm: 'painterly',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'some behavior',
+  }).map((c) => c.rule);
+  assert.ok(rulesMissing.includes('palette-required'));
+});
+
+test('validateConfig diagnoses invalid entry hex, area, and role', async () => {
+  const { validateConfig } = await import('../check.mjs');
+  const rules = validateConfig({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'some behavior',
+    palette: [{ role: '', hex: '#gggggg', area: 'invalid-area' }],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('palette-entry-invalid'));
+});
+
+test('validateConfig diagnoses palette without a large area entry', async () => {
+  const { validateConfig } = await import('../check.mjs');
+  const rules = validateConfig({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'some behavior',
+    palette: [{ role: 'sun', hex: '#ffffff', area: 'accent' }],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('large-area-required'));
+});
+
+test('checkCoherence does not throw on malformed input', async () => {
+  const { checkCoherence } = await import('../check.mjs');
+  assert.doesNotThrow(() => checkCoherence(null));
+  assert.doesNotThrow(() => checkCoherence({}));
+  assert.doesNotThrow(() => checkCoherence({ palette: [{ role: '', hex: '#gggggg', area: 'huge' }] }));
+  assert.ok(Array.isArray(checkCoherence(null)));
 });
 
 // The config that produced the muddy dark frames in the reference output.
@@ -104,12 +195,10 @@ test('accent-heavy palettes are capped', () => {
   assert.ok(rules.includes('accent-cap'));
 });
 
-test('an empty palette produces no palette conflicts', () => {
-  assert.deepEqual(
-    checkCoherence({ paradigm: 'painterly', assetStrategy: 'other', materialBehaviours: '' })
-      .map((c) => c.rule),
-    [],
-  );
+test('an empty palette fails with palette-required', () => {
+  const rules = checkCoherence({ paradigm: 'painterly', assetStrategy: 'zero-asset', materialBehaviours: 'cel ramp', palette: [] })
+    .map((c) => c.rule);
+  assert.ok(rules.includes('palette-required'));
 });
 
 test('an all-obsidian photoreal palette cannot slip through', () => {

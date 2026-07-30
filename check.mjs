@@ -68,9 +68,10 @@ export function validateBrief(brief) {
 
 /** '#rrggbb' → [r, g, b] each 0..1 in sRGB space. */
 export function hexToRgb01(hex) {
-  const h = hex.replace('#', '');
-  if (h.length !== 6) throw new Error(`Expected #rrggbb, got: ${hex}`);
-  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    throw new Error(`Expected #rrggbb, got: ${hex}`);
+  }
+  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 }
 
 const toLinear = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -101,12 +102,110 @@ const TIER_LIGHT = 0.55;
 const conflict = (rule, severity, message, fix) => ({ rule, severity, message, fix });
 
 /**
+ * Validate structure and required fields of a demo config object.
+ * @returns {Array<{rule:string,severity:'error'|'warn',message:string,fix:string}>}
+ */
+export function validateConfig(config) {
+  const out = [];
+
+  if (!config || typeof config !== 'object') {
+    out.push(conflict(
+      'config-required', 'error',
+      'Configuration must be a non-null object.',
+      'Provide a valid configuration object.',
+    ));
+    return out;
+  }
+
+  if (config.paradigm !== 'photoreal' && config.paradigm !== 'painterly') {
+    out.push(conflict(
+      'paradigm-invalid', 'error',
+      `Invalid paradigm '${config.paradigm}'; expected 'photoreal' or 'painterly'.`,
+      "Set paradigm to 'photoreal' or 'painterly'.",
+    ));
+  }
+
+  if (typeof config.assetStrategy !== 'string' || config.assetStrategy.trim() === '') {
+    out.push(conflict(
+      'asset-strategy-required', 'error',
+      'assetStrategy must be a non-empty string.',
+      "Specify assetStrategy (e.g. 'zero-asset').",
+    ));
+  }
+
+  if (typeof config.materialBehaviours !== 'string' || config.materialBehaviours.trim() === '') {
+    out.push(conflict(
+      'material-behaviours-required', 'error',
+      'materialBehaviours must be a non-empty string.',
+      'Specify materialBehaviours description string.',
+    ));
+  }
+
+  if (!Array.isArray(config.palette) || config.palette.length === 0) {
+    out.push(conflict(
+      'palette-required', 'error',
+      'palette must be a non-empty array.',
+      'Provide a palette array containing at least one entry.',
+    ));
+  } else {
+    const invalidEntries = [];
+    let hasLargeArea = false;
+
+    config.palette.forEach((entry, idx) => {
+      if (!entry || typeof entry !== 'object') {
+        invalidEntries.push(`index ${idx} (not an object)`);
+        return;
+      }
+      const entryProblems = [];
+      if (typeof entry.role !== 'string' || entry.role.trim() === '') {
+        entryProblems.push('missing role');
+      }
+      if (typeof entry.hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(entry.hex)) {
+        entryProblems.push('invalid hex');
+      }
+      if (entry.area !== 'large' && entry.area !== 'medium' && entry.area !== 'accent') {
+        entryProblems.push('invalid area');
+      }
+
+      if (entryProblems.length > 0) {
+        invalidEntries.push(`index ${idx}: ${entryProblems.join(', ')}`);
+      } else if (entry.area === 'large') {
+        hasLargeArea = true;
+      }
+    });
+
+    if (invalidEntries.length > 0) {
+      out.push(conflict(
+        'palette-entry-invalid', 'error',
+        `Invalid palette entries: ${invalidEntries.join('; ')}.`,
+        "Correct entry role, hex (#rrggbb format), and area ('large', 'medium', or 'accent').",
+      ));
+    }
+
+    if (!hasLargeArea) {
+      out.push(conflict(
+        'large-area-required', 'error',
+        "Palette must contain at least one entry with area 'large'.",
+        "Set area: 'large' on sky, terrain, or main surface palette entries.",
+      ));
+    }
+  }
+
+  return out;
+}
+
+/**
  * Evaluate a demo config against the art-direction rules.
  * @returns {Array<{rule:string,severity:'error'|'warn',message:string,fix:string}>}
  */
 export function checkCoherence(config) {
+  const validationConflicts = validateConfig(config);
+  if (validationConflicts.length > 0) {
+    return validationConflicts;
+  }
+
   const out = [];
-  const palette = config.palette ?? [];
+  const palette = config.palette;
   const lums = palette.map((p) => relativeLuminance(p.hex));
 
   // R1 — light anchor. A saturated neon is not a light value. Without a
