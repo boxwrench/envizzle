@@ -148,6 +148,42 @@ test('a light anchor confined to an accent does not count', () => {
   assert.ok(rules.includes('light-anchor'), `rules were: ${rules.join(', ')}`);
 });
 
+test('one lit band over near-black large areas does not buy a pass', () => {
+  // large-area-all-dark is an existence check on the brightest value, so a
+  // single large area a hair over 0.15 would otherwise license arbitrarily
+  // black remaining large areas. Mean here is 0.056.
+  const rules = checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals',
+    palette: [
+      { role: 'haze-band',  hex: '#707070', area: 'large' },
+      { role: 'terrain',    hex: '#050508', area: 'large' },
+      { role: 'vegetation', hex: '#060b0b', area: 'large' },
+      { role: 'cliff-lip',  hex: '#d8d0b8', area: 'medium' },
+      { role: 'ember',      hex: '#ff5a1e', area: 'accent' },
+    ],
+  }).map((c) => c.rule);
+  assert.ok(rules.includes('large-area-mean-floor'), `rules were: ${rules.join(', ')}`);
+});
+
+test('a volcanic palette authored to the floor passes', () => {
+  // Proof the floor leaves the deliberate low-key biome buildable — Task 4
+  // must ship this preset. Two large areas carrying light, not one stripe.
+  assert.deepEqual(checkCoherence({
+    paradigm: 'photoreal',
+    assetStrategy: 'zero-asset',
+    materialBehaviours: 'multi-scale procedural normals, emissive crust fissures',
+    palette: [
+      { role: 'ash-sky',      hex: '#9a8578', area: 'large' },
+      { role: 'ash-plain',    hex: '#6b5f57', area: 'large' },
+      { role: 'basalt',       hex: '#14100f', area: 'large' },
+      { role: 'steam-lit',    hex: '#e8dcc8', area: 'medium' },
+      { role: 'lava-fissure', hex: '#ff5a1e', area: 'accent' },
+    ],
+  }), []);
+});
+
 test('a disciplined dark photoreal scene still passes', () => {
   // Night city: dark overall, but the wet road carries light at large area.
   assert.deepEqual(checkCoherence({

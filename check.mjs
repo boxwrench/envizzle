@@ -92,7 +92,8 @@ export function saturation(hex) {
 
 const LIGHT_ANCHOR_MIN_LUM = 0.55;
 const LIGHT_ANCHOR_MAX_SAT = 0.35;
-const LARGE_AREA_MIN_MEAN_LUM = 0.30;
+const LARGE_AREA_MIN_MEAN_LUM = 0.30;   // painterly only
+const LARGE_AREA_MIN_MEAN_ANY = 0.10;   // every paradigm; tracks the runtime gate
 const ACCENT_MAX_FRACTION = 0.35;
 const TIER_DARK = 0.15;
 const TIER_LIGHT = 0.55;
@@ -164,13 +165,31 @@ export function checkCoherence(config) {
   // still has something big carrying light: moonlit wet road, ash-lit steam,
   // a bright sky band. If every large area is in the dark tier, the frame is
   // murk regardless of paradigm.
-  if (large.length > 0 && !large.some((p) => relativeLuminance(p.hex) > TIER_DARK)) {
-    const brightest = Math.max(...large.map((p) => relativeLuminance(p.hex)));
-    out.push(conflict(
-      'large-area-all-dark', 'error',
-      `Every large-area colour is in the dark tier (brightest is ${brightest.toFixed(3)}, needs one above ${TIER_DARK}). The frame will read as murk whatever the paradigm.`,
-      'Give at least one large-area colour a value above 0.15 — a lit sky band, a wet or reflective ground plane, or a mist layer. A dark scene needs one big surface carrying light, not only small emissive accents.',
-    ));
+  if (large.length > 0) {
+    const largeLums = large.map((p) => relativeLuminance(p.hex));
+    const brightest = Math.max(...largeLums);
+    const meanLarge = largeLums.reduce((s, l) => s + l, 0) / largeLums.length;
+
+    if (brightest <= TIER_DARK) {
+      out.push(conflict(
+        'large-area-all-dark', 'error',
+        `Every large-area colour is in the dark tier (brightest is ${brightest.toFixed(3)}, needs one above ${TIER_DARK}). The frame will read as murk whatever the paradigm.`,
+        'Give at least one large-area colour a value above 0.15 — a lit sky band, a wet or reflective ground plane, or a mist layer. A dark scene needs one big surface carrying light, not only small emissive accents.',
+      ));
+    }
+
+    // An existence check on the brightest value alone is gameable: one large
+    // area a hair over 0.15 would license arbitrarily black remaining large
+    // areas. This floor is deliberately aligned with the runtime image gate's
+    // meanLuminanceMin of 0.12 — a palette below it would very likely fail
+    // that gate after the build, and catching it here is far cheaper.
+    if (meanLarge < LARGE_AREA_MIN_MEAN_ANY) {
+      out.push(conflict(
+        'large-area-mean-floor', 'error',
+        `Mean large-area luminance is ${meanLarge.toFixed(3)} (floor ${LARGE_AREA_MIN_MEAN_ANY}). One lit band over otherwise black surfaces still renders as murk, and the runtime luminance gate would likely reject the frame.`,
+        'Raise a second large-area surface out of the dark tier, or promote a mid-value colour from medium to large area. A dark scene needs more than a single bright stripe.',
+      ));
+    }
   }
 
   // R4 — accent cap. Emissive should punctuate, not dominate.

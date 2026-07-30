@@ -51,7 +51,18 @@ async function run() {
   // Wait for the dev server to actually accept connections. Without this, a
   // slow vite boot yields ERR_CONNECTION_REFUSED, which surfaces as
   // "verification crashed" and reads like a defect in the demo.
-  await waitForServer('http://localhost:5173', 30000);
+  //
+  // The kill-on-throw matters more than it looks: this happens BEFORE the
+  // try/finally below, so without it a timeout orphans `npx vite` still
+  // holding port 5173 — and the NEXT run's readiness poll would succeed
+  // against that stale server, verifying nothing. Same vacuous-pass class
+  // this whole module exists to eliminate.
+  try {
+    await waitForServer('http://localhost:5173', 30000);
+  } catch (err) {
+    server.kill();
+    throw err;
+  }
 
   const browser = await playwright.chromium.launch({
     headless: true,
