@@ -72,3 +72,12 @@ test('the shipped TEMPLATE.md still has its tokens and sections', () => {
   assert.match(tpl, /ENABLE_SIGNATURE_MOMENT/, 'template missing ENABLE_SIGNATURE_MOMENT setting');
   assert.match(tpl, /mechanic verification capture/i, 'template missing mechanic verification capture visibility requirement');
 });
+
+test('TEMPLATE.md enforces mode-neutral baseline and Proven toggle contract', () => {
+  const tpl = fs.readFileSync('TEMPLATE.md', 'utf8');
+  assert.doesNotMatch(tpl, /base showcase behavior/i, 'TEMPLATE.md contains stale base showcase behavior phrase');
+  assert.match(tpl, /restores? the selected configuration without the Signature Moment/i, 'TEMPLATE.md missing baseline restoration language');
+  assert.match(tpl, /Proven[\s\S]*?ENABLE_SIGNATURE_MOMENT[\s\S]*?(false|no-op)/i, 'TEMPLATE.md missing Proven toggle false/no-op language');
+  assert.match(tpl, /ENABLE_SIGNATURE_MOMENT/, 'TEMPLATE.md missing ENABLE_SIGNATURE_MOMENT');
+  assert.match(tpl, /mechanic verification capture/i, 'TEMPLATE.md missing mechanic verification capture language');
+});

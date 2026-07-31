@@ -136,3 +136,14 @@ test('requires stripping every section marker, kept sections included', () => {
   assert.match(skill, /<!--SECTION:/);
   assert.match(skill, /<!--\/SECTION-->/);
 });
+
+test('documents explicit mode control flow, interview reservation, baseline wording, and Proven toggle behavior', () => {
+  assert.match(skill, /#### Proven[\s\S]*?Do not enter the full Step 2 interview[\s\S]*?Continue directly to Step 3/i);
+  assert.match(skill, /#### Signature[\s\S]*?Do not enter the full Step 2 interview[\s\S]*?Ask only the optional creative-spark question[\s\S]*?Continue directly to Step 3/i);
+  assert.match(skill, /#### Experimental base-showcase path[\s\S]*?Ask only the relevant Step 2 question for that selected axis/i);
+  assert.match(skill, /The Experimental fully custom path is the only path that runs the complete Step 2 interview/);
+  assert.match(skill, /## Step 2 — Fully custom interview/);
+  assert.doesNotMatch(skill, /Creative Spark.*7|7\\. Creative Spark/);
+  assert.match(skill, /restores the selected configuration without the Signature Moment|removable, restoring the selected configuration/);
+  assert.match(skill, /Set `ENABLE_SIGNATURE_MOMENT` to `false`; it is a no-op/);
+});

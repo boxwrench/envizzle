@@ -168,4 +168,17 @@ test('Creative modes section exists and documents mode rules', () => {
   assert.match(s, /at most one major axis/i);
   assert.match(s, /complete supported/i);
   assert.match(s, /checkCoherence/i);
+
+  assert.match(s, /Proven[\s\S]*?continue directly to Step 3/i);
+  assert.match(s, /Signature[\s\S]*?continue directly to Step 3/i);
+  assert.match(s, /Base-showcase path[\s\S]*?ask only the relevant Step 2 question/i);
+  assert.match(s, /Fully custom path[\s\S]*?Enter the full Step 2 interview/i);
+
+  assert.match(s, /Experimental fully custom path is the only path that runs the complete Step 2 interview/i);
+
+  assert.match(s, /restore the selected configuration without the Signature Moment/i);
+
+  assert.match(s, /Proven[\s\S]*?ENABLE_SIGNATURE_MOMENT[\s\S]*?(false|no-op)/i);
+  assert.match(s, /Signature[\s\S]*?ENABLE_SIGNATURE_MOMENT[\s\S]*?default/i);
+  assert.match(s, /Experimental[\s\S]*?ENABLE_SIGNATURE_MOMENT[\s\S]*?default/i);
 });

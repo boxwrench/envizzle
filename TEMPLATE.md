@@ -144,7 +144,7 @@ Hold {{CENTREPIECE_INPUT — default: RMB / F / T}}. This receives the most poli
 
 - Zero allocations in the render loop (`new` prohibited in per-frame code). Pre-allocate scratch vectors and math pools.
 - Pre-compile every material, particle system, post-process, and compute pipeline behind loading screen. Gate on `material.isReady()`.
-- **Settings & Signature Toggle:** Provide `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` to enable or disable the Signature Moment behavior. Disabling it must restore the intact base showcase behavior cleanly.
+- **Settings & Signature Toggle:** Provide `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` to enable or disable the Signature Moment behavior. Disabling `ENABLE_SIGNATURE_MOMENT` must restore the selected configuration without the Signature Moment. In Proven mode, set `ENABLE_SIGNATURE_MOMENT` to `false`; it is a no-op and no independent Signature Moment code path is required.
 - **Mandatory Root Log Files:** You MUST create `DECISIONS.md` (recording creative mode, base showcase/custom path, creative spark, Signature Moment, system reuse, compatibility checks, and trade-offs) and `PERF.md` (measured CPU frame budget breakdown + VRAM allocation table) in the project root.
 
 ---
@@ -190,7 +190,7 @@ Before declaring the demo complete, verify each item:
 - State marks displace mass/vegetation, self-shadow, and soften over time.
 - In Proven mode, the configured centrepiece interaction is readable in the mechanic verification capture.
 - In Signature and Experimental modes, the Signature Moment is clearly visible in the mechanic verification capture (`window.__demo.setPose('mechanic')`) without requiring a separate verifier pose or API.
-- Disabling `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` restores the intact base showcase behavior cleanly.
+- Disabling `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` restores the selected configuration without the Signature Moment.
 - The demo sustains 90 FPS with 1% lows above 60 FPS. Zero hitching on first trigger.
 
 ## 6. Mandatory Verification Hook

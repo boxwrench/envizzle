@@ -25,24 +25,29 @@ conflicts. If you edit one, re-run the check; do not relax the rule.
 
 ## Creative modes
 
-Envizzle provides three explicit creative modes. Every brief specifies one creative mode that defines the freedom budget for artistic novelty and system customization.
+Envizzle provides three explicit creative modes. Every brief specifies one creative mode that defines the freedom budget for artistic novelty and system customization. Disabling `ENABLE_SIGNATURE_MOMENT` must restore the selected configuration without the Signature Moment.
 
 ### Proven
 
 - Select one showcase configuration as a whole.
+- Do not enter the full Step 2 interview; continue directly to Step 3.
+- Do not ask for a creative spark.
 - Do not change its ambition, biome, archetype, mechanic, camera, or rendering profile.
 - Do not add an independent Signature Moment.
 - Treat the configured centrepiece mechanic and its strongest existing visual consequence as the signature shot.
 - Permit implementation creativity only inside existing specified systems (composition, timing, shader mechanics, and polish).
+- Set `ENABLE_SIGNATURE_MOMENT` to `false`; it is a no-op and no independent Signature Moment code path is required.
 
 ### Signature
 
 - **Signature is the default creative mode.**
 - Select one showcase configuration as a whole.
+- Do not enter the full Step 2 interview; continue directly to Step 3.
 - Do not change its ambition, biome, archetype, mechanic, camera, or rendering profile.
 - Invent exactly one Signature Moment that reuses existing specified systems.
-- Permit an optional user-supplied creative spark (visual memory, material, emotion, or natural phenomenon) to influence the Signature Moment.
-- If no spark is supplied, use "surprise me."
+- Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the selected whole showcase without the Signature Moment.
+- Ask only the optional creative-spark question (visual memory, material, emotion, or natural phenomenon) to influence the Signature Moment, unless the user said "pick for me."
+- If no spark is supplied or user said "pick for me," use "surprise me."
 
 ### Experimental
 
@@ -51,14 +56,22 @@ Experimental permits controlled customization via two explicit paths:
 1. **Base-showcase path:**
    - Begin from one named showcase configuration.
    - Change at most one major axis: Ambition, Biome (including palette, paradigm, material behavior, and terrain values), Archetype, Mechanic, or Camera.
+   - Ask which single major axis will change and ask only the relevant Step 2 question for that selected axis. Do not run the remaining interview questions.
    - A rendering-profile change does not count as the single creative axis, provided it uses a complete supported Batch 3 profile tuple.
    - Project name and hardware-target edits do not count as creative axes.
-   - Do not copy isolated token values from unrelated showcase configurations — substitute a complete preset axis.
+   - Ask the optional creative-spark question.
+   - Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the configuration after its one approved axis change without the Signature Moment.
+   - Run required compatibility checks and continue to Step 3.
 
 2. **Fully custom path:**
-   - Run the one-question-at-a-time interview.
+   - Enter the full Step 2 interview (`Step 2 — Fully custom interview`). Ask each Step 2 question in order.
+   - Ask the optional creative-spark question.
+   - Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the fully custom configuration without the Signature Moment.
    - Use only named biome, archetype, mechanic, camera, ambition, and rendering-profile options from the preset reference.
    - Originality comes from their deliberate combination and the Signature Moment, not from inventing unsupported engine or system contracts.
+   - Continue to Step 3.
+
+The Experimental fully custom path is the only path that runs the complete Step 2 interview.
 
 **Experimental Mode Rules:**
 - Never select Experimental automatically; require explicit user selection.

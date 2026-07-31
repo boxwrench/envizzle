@@ -57,12 +57,63 @@ At any later question, "pick for me" means:
 
 Do not maintain a second, competing route-number system.
 
+### Explicit mode-dependent control flow
+
+Immediately after mode selection, follow the explicit control flow for the selected mode:
+
+#### Proven
+1. Select one whole showcase configuration.
+2. Do not enter the full Step 2 interview.
+3. Do not ask for a creative spark.
+4. Fill the Proven `SIGNATURE_MOMENT` text. Set `ENABLE_SIGNATURE_MOMENT` to `false`; it is a no-op and no independent Signature Moment code path is required.
+5. Continue directly to Step 3.
+
+#### Signature
+1. Select one whole showcase configuration.
+2. Do not enter the full Step 2 interview.
+3. Ask only the optional creative-spark question, unless the user said "pick for me."
+4. Generate the bounded Signature Moment. Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the selected whole showcase without the Signature Moment.
+5. Continue directly to Step 3.
+
+#### Experimental base-showcase path
+1. Select one named base showcase.
+2. Ask which single major axis will change (ambition, biome, archetype, mechanic, or camera).
+3. Ask only the relevant Step 2 question for that selected axis.
+4. Do not run the remaining interview questions.
+5. A rendering-profile change may be accepted only as a complete supported tuple (and does not count as the single creative axis).
+6. Ask the optional creative-spark question.
+7. Run the required compatibility checks. Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the configuration after its one approved axis change without the Signature Moment.
+8. Continue directly to Step 3.
+
+#### Experimental fully custom path
+1. Enter the full Step 2 interview.
+2. Ask each Step 2 question in order.
+3. Ask the optional creative-spark question. Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the fully custom configuration without the Signature Moment.
+4. Continue directly to Step 3.
+
+The Experimental fully custom path is the only path that runs the complete Step 2 interview.
+
+### Creative Spark (Signature and Experimental modes only)
+
+Ask once in Signature or Experimental mode (unless the user said "pick for me"):
+
+> Do you want to give me one visual memory, material, emotion, or natural phenomenon to influence the Signature Moment, or should I surprise you?
+
+Rules:
+- The spark is inspiration, not a literal new requirement.
+- Do not turn it into an additional system.
+- Do not alter the palette or paradigm unless Experimental mode explicitly assigns the biome axis as its one changed axis.
+- If the user says "pick for me," skip this question and use "surprise me."
+- Proven mode skips this question entirely.
+
 **Creative authority and hard contracts:**
 Creative authority operates only inside the selected creative mode. Creative decisions cannot override hard contracts (rendering profile, ambition ceiling, asset strategy, palette coherence decisions, character recipe, verification hook, acceptance gates, and required project deliverables).
 
 ---
 
-## Step 2 — The interview
+## Step 2 — Fully custom interview
+
+This step runs only for the Experimental fully custom mode. Other paths may reference a single relevant question from this section but must not enter the complete interview. The Experimental fully custom path is the only path that runs the complete Step 2 interview.
 
 One question at a time. Wait for the answer before asking the next. Read the valid
 names out of `references/presets.md` and offer them as a numbered list with a
@@ -123,17 +174,6 @@ so phrase it accordingly:
   **architecture**, and **destructibility**, appended as `§2.9`–`§2.12`. Confirm
   which the user wants. If they want none, they are at `showcase` — say so and
   change the level rather than writing an `everything` brief with nothing extra.
-
-**7. Creative Spark (Signature and Experimental modes only)** — Ask once:
-
-> Do you want to give me one visual memory, material, emotion, or natural phenomenon to influence the Signature Moment, or should I surprise you?
-
-Rules:
-- The spark is inspiration, not a literal new requirement.
-- Do not turn it into an additional system.
-- Do not alter the palette or paradigm unless Experimental mode explicitly assigns the biome axis as its one changed axis.
-- If the user says "pick for me," skip this question and use "surprise me."
-- Proven mode skips this question entirely.
 
 Also collect, in the same pass:
 
@@ -267,7 +307,7 @@ On the Experimental custom route, derive the nine config-level tokens like this:
 - Add no new engine, renderer, asset category, persistent GPU buffer, major render pass, simulation subsystem, or separate gameplay input.
 - Add no new optional section and never increase the ambition level. At `slice`, the Signature Moment must reuse a system that survives at `slice`.
 - Remain compatible with the zero-asset strategy.
-- Be controlled by `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` and be removable without breaking the base showcase.
+- Be controlled by `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` and be removable, restoring the selected configuration without the Signature Moment.
 - Be visible when `window.__demo.setPose('mechanic')` is called.
 - Remain exactly one behavior, not a bundle of related features.
 
