@@ -360,3 +360,19 @@ test('formatStateChannelContract produces deterministic output and throws on inv
   const invalid = { ...alpine, creativeMode: 'invalid' };
   assert.throws(() => formatStateChannelContract(invalid), /Cannot format invalid selection/);
 });
+
+test('Tidal Shelf landing-depression mapping is correctly authored and formatted', () => {
+  const tidalContract = SHOWCASES['Tidal Shelf'].stateChannelContract;
+  assert.equal(
+    tidalContract['landing-depression'].effect,
+    'landing depression becomes bed-scour depth',
+    'Tidal Shelf registry effect mismatch',
+  );
+
+  const formattedTidal = formatStateChannelContract(deriveSelection('Tidal Shelf'));
+  assert.match(
+    formattedTidal,
+    /^\* \*\*`landing-depression`\*\* → \*\*`B`\*\* \(bed scour depth 0 -> 0\.22 m\): landing depression becomes bed-scour depth$/m,
+    'Formatted Tidal Shelf contract line mismatch',
+  );
+});

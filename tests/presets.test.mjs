@@ -186,3 +186,11 @@ test('Creative modes section exists and documents mode rules', () => {
 test('presets.md contains no stale token-count or manual verification phrases', () => {
   assert.doesNotMatch(md, /37 tokens|of the 37|one of the 37|manually verify mechanic/i);
 });
+
+test('presets.md contains the exact Tidal Shelf landing-depression interpretation', () => {
+  assert.match(
+    md,
+    /landing-depression\s*→\s*B\s*\(bed scour depth 0 -> 0\.22 m\):\s*landing depression becomes bed-scour depth/,
+    'presets.md missing expected Tidal Shelf landing-depression line',
+  );
+});

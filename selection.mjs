@@ -87,7 +87,7 @@ export const SHOWCASES = {
     ],
     stateChannelContract: {
       'anchor-displaced-mass': { channel: 'G', effect: 'displaced mass becomes localized foam coverage' },
-      'landing-depression': { channel: 'B', effect: 'bed scour depth 0 -> 0.22 m' },
+      'landing-depression': { channel: 'B', effect: 'landing depression becomes bed-scour depth' },
       'hard-landing-disturbance': { channel: 'A', effect: 'disturbed sand becomes turbidity' },
     },
   },
