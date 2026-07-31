@@ -2,6 +2,16 @@
 /**
  * selection.mjs — Deterministic selection validator for envizzle creative modes
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export const CREATIVE_MODES = ['proven', 'signature', 'experimental'];
+export const SELECTION_PATHS = ['showcase', 'base-showcase', 'fully-custom'];
+export const AMBITIONS = ['slice', 'showcase', 'everything'];
+export const ARCHETYPES = ['Robed Mage', 'Traveller Coat', 'Armored Soldier', 'Desert Nomad', 'Void Wanderer'];
+export const CORE_SECTIONS = ['vegetation', 'state-buffer', 'audio'];
+export const EXTRA_SECTIONS = ['weather', 'water-bodies', 'architecture', 'destructibility'];
 
 export const RENDERING_PROFILES = {
   'babylon-webgpu': {
@@ -230,32 +240,29 @@ export function validateSelection(selection) {
   }
 
   // 1. Enum validation
-  const validModes = ['proven', 'signature', 'experimental'];
-  if (!validModes.includes(selection.creativeMode)) {
+  if (!CREATIVE_MODES.includes(selection.creativeMode)) {
     out.push(conflict(
       'creative-mode-invalid',
       'error',
-      `Invalid creativeMode '${selection.creativeMode}'. Expected one of: ${validModes.join(', ')}.`,
+      `Invalid creativeMode '${selection.creativeMode}'. Expected one of: ${CREATIVE_MODES.join(', ')}.`,
       'Set creativeMode to proven, signature, or experimental.',
     ));
   }
 
-  const validPaths = ['showcase', 'base-showcase', 'fully-custom'];
-  if (!validPaths.includes(selection.path)) {
+  if (!SELECTION_PATHS.includes(selection.path)) {
     out.push(conflict(
       'path-invalid',
       'error',
-      `Invalid path '${selection.path}'. Expected one of: ${validPaths.join(', ')}.`,
+      `Invalid path '${selection.path}'. Expected one of: ${SELECTION_PATHS.join(', ')}.`,
       'Set path to showcase, base-showcase, or fully-custom.',
     ));
   }
 
-  const validAmbitions = ['slice', 'showcase', 'everything'];
-  if (!validAmbitions.includes(selection.ambition)) {
+  if (!AMBITIONS.includes(selection.ambition)) {
     out.push(conflict(
       'ambition-invalid',
       'error',
-      `Invalid ambition '${selection.ambition}'. Expected one of: ${validAmbitions.join(', ')}.`,
+      `Invalid ambition '${selection.ambition}'. Expected one of: ${AMBITIONS.join(', ')}.`,
       'Set ambition to slice, showcase, or everything.',
     ));
   }
@@ -269,13 +276,12 @@ export function validateSelection(selection) {
     ));
   }
 
-  const validArchetypes = ['Robed Mage', 'Traveller Coat', 'Armored Soldier', 'Desert Nomad', 'Void Wanderer'];
-  if (!validArchetypes.includes(selection.archetype)) {
+  if (!ARCHETYPES.includes(selection.archetype)) {
     out.push(conflict(
       'archetype-invalid',
       'error',
       `Invalid archetype '${selection.archetype}'.`,
-      `Select a registered archetype: ${validArchetypes.join(', ')}.`,
+      `Select a registered archetype: ${ARCHETYPES.join(', ')}.`,
     ));
   }
 
@@ -490,9 +496,6 @@ export function validateSelection(selection) {
   }
 
   // 6. Validate includedSections and extraSections
-  const coreSections = ['vegetation', 'state-buffer', 'audio'];
-  const extraSectionsList = ['weather', 'water-bodies', 'architecture', 'destructibility'];
-
   const incSec = selection.includedSections;
   const extSec = selection.extraSections;
   const isIncSecArray = Array.isArray(incSec);
@@ -514,13 +517,13 @@ export function validateSelection(selection) {
         'Remove duplicate section names from includedSections.',
       ));
     }
-    const unknownInc = incSec.filter((s) => !coreSections.includes(s));
+    const unknownInc = incSec.filter((s) => !CORE_SECTIONS.includes(s));
     if (unknownInc.length > 0) {
       out.push(conflict(
         'included-sections-unknown',
         'error',
         `includedSections contains unknown or invalid sections: ${unknownInc.join(', ')}.`,
-        `Use core sections: ${coreSections.join(', ')}.`,
+        `Use core sections: ${CORE_SECTIONS.join(', ')}.`,
       ));
     }
   }
@@ -541,13 +544,13 @@ export function validateSelection(selection) {
         'Remove duplicate section names from extraSections.',
       ));
     }
-    const unknownExt = extSec.filter((s) => !extraSectionsList.includes(s));
+    const unknownExt = extSec.filter((s) => !EXTRA_SECTIONS.includes(s));
     if (unknownExt.length > 0) {
       out.push(conflict(
         'extra-sections-unknown',
         'error',
         `extraSections contains unknown or invalid sections: ${unknownExt.join(', ')}.`,
-        `Use extra sections: ${extraSectionsList.join(', ')}.`,
+        `Use extra sections: ${EXTRA_SECTIONS.join(', ')}.`,
       ));
     }
   }
@@ -580,7 +583,7 @@ export function validateSelection(selection) {
         ));
       }
     } else if (selection.ambition === 'everything') {
-      const hasAllCore = coreSections.every((s) => incSec.includes(s));
+      const hasAllCore = CORE_SECTIONS.every((s) => incSec.includes(s));
       if (!hasAllCore) {
         out.push(conflict(
           'everything-core-sections-required',
@@ -873,4 +876,131 @@ export function formatStateChannelContract(selection) {
   });
 
   return lines.join('\n');
+}
+
+function printUsageAndExit(code, toStderr = false) {
+  const usage = `Usage:
+  node selection.mjs list
+  node selection.mjs validate <selection.json>
+  node selection.mjs format-state <selection.json>
+  node selection.mjs --help`;
+  if (toStderr) {
+    console.error(usage);
+  } else {
+    console.log(usage);
+  }
+  process.exit(code);
+}
+
+function runCli() {
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  if (!command || command === '--help' || command === '-h' || command === 'help') {
+    if (!command) {
+      printUsageAndExit(2, true);
+    }
+    printUsageAndExit(0, false);
+  }
+
+  if (command === 'list') {
+    if (args.length > 1) {
+      printUsageAndExit(2, true);
+    }
+    const listObj = {
+      creativeModes: CREATIVE_MODES,
+      paths: SELECTION_PATHS,
+      ambitions: AMBITIONS,
+      showcases: Object.keys(SHOWCASES),
+      renderingProfiles: Object.keys(RENDERING_PROFILES),
+      biomes: Object.keys(BIOME_CHANNELS),
+      archetypes: ARCHETYPES,
+      mechanics: Object.keys(MECHANIC_WRITES),
+      cameras: Object.keys(CAMERA_REQUIREMENTS),
+      coreSections: CORE_SECTIONS,
+      extraSections: EXTRA_SECTIONS,
+    };
+    console.log(JSON.stringify(listObj, null, 2));
+    process.exit(0);
+  }
+
+  if (command === 'validate') {
+    if (args.length !== 2) {
+      printUsageAndExit(2, true);
+    }
+    const filePath = args[1];
+    let raw;
+    try {
+      raw = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error(`Failed to read file '${filePath}': ${err.message}`);
+      process.exit(2);
+    }
+    let selection;
+    try {
+      selection = JSON.parse(raw);
+    } catch (err) {
+      console.error(`Failed to parse JSON in '${filePath}': ${err.message}`);
+      process.exit(2);
+    }
+
+    const conflicts = validateSelection(selection);
+    const errors = conflicts.filter((c) => c.severity === 'error').length;
+    const warnings = conflicts.filter((c) => c.severity === 'warn').length;
+    const ok = errors === 0;
+
+    console.log(JSON.stringify({ ok, errors, warnings, conflicts }, null, 2));
+    process.exit(ok ? 0 : 1);
+  }
+
+  if (command === 'format-state') {
+    if (args.length !== 2) {
+      printUsageAndExit(2, true);
+    }
+    const filePath = args[1];
+    let raw;
+    try {
+      raw = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error(`Failed to read file '${filePath}': ${err.message}`);
+      process.exit(2);
+    }
+    let selection;
+    try {
+      selection = JSON.parse(raw);
+    } catch (err) {
+      console.error(`Failed to parse JSON in '${filePath}': ${err.message}`);
+      process.exit(2);
+    }
+
+    const conflicts = validateSelection(selection);
+    const errors = conflicts.filter((c) => c.severity === 'error');
+    if (errors.length > 0) {
+      console.error(JSON.stringify({ ok: false, errors: errors.length, conflicts }, null, 2));
+      process.exit(1);
+    }
+
+    const formatted = formatStateChannelContract(selection);
+    if (formatted === '') {
+      process.stdout.write('');
+    } else {
+      console.log(formatted);
+    }
+    process.exit(0);
+  }
+
+  printUsageAndExit(2, true);
+}
+
+function isMain() {
+  if (!process.argv[1]) return false;
+  try {
+    return fileURLToPath(import.meta.url).toLowerCase() === path.resolve(process.argv[1]).toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+if (isMain()) {
+  runCli();
 }

@@ -17,7 +17,7 @@ Three artefacts, written into the user's target project directory:
 
 The brief must be **self-contained**. The agent that builds from it may be any
 model in any tool, and it will see that one file and nothing else. It cannot open
-`references/presets.md`, it cannot follow a link, and it cannot ask you a
+the reference files, it cannot follow a link, and it cannot ask you a
 question. Anything the builder needs is pasted into the brief, in full.
 
 Never hand over a brief containing an unfilled `{{TOKEN}}`, a `<!--SECTION:...-->`
@@ -26,11 +26,16 @@ these, and Step 4 runs it.
 
 **Files this skill reads** (all paths relative to the skill root):
 
-- `references/presets.md` — the menu: creative modes, ambition levels, biomes, archetypes, mechanics, camera modes, showcase configs.
+- `references/modes.md` — creative modes (freedom budgets) and ambition levels (section inclusions).
+- `references/biomes.md` — six biomes, 19 tokens each, `FOOT_INTERACTION`, machine-checkable palettes.
+- `references/archetypes.md` — five character archetypes as rig parameter sets, cloth panels, shading.
+- `references/mechanics.md` — five centrepiece mechanics, state-buffer writes, secondary abilities.
+- `references/cameras.md` — four camera modes, two supported rendering profiles.
+- `references/showcases.md` — six canonical showcase configurations.
 - `references/character-recipe.md` — the numeric humanoid spec, inlined into every brief.
 - `TEMPLATE.md` — the brief skeleton: 38 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
-- `selection.mjs` — `validateSelection` and `formatStateChannelContract`.
-- `check.mjs` — `validateBrief` (also a CLI) and `checkCoherence`.
+- `selection.mjs` — `validateSelection` and `formatStateChannelContract` (CLI: `node selection.mjs`).
+- `check.mjs` — `validateBrief` and `checkCoherence` (CLI: `node check.mjs`).
 - `verify/verify_demo.mjs` — the post-build visual verifier.
 
 ---
@@ -58,30 +63,39 @@ At any later question, "pick for me" means:
 
 Do not maintain a second, competing route-number system.
 
+### Progressive reference loading
+
+Load reference files progressively as needed during selection and assembly:
+- Read `references/modes.md` and `references/showcases.md` during mode and route selection.
+- For a whole showcase (Proven or Signature), load only the referenced biome (from `references/biomes.md`), archetype (from `references/archetypes.md`), mechanic (from `references/mechanics.md`), camera/profile (from `references/cameras.md`), and showcase material (from `references/showcases.md`) needed to assemble it.
+- For Experimental base-showcase, load the base showcase (`references/showcases.md`) and only the reference associated with the one changed axis.
+- For Experimental fully custom, load the option reference relevant to each question as the interview reaches it.
+- Do not load every reference file before asking the first question.
+
 ### Explicit mode-dependent control flow
 
 Immediately after mode selection, follow the explicit control flow for the selected mode:
 
 #### Proven
-1. Select one whole showcase configuration.
+1. Select one whole showcase configuration from `references/showcases.md`.
 2. Do not enter the full Step 2 interview.
 3. Do not ask for a creative spark.
 4. Fill the Proven `SIGNATURE_MOMENT` text. Set `ENABLE_SIGNATURE_MOMENT` to `false`; it is a no-op and no independent Signature Moment code path is required.
 5. Continue directly to Step 3.
 
 #### Signature
-1. Select one whole showcase configuration.
+1. Select one whole showcase configuration from `references/showcases.md`.
 2. Do not enter the full Step 2 interview.
 3. Ask only the optional creative-spark question, unless the user said "pick for me."
 4. Generate the bounded Signature Moment. Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the selected whole showcase without the Signature Moment.
 5. Continue directly to Step 3.
 
 #### Experimental base-showcase path
-1. Select one named base showcase.
+1. Select one named base showcase from `references/showcases.md`.
 2. Ask which single major axis will change (ambition, biome, archetype, mechanic, or camera).
 3. Ask only the relevant Step 2 question for that selected axis.
 4. Do not run the remaining interview questions.
-5. A rendering-profile change may be accepted only as a complete supported tuple (and does not count as the single creative axis).
+5. A rendering-profile change may be accepted only as a complete supported tuple from `references/cameras.md` (and does not count as the single creative axis).
 6. Ask the optional creative-spark question.
 7. Run the required compatibility checks. Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the configuration after its one approved axis change without the Signature Moment.
 8. Continue directly to Step 3.
@@ -117,12 +131,12 @@ Creative authority operates only inside the selected creative mode. Creative dec
 This step runs only for the Experimental fully custom mode. Other paths may reference a single relevant question from this section but must not enter the complete interview. The Experimental fully custom path is the only path that runs the complete Step 2 interview.
 
 One question at a time. Wait for the answer before asking the next. Read the valid
-names out of `references/presets.md` and offer them as a numbered list with a
-one-line description each — never invent an option that is not in that file.
+names out of the relevant direct reference files and offer them as a numbered list with a
+one-line description each — never invent an option that is not in those files.
 
 Order, exactly:
 
-**1. Ambition level** — `slice`, `showcase`, or `everything`.
+**1. Ambition level** — read from `references/modes.md`: `slice`, `showcase`, or `everything`.
 
 > **`slice` is the default and is correct for most people.** A one-shot build
 > collapses under a dozen simultaneous systems; every one lands at 60% quality.
@@ -138,21 +152,21 @@ The level decides which of `TEMPLATE.md`'s three marked sections survive:
 | `showcase` | `vegetation`, `state-buffer`, `audio` |
 | `everything` | those three, plus four extra `§2.9`+ subsections |
 
-**2. Biome** — one of: Alpine Snow, Ghibli Valley, Dune Desert, Ocean Shelf,
+**2. Biome** — read from `references/biomes.md`: Alpine Snow, Ghibli Valley, Dune Desert, Ocean Shelf,
 Volcanic, Night City. This is the single largest decision: it supplies 19 of the
 38 tokens and the palette that Step 3 checks.
 
-**3. Archetype** — one of: Robed Mage, Traveller Coat, Armored Soldier, Desert
+**3. Archetype** — read from `references/archetypes.md`: Robed Mage, Traveller Coat, Armored Soldier, Desert
 Nomad, Void Wanderer. Archetypes are **parameters on one rig**, never alternative
 bodies. They supply no `{{TOKEN}}`; their content goes inside `{{CHARACTER_RECIPE}}`
 (see Step 4).
 
-**4. Mechanic** — one of: Surf / Carve, Flight / Glide, Beam Cannon, Grapple Swing,
+**4. Mechanic** — read from `references/mechanics.md`: Surf / Carve, Flight / Glide, Beam Cannon, Grapple Swing,
 Summon Vehicle. Check that the channels the mechanic's **Writes:** line names
 actually exist in the chosen biome's `STATE_BUFFER_CHANNELS`. If they do not, say
 so and offer either a different mechanic or a re-mapping written into the brief.
 
-**5. Camera mode** — one of: Third Person, First Person, Cinematic, XR. Third
+**5. Camera mode** — read from `references/cameras.md`: Third Person, First Person, Cinematic, XR. Third
 Person is the default and the framing the character recipe is tuned for. Two
 consequences to state when you ask, because they are invisible otherwise:
 
@@ -179,7 +193,7 @@ so phrase it accordingly:
 Also collect, in the same pass:
 
 - **`PROJECT_NAME`** — a short upper-case hyphenated name, e.g. `ALPINE-DAWN`.
-- **Rendering profile (engine and shader language)** — offer exactly:
+- **Rendering profile (engine and shader language)** — read from `references/cameras.md`, offer exactly:
   1. **Babylon.js WebGPU + WGSL** (default): `ENGINE` = `Babylon.js latest stable, WebGPU only`, `SHADER_LANG` = `WGSL`, `SHADER_LANG_EXT` = `wgsl`, `MATERIAL_API` = `Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL`.
   2. **Three.js WebGL2 + GLSL ES 3.00** (alternative): `ENGINE` = `Three.js latest stable, WebGLRenderer (WebGL2 only)`, `SHADER_LANG` = `GLSL ES 3.00 raw modules`, `SHADER_LANG_EXT` = `glsl`, `MATERIAL_API` = `Three.js RawShaderMaterial on WebGLRenderer`.
 
@@ -192,13 +206,13 @@ Also collect, in the same pass:
 After mode choices and before generation:
 
 1. **Construct the selection object** matching `selection.mjs` schema (`creativeMode`, `path`, `baseShowcase`, `changedAxes`, `ambition`, `biome`, `archetype`, `mechanic`, `camera`, `renderingProfile`, `includedSections`, `extraSections`, `stateChannelContract`, `cameraAdjustments`, `signatureMoment`, `noveltyBudget`).
-2. **Run `validateSelection(selection)`** from `selection.mjs` to validate mode, route, section, camera, channel, and budget contracts.
-3. **Run `checkCoherence(config)`** from `check.mjs` on the chosen biome's palette and paradigm config (with `assetStrategy: 'zero-asset'`).
+2. **Run `validateSelection(selection)`** from `selection.mjs` (or via CLI `node selection.mjs validate <selection.json>`) to validate mode, route, section, camera, channel, and budget contracts.
+3. **Run `checkCoherence(config)`** from `check.mjs` (or via CLI `node check.mjs coherence <config.json>`) on the chosen biome's palette and paradigm config (with `assetStrategy: 'zero-asset'`).
 4. **Report every conflict** from both validators with its `message` and `fix`, verbatim.
    - `validateSelection` errors (`severity: 'error'`): hard blockers that cannot be overridden under any circumstances. Creative freedom operates only within hard structural contracts.
    - `checkCoherence` errors (`severity: 'error'`): block generation by default, but may proceed if the user explicitly decides to override, recorded in `DECISIONS.md` under `## Deliberate Deviations`.
    - `severity: 'warn'`: report and continue.
-5. **Format state-channel contract** using `formatStateChannelContract(selection)` when `state-buffer` is included, and insert it into `TEMPLATE.md` at `{{STATE_CHANNEL_CONTRACT}}`.
+5. **Format state-channel contract** using `formatStateChannelContract(selection)` (or via CLI `node selection.mjs format-state <selection.json>`) when `state-buffer` is included, and insert it into `TEMPLATE.md` at `{{STATE_CHANNEL_CONTRACT}}`.
 6. **Record in DECISIONS.md**: creative mode, route/path, changed axis, sections, profile, channel contract mappings, validator results, and any deliberate overrides.
 
 ### Re-run checks after any adjustment.
@@ -216,25 +230,25 @@ in this order.
 
 ### 4a. Fill the 38 tokens
 
-Paste preset text **as written**. It is token text, not inspiration: every value
+Paste reference text **as written**. It is token text, not inspiration: every value
 carries metres, counts, amplitudes, or grid dimensions, and rewriting one into an
 adjective undoes the only thing that makes the brief work.
 
 | Source | Tokens it supplies |
 |---|---|
 | **Creative mode** — 2 | `CREATIVE_MODE`, `SIGNATURE_MOMENT` |
-| **Showcase config** (or you, on Experimental custom route) — 9 | `PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API`, `ASSET_STRATEGY`, `TARGET_BROWSER_AND_HARDWARE`, `CORE_INTERACTION_SENTENCE` |
-| **Biome** — 19 | `PRIMARY_ENVIRONMENT`, `PRIMARY_MATERIAL_NAME`, `NAIVE_DEFAULT`, `TERRAIN_PHILOSOPHY_SENTENCE`, `TERRAIN_NOISE_LAYERS`, `TERRAIN_LANDMARKS`, `FAR_FIELD_TREATMENT`, `MATERIAL_BEHAVIOURS`, `DEFORMATION_TYPE`, `DEFORMATION_MARKS`, `RECOVERY_MECHANISM`, `RECOVERY_OUTCOME`, `STATE_BUFFER_COVERAGE`, `STATE_BUFFER_TEXEL_SIZE`, `STATE_BUFFER_CHANNELS`, `WIND_FIELD_ARCH`, `GRASS_SYSTEM_SPEC`, `AUDIO_ENGINE_SPEC`, `ATMOSPHERIC_LIFE_SPEC` |
-| **Mechanic** — 6 | `CENTREPIECE_MECHANIC`, `CENTREPIECE_INPUT`, `CENTREPIECE_DESCRIPTION`, `ABILITY_1_NAME`, `ABILITY_2_NAME`, `ABILITY_3_NAME` |
+| **Showcase config** (from `references/showcases.md`, or derived on Experimental custom route) — 9 | `PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API`, `ASSET_STRATEGY`, `TARGET_BROWSER_AND_HARDWARE`, `CORE_INTERACTION_SENTENCE` |
+| **Biome** (from `references/biomes.md`) — 19 | `PRIMARY_ENVIRONMENT`, `PRIMARY_MATERIAL_NAME`, `NAIVE_DEFAULT`, `TERRAIN_PHILOSOPHY_SENTENCE`, `TERRAIN_NOISE_LAYERS`, `TERRAIN_LANDMARKS`, `FAR_FIELD_TREATMENT`, `MATERIAL_BEHAVIOURS`, `DEFORMATION_TYPE`, `DEFORMATION_MARKS`, `RECOVERY_MECHANISM`, `RECOVERY_OUTCOME`, `STATE_BUFFER_COVERAGE`, `STATE_BUFFER_TEXEL_SIZE`, `STATE_BUFFER_CHANNELS`, `WIND_FIELD_ARCH`, `GRASS_SYSTEM_SPEC`, `AUDIO_ENGINE_SPEC`, `ATMOSPHERIC_LIFE_SPEC` |
+| **Mechanic** (from `references/mechanics.md`) — 6 | `CENTREPIECE_MECHANIC`, `CENTREPIECE_INPUT`, `CENTREPIECE_DESCRIPTION`, `ABILITY_1_NAME`, `ABILITY_2_NAME`, `ABILITY_3_NAME` |
 | **Character recipe + archetype** — 1 | `CHARACTER_RECIPE` (see 4c) |
 | **State-channel contract** — 1 | `STATE_CHANNEL_CONTRACT` (formatted by selection validator) |
-| **Archetype** | none — its content goes inside `CHARACTER_RECIPE` |
-| **Camera mode** | none — it substitutes §2.6 (see 4d) |
+| **Archetype** (from `references/archetypes.md`) | none — its content goes inside `CHARACTER_RECIPE` |
+| **Camera mode** (from `references/cameras.md`) | none — it substitutes §2.6 (see 4d) |
 
 On the Experimental custom route, derive the nine config-level tokens like this:
 
 - `RENDERING_PARADIGM` — from the biome's `paradigm` field: `photoreal` → `AAA Photoreal`; `painterly` → `Ghibli-Style Painterly Anime`. Never contradict the biome's own `json` block.
-- `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API` — from the chosen rendering profile (default Babylon WebGPU or alternative Three WebGL2).
+- `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API` — from the chosen rendering profile in `references/cameras.md` (default Babylon WebGPU or alternative Three WebGL2).
 - `ASSET_STRATEGY` — `100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)`.
 - `TARGET_BROWSER_AND_HARDWARE` — `Chrome stable on Windows 11, RTX-class GPU, 2560×1440`, unless the camera mode is XR (see 4d).
 - `CORE_INTERACTION_SENTENCE` — you write it. It is a lower-case verb fragment that slots into "…walk around {{PRIMARY_ENVIRONMENT}} for ninety seconds, **{{CORE_INTERACTION_SENTENCE}}**, and either think 'this is AAA' or close the tab." Name the mechanic and one thing the biome does, e.g. `carve a trail across a drift field, watch the wake break behind them`.
@@ -309,10 +323,10 @@ This slot takes three pieces, in this order:
    archetype's parameter table (figure height, ring-radius scale, chest ellipse
    ratio, lower body, ring counts) and its `CHARACTER_DESCRIPTION`, `CLOTH_PANELS`,
    cloth shading, and head covering, all pasted verbatim from
-   `references/presets.md`.
+   `references/archetypes.md`.
 
 3. **The biome's `FOOT_INTERACTION` text**, headed
-   `### Foot interaction — <PRIMARY_MATERIAL_NAME>`.
+   `### Foot interaction — <PRIMARY_MATERIAL_NAME>`, pasted verbatim from `references/biomes.md`.
 
 **`FOOT_INTERACTION` is not one of the 38 tokens.** It has no slot in
 `TEMPLATE.md`. Every biome supplies it, and it is appended to the inlined
@@ -322,15 +336,14 @@ recipe: *these effects fire from the single touchdown call site in Part 5, readi
 the footfall effect to a timer and it drifts out of sync within seconds.
 
 If the camera mode is First Person or XR, add a line after the archetype block
-raising the ring counts as that mode's entry in `references/presets.md` specifies.
+raising the ring counts as that mode's entry in `references/cameras.md` specifies.
 Do not edit the recipe body to do it.
 
 ### 4d. Substitute §2.6 with the chosen camera mode
 
 §2.6 in `TEMPLATE.md` is hard-coded third-person prose and holds **no token**.
 Replace the paragraph beginning "Use third-person, action-MMO framing…" with the
-chosen mode's full text from the *Camera modes* section of
-`references/presets.md`, including its bolded **"The character must look good…"**
+chosen mode's full text from `references/cameras.md`, including its bolded **"The character must look good…"**
 sentence — that sentence is a budget instruction, not framing colour.
 
 Keep the **Initial Spawn Rule** paragraph in every mode.
@@ -409,14 +422,14 @@ you are reproducing the failure this skill exists to prevent.
 
 | Where | What is in it |
 |---|---|
-| `references/presets.md` → *Creative modes* | 3 modes: Proven, Signature (default), Experimental |
-| `references/presets.md` → *Ambition levels* | The three levels, what each keeps, which tokens each requires |
-| `references/presets.md` → *Biomes* | 6 biomes: 19 tokens each, `FOOT_INTERACTION`, and a machine-checkable palette |
-| `references/presets.md` → *Character archetypes* | 5 archetypes as rig parameters, with cloth panels and shading |
-| `references/presets.md` → *Centrepiece mechanics* | 5 mechanics, each naming the state-buffer channels it writes |
-| `references/presets.md` → *Camera modes* | 4 modes; substituted into §2.6, no tokens |
-| `references/presets.md` → *Showcase configs* | 6 checked combinations; take one whole |
+| `references/modes.md` | 3 modes: Proven, Signature (default), Experimental; 3 ambition levels: slice, showcase, everything |
+| `references/biomes.md` | 6 biomes: 19 tokens each, `FOOT_INTERACTION`, and a machine-checkable palette |
+| `references/archetypes.md` | 5 archetypes as rig parameters, with cloth panels and shading |
+| `references/mechanics.md` | 5 mechanics, each naming the state-buffer channels it writes |
+| `references/cameras.md` | 4 camera modes (substituted into §2.6) and 2 rendering profiles |
+| `references/showcases.md` | 6 canonical showcase configurations |
 | `references/character-recipe.md` | The humanoid spec, inlined verbatim at `{{CHARACTER_RECIPE}}` |
 | `TEMPLATE.md` | The skeleton: 38 tokens, 3 marked sections, the `window.__demo` hook in §6 |
-| `check.mjs` | `validateBrief` (CLI: `node check.mjs <brief>`) and `checkCoherence(config)` |
+| `selection.mjs` | `validateSelection`, `formatStateChannelContract` (CLI: `node selection.mjs`) |
+| `check.mjs` | `validateBrief`, `checkCoherence` (CLI: `node check.mjs`) |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |

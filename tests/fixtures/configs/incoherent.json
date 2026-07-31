@@ -1,0 +1,11 @@
+{
+  "paradigm": "painterly",
+  "assetStrategy": "zero-asset",
+  "materialBehaviours": "One sRGB palette table converted to linear on load; a 2-step cel ramp with shadow-boundary wobble.",
+  "palette": [
+    { "role": "dark-sky", "hex": "#050510", "area": "large" },
+    { "role": "dark-ground", "hex": "#0a0a14", "area": "large" },
+    { "role": "shadow", "hex": "#020205", "area": "medium" },
+    { "role": "neon-glow", "hex": "#00ffcc", "area": "accent" }
+  ]
+}

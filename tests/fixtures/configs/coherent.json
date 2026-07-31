@@ -1,0 +1,13 @@
+{
+  "paradigm": "photoreal",
+  "assetStrategy": "zero-asset",
+  "materialBehaviours": "Multi-scale procedural normals at 8 m / 0.8 m / 0.08 m with triplanar blending above 35 deg slope; wrapped-diffuse subsurface with back-scatter; view-dependent glinting on a stable hash; state-buffer compression, wetness and ice; contact micro-occlusion at trail edges.",
+  "palette": [
+    { "role": "lit-snow", "hex": "#f0f4f8", "area": "large" },
+    { "role": "sky-band", "hex": "#a8c8e4", "area": "large" },
+    { "role": "shadow-snow", "hex": "#7d9dc0", "area": "large" },
+    { "role": "granite-outcrop", "hex": "#4a4744", "area": "medium" },
+    { "role": "crevasse-ice", "hex": "#10222e", "area": "medium" },
+    { "role": "sun-glint", "hex": "#ffe6b8", "area": "accent" }
+  ]
+}

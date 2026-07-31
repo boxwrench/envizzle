@@ -1,0 +1,52 @@
+{
+  "creativeMode": "experimental",
+  "path": "base-showcase",
+  "baseShowcase": "Alpine Dawn",
+  "changedAxes": [
+    "camera"
+  ],
+  "ambition": "showcase",
+  "biome": "Alpine Snow",
+  "archetype": "Traveller Coat",
+  "mechanic": "Surf / Carve",
+  "camera": "Cinematic",
+  "renderingProfile": "babylon-webgpu",
+  "includedSections": [
+    "vegetation",
+    "state-buffer",
+    "audio"
+  ],
+  "extraSections": [],
+  "stateChannelContract": {
+    "depression": {
+      "channel": "R",
+      "effect": "carve groove lowers snow depression depth"
+    },
+    "displaced-mass": {
+      "channel": "G",
+      "effect": "carve berms raise displaced snow mass"
+    },
+    "wetness-or-compaction": {
+      "channel": "B",
+      "effect": "groove writes wetness, interpreted as compressed sheen"
+    }
+  },
+  "cameraAdjustments": [
+    "verification-framing"
+  ],
+  "signatureMoment": {
+    "enabled": true,
+    "text": "Cinematic camera sweep along the carve wake",
+    "reusedSystem": "camera spline",
+    "verificationPose": "mechanic"
+  },
+  "noveltyBudget": {
+    "addsEngine": false,
+    "addsAssetCategory": false,
+    "addsPersistentBuffer": false,
+    "addsMajorRenderPass": false,
+    "addsSimulationSubsystem": false,
+    "addsInput": false,
+    "increasesAmbition": false
+  }
+}

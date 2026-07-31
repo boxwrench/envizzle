@@ -1,0 +1,48 @@
+{
+  "creativeMode": "signature",
+  "path": "showcase",
+  "baseShowcase": "Alpine Dawn",
+  "changedAxes": [],
+  "ambition": "showcase",
+  "biome": "Ghibli Valley",
+  "archetype": "Traveller Coat",
+  "mechanic": "Surf / Carve",
+  "camera": "Third Person",
+  "renderingProfile": "babylon-webgpu",
+  "includedSections": [
+    "vegetation",
+    "state-buffer",
+    "audio"
+  ],
+  "extraSections": [],
+  "stateChannelContract": {
+    "depression": {
+      "channel": "R",
+      "effect": "carve groove lowers snow depression depth"
+    },
+    "displaced-mass": {
+      "channel": "G",
+      "effect": "carve berms raise displaced snow mass"
+    },
+    "wetness-or-compaction": {
+      "channel": "B",
+      "effect": "groove writes wetness, interpreted as compressed sheen"
+    }
+  },
+  "cameraAdjustments": [],
+  "signatureMoment": {
+    "enabled": true,
+    "text": "Carve wake throws extra spray",
+    "reusedSystem": "spindrift particles",
+    "verificationPose": "mechanic"
+  },
+  "noveltyBudget": {
+    "addsEngine": false,
+    "addsAssetCategory": false,
+    "addsPersistentBuffer": false,
+    "addsMajorRenderPass": false,
+    "addsSimulationSubsystem": false,
+    "addsInput": false,
+    "increasesAmbition": false
+  }
+}

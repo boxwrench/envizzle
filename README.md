@@ -63,6 +63,11 @@ light; and a painterly paradigm needs its large-area colours to carry actual lig
 Conflicts are reported with a suggested fix, never silently corrected — the rules
 encode defaults, not truth.
 
+**Progressive reference loading.** Direct, single-level references under `references/`
+allow progressive loading during interview and assembly. Envizzle reads modes and
+showcases first, loading specific biome, archetype, mechanic, or camera references only
+when requested by the selected mode or interview step.
+
 **An ambition dial keeps one-shots one-shottable.** `slice` is the default, because
 a single-pass build collapses under a dozen simultaneous systems. `showcase` and
 `everything` open up more. Unselected sections are omitted from the brief entirely
@@ -97,7 +102,21 @@ ln -s "$PWD" ~/.claude/skills/envizzle          # macOS/Linux
 New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\envizzle" -Target "$PWD"   # Windows
 ```
 
-Validate a brief you or the skill wrote:
+Validate a selection object or list registered values:
+
+```bash
+node selection.mjs list
+node selection.mjs validate selection.json
+node selection.mjs format-state selection.json
+```
+
+Validate an art direction config for palette coherence:
+
+```bash
+node check.mjs coherence config.json
+```
+
+Validate an assembled brief:
 
 ```bash
 node check.mjs ALPINE_DAWN_TECHDEMO_PROMPT.md
@@ -118,22 +137,28 @@ image gates cannot run, and the verifier says so instead of passing.
 | Path | What it is |
 |---|---|
 | `SKILL.md` | Skill entry point — route, interview, coherence check, assembly rules |
-| `TEMPLATE.md` | Brief skeleton: 34 `{{TOKEN}}` slots and three optional sections |
-| `references/presets.md` | Biomes, archetypes, mechanics, cameras, showcase configs — the menu the interview reads from |
+| `TEMPLATE.md` | Brief skeleton: 38 `{{TOKEN}}` slots and three optional sections |
+| `references/modes.md` | Creative modes (Proven, Signature, Experimental) and ambition levels |
+| `references/biomes.md` | Biome definitions, terrain noise layers, material behaviours, palettes |
+| `references/archetypes.md` | Character archetypes as rig parameter sets, cloth panels, shading |
+| `references/mechanics.md` | Centrepiece mechanics and state-buffer channel writes |
+| `references/cameras.md` | Camera modes and rendering profiles |
+| `references/showcases.md` | Canonical showcase configurations |
 | `references/character-recipe.md` | The numeric humanoid spec, inlined verbatim into every brief |
-| `check.mjs` | Brief validator (CLI) plus the art-direction coherence rules |
+| `selection.mjs` | Selection validator (CLI: `node selection.mjs`) and central registries |
+| `check.mjs` | Brief validator (CLI) plus art-direction coherence rules (`node check.mjs coherence`) |
 | `verify/` | Playwright run with the image gates |
 | `tests/` | `node:test` suite over all of the above |
 | `docs/` | Design spec and implementation plan |
 
 ## Status
 
-**Envizzle is in public alpha.** The core skill, preset library, character
-recipe, coherence rules, validator, and image gates are implemented, and the
-unit tests pass (`npm test`). Deterministic end-to-end brief assembly and
-multi-agent generated-demo benchmarking remain before a 1.0 claim. See
-`docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the design and
-`docs/2026-07-29-envizzle-skill.md` for the task plan it was built from.
+**Envizzle is in public alpha.** In Batch 6, progressive reference loading, central
+registries, operable selection CLI, coherence CLI, test fixtures, and cross-file contract
+verification were implemented, and all unit tests pass (`npm test`). Deterministic
+end-to-end brief assembly and multi-agent generated-demo benchmarking remain before a
+1.0 claim. See `docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the
+design and `docs/2026-07-29-envizzle-skill.md` for the task plan it was built from.
 
 The original prompt templates this skill was distilled from
 (`BIOME_TECHDEMO_TEMPLATE.md`, `TEMPLATE.md`, `TEMPLATE_GUIDE.md`,
@@ -141,8 +166,8 @@ The original prompt templates this skill was distilled from
 their content was mined. Recover any with:
 
 ```bash
+git clone https://github.com/boxwrench/envizzle
 git log --diff-filter=D --name-only
-git show <commit>^:legacy/<file>
 ```
 
 ## Attribution

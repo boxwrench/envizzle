@@ -2,13 +2,14 @@
 /**
  * Validate an assembled envizzle brief.
  *
- * Claude assembles the brief by reading references/presets.md and filling
+ * Claude assembles the brief by reading direct reference files in references/ and filling
  * TEMPLATE.md. This script is the safety net: it catches the mechanical
  * mistakes that are easy to make by hand and invisible to read past.
  *
  * Usage: node check.mjs <brief.md>
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // {{NAME}} and {{NAME — default: hint}}. Name is the leading run of A-Z0-9_.
@@ -329,13 +330,29 @@ export function checkCoherence(config) {
   return out;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const file = process.argv[2];
-  if (!file) {
-    console.error('Usage: node check.mjs <brief.md>');
+function printUsageAndExit(code, toStderr = false) {
+  const usage = `Usage:
+  node check.mjs brief <brief.md>
+  node check.mjs <brief.md>
+  node check.mjs coherence <config.json>
+  node check.mjs --help`;
+  if (toStderr) {
+    console.error(usage);
+  } else {
+    console.log(usage);
+  }
+  process.exit(code);
+}
+
+function runBriefValidation(file) {
+  let content;
+  try {
+    content = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    console.error(`Failed to read brief file '${file}': ${err.message}`);
     process.exit(2);
   }
-  const { ok, problems } = validateBrief(fs.readFileSync(file, 'utf8'));
+  const { ok, problems } = validateBrief(content);
   if (ok) {
     console.log(`OK: ${file} has no unresolved tokens, leaks, or stray markers.`);
     process.exit(0);
@@ -343,4 +360,74 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.error(`FAILED: ${file}`);
   problems.forEach((p, i) => console.error(`  ${i + 1}. ${p}`));
   process.exit(1);
+}
+
+function runCoherenceCheck(file) {
+  let content;
+  try {
+    content = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    console.error(`Failed to read config file '${file}': ${err.message}`);
+    process.exit(2);
+  }
+  let config;
+  try {
+    config = JSON.parse(content);
+  } catch (err) {
+    console.error(`Failed to parse JSON in '${file}': ${err.message}`);
+    process.exit(2);
+  }
+
+  const conflicts = checkCoherence(config);
+  const errors = conflicts.filter((c) => c.severity === 'error').length;
+  const warnings = conflicts.filter((c) => c.severity === 'warn').length;
+  const ok = errors === 0;
+
+  console.log(JSON.stringify({ ok, errors, warnings, conflicts }, null, 2));
+  process.exit(ok ? 0 : 1);
+}
+
+function runCli() {
+  const args = process.argv.slice(2);
+  const subCommand = args[0];
+
+  if (!subCommand || subCommand === '--help' || subCommand === '-h' || subCommand === 'help') {
+    if (!subCommand) {
+      printUsageAndExit(2, true);
+    }
+    printUsageAndExit(0, false);
+  }
+
+  if (subCommand === 'coherence') {
+    if (args.length !== 2) {
+      printUsageAndExit(2, true);
+    }
+    runCoherenceCheck(args[1]);
+  }
+
+  if (subCommand === 'brief') {
+    if (args.length !== 2) {
+      printUsageAndExit(2, true);
+    }
+    runBriefValidation(args[1]);
+  }
+
+  if (args.length === 1 && !subCommand.startsWith('-')) {
+    runBriefValidation(subCommand);
+  }
+
+  printUsageAndExit(2, true);
+}
+
+function isMain() {
+  if (!process.argv[1]) return false;
+  try {
+    return fileURLToPath(import.meta.url).toLowerCase() === path.resolve(process.argv[1]).toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+if (isMain()) {
+  runCli();
 }

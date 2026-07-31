@@ -1,0 +1,58 @@
+{
+  "creativeMode": "experimental",
+  "path": "fully-custom",
+  "baseShowcase": null,
+  "changedAxes": [],
+  "ambition": "everything",
+  "biome": "Night City",
+  "archetype": "Void Wanderer",
+  "mechanic": "Summon Vehicle",
+  "camera": "First Person",
+  "renderingProfile": "three-webgl2",
+  "includedSections": [
+    "vegetation",
+    "state-buffer",
+    "audio"
+  ],
+  "extraSections": [
+    "weather",
+    "water-bodies",
+    "architecture",
+    "destructibility"
+  ],
+  "stateChannelContract": {
+    "track-depression": {
+      "channel": "R",
+      "effect": "tracks displace puddle-water depth"
+    },
+    "track-compaction-disturbance": {
+      "channel": "B",
+      "effect": "vehicle passage writes surface disturbance"
+    },
+    "track-edge-displaced-mass": {
+      "channel": "G",
+      "effect": "edge displacement becomes ripple phase/amplitude"
+    }
+  },
+  "cameraAdjustments": [
+    "hand-rings-12",
+    "cloth-plus-one",
+    "hide-head-neck-only",
+    "verification-framing"
+  ],
+  "signatureMoment": {
+    "enabled": true,
+    "text": "Vehicle headlights project volumetric rain cone in first-person view",
+    "reusedSystem": "rain particles",
+    "verificationPose": "mechanic"
+  },
+  "noveltyBudget": {
+    "addsEngine": false,
+    "addsAssetCategory": false,
+    "addsPersistentBuffer": false,
+    "addsMajorRenderPass": false,
+    "addsSimulationSubsystem": false,
+    "addsInput": false,
+    "increasesAmbition": false
+  }
+}

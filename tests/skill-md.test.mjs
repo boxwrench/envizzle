@@ -51,7 +51,12 @@ test('names the three ambition levels and the default', () => {
 
 test('points at the real files it depends on', () => {
   for (const f of [
-    'references/presets.md',
+    'references/modes.md',
+    'references/biomes.md',
+    'references/archetypes.md',
+    'references/mechanics.md',
+    'references/cameras.md',
+    'references/showcases.md',
     'references/character-recipe.md',
     'TEMPLATE.md',
     'check.mjs',
