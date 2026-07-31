@@ -819,12 +819,22 @@ export function assembleBrief(spec, options = {}) {
     materialBehaviours: effectiveCoherence.materialBehaviours,
     palette: effectiveCoherence.palette,
   });
-  const cohErrorsCount = cohConflicts.filter((c) => c.severity === 'error').length;
+  const cohRawErrors = cohConflicts.filter((c) => c.severity === 'error');
   const cohWarnings = cohConflicts.filter((c) => c.severity === 'warn');
   const overrides = spec.coherenceOverrides || [];
-  let cohStatus = cohErrorsCount === 0 ? 'clean' : 'has errors';
-  if (overrides.length > 0 && cohErrorsCount === 0) {
+
+  const rawErrorRules = new Set(cohRawErrors.map((c) => c.rule));
+  const acceptedOverrides = overrides.filter((o) => rawErrorRules.has(o.rule));
+  const unoverriddenErrorCount = cohRawErrors.length - acceptedOverrides.length;
+
+  let cohStatus = 'clean';
+  let cohCountsText = `${cohWarnings.length} warning(s)`;
+
+  if (unoverriddenErrorCount > 0) {
+    cohStatus = 'has errors';
+  } else if (acceptedOverrides.length > 0) {
     cohStatus = 'accepted deliberate deviation';
+    cohCountsText = `${acceptedOverrides.length} override(s), ${cohWarnings.length} warning(s)`;
   }
 
   let assemblyDecisionsText = `\n\n## Assembly Decisions\n\n` +
@@ -838,7 +848,7 @@ export function assembleBrief(spec, options = {}) {
     `- **Extra Sections:** ${selection.extraSections.length > 0 ? selection.extraSections.join(', ') : 'none'}\n` +
     `- **State Channel Contract:** ${stateChannelDecisionsText}\n` +
     `- **Selection Validation:** clean (${selErrorsCount} errors, ${selWarningsCount} warnings)\n` +
-    `- **Coherence Validation:** ${cohStatus} (${cohWarnings.length} warning(s))`;
+    `- **Coherence Validation:** ${cohStatus} (${cohCountsText})`;
 
   if (cohWarnings.length > 0) {
     assemblyDecisionsText += `\n\n### Coherence Warnings\n\n` +

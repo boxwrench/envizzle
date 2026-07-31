@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { validateAssemblySpec, assembleBrief, writeBundle } from '../assemble.mjs';
-import { validateBrief } from '../check.mjs';
+import { validateBrief, checkCoherence } from '../check.mjs';
 import { SHOWCASES, MECHANIC_WRITES } from '../selection.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -228,6 +228,92 @@ test('valid warning-only assembly succeeds and records warnings in Assembly Deci
   assert.ok(brief.includes('- **Coherence Validation:** clean (1 warning(s))'));
   assert.ok(brief.includes('### Coherence Warnings'));
   assert.ok(brief.includes(`- **accent-cap:** ${accentCapFinding.message} (Fix: ${accentCapFinding.fix})`));
+});
+
+test('valid Experimental assembly with full policy overrides reports accepted deliberate deviation with exact count', () => {
+  const spec = {
+    selection: {
+      creativeMode: 'experimental',
+      path: 'fully-custom',
+      baseShowcase: null,
+      changedAxes: [],
+      ambition: 'slice',
+      biome: 'Alpine Snow',
+      archetype: 'Traveller Coat',
+      mechanic: 'Surf / Carve',
+      camera: 'Third Person',
+      renderingProfile: 'babylon-webgpu',
+      includedSections: [],
+      extraSections: [],
+      cameraAdjustments: [],
+      stateChannelContract: {},
+      signatureMoment: {
+        enabled: true,
+        text: 'test signature moment for override status test',
+        reusedSystem: 'particles',
+        verificationPose: 'mechanic',
+      },
+      noveltyBudget: {
+        addsEngine: false,
+        addsAssetCategory: false,
+        addsPersistentBuffer: false,
+        addsMajorRenderPass: false,
+        addsSimulationSubsystem: false,
+        addsInput: false,
+        increasesAmbition: false,
+      },
+    },
+    projectName: 'OVERRIDE-STATUS-TEST',
+    coreInteractionSentence: 'carve a trail across a dark drift field',
+    creativeSpark: 'surprise me',
+    builderAgent: 'Claude Code',
+    coherenceConfig: {
+      paradigm: 'photoreal',
+      assetStrategy: 'zero-asset',
+      materialBehaviours: 'Multi-scale procedural normals at 8 m / 0.8 m / 0.08 m with triplanar blending above 35 deg slope.',
+      palette: [
+        { role: 'sky', hex: '#050505', area: 'large' },
+        { role: 'terrain', hex: '#0a0a0a', area: 'large' },
+        { role: 'water', hex: '#020202', area: 'large' },
+      ],
+    },
+  };
+
+  // 1. Run checkCoherence and collect its policy errors
+  const rawConflicts = checkCoherence(spec.coherenceConfig);
+  const rawErrors = rawConflicts.filter((c) => c.severity === 'error');
+  assert.ok(rawErrors.length > 0, 'Incoherent palette must produce policy errors');
+
+  // 2. Supply one valid { rule, reason } override for every error
+  spec.coherenceOverrides = rawErrors.map((err) => ({
+    rule: err.rule,
+    reason: `Deliberate art-direction deviation for ${err.rule} in experimental dark scene.`,
+  }));
+
+  // 3. Prove validateAssemblySpec contains no error findings
+  const findings = validateAssemblySpec(spec, { rootDir: repoRoot });
+  const errorFindings = findings.filter((f) => f.severity === 'error');
+  assert.equal(errorFindings.length, 0, `validateAssemblySpec should contain 0 error findings, got: ${JSON.stringify(errorFindings)}`);
+
+  // 4. Prove assembleBrief succeeds
+  const { brief, warnings } = assembleBrief(spec, { rootDir: repoRoot });
+  assert.ok(brief);
+
+  // 5. Prove the brief says accepted deliberate deviation
+  assert.ok(brief.includes('accepted deliberate deviation'));
+
+  // 6. Prove it reports the exact accepted override count
+  const expectedStatusLine = `- **Coherence Validation:** accepted deliberate deviation (${rawErrors.length} override(s), ${warnings.length} warning(s))`;
+  assert.ok(brief.includes(expectedStatusLine), `Brief must include exact status line '${expectedStatusLine}'`);
+
+  // 7. Prove it does not say has errors
+  assert.equal(brief.includes('has errors'), false, 'Brief must not say has errors when all errors are overridden');
+
+  // 8. Prove every overridden rule and reason appears under ## Deliberate Deviations
+  assert.ok(brief.includes('## Deliberate Deviations'));
+  for (const ov of spec.coherenceOverrides) {
+    assert.ok(brief.includes(`- **${ov.rule}:** ${ov.reason}`), `Brief missing override entry for ${ov.rule}`);
+  }
 });
 
 test('Assembly Decisions records complete state-channel mapping keys, channels, and effects', () => {
