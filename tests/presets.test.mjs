@@ -182,3 +182,7 @@ test('Creative modes section exists and documents mode rules', () => {
   assert.match(s, /Signature[\s\S]*?ENABLE_SIGNATURE_MOMENT[\s\S]*?default/i);
   assert.match(s, /Experimental[\s\S]*?ENABLE_SIGNATURE_MOMENT[\s\S]*?default/i);
 });
+
+test('presets.md contains no stale token-count or manual verification phrases', () => {
+  assert.doesNotMatch(md, /37 tokens|of the 37|one of the 37|manually verify mechanic/i);
+});

@@ -3,248 +3,52 @@ import assert from 'node:assert/strict';
 import {
   validateSelection,
   formatStateChannelContract,
-  RENDERING_PROFILES,
   SHOWCASES,
-  BIOME_CHANNELS,
-  MECHANIC_WRITES,
-  CAMERA_REQUIREMENTS,
 } from '../selection.mjs';
 
-const canonicalShowcases = [
-  {
-    name: 'Alpine Dawn',
-    selection: {
-      creativeMode: 'signature',
-      path: 'showcase',
-      baseShowcase: 'Alpine Dawn',
-      changedAxes: [],
-      ambition: 'showcase',
-      biome: 'Alpine Snow',
-      archetype: 'Traveller Coat',
-      mechanic: 'Surf / Carve',
-      camera: 'Third Person',
-      renderingProfile: 'babylon-webgpu',
-      includedSections: ['vegetation', 'state-buffer', 'audio'],
-      extraSections: [],
-      stateChannelContract: {
-        'depression': { channel: 'R', effect: 'carve groove lowers snow depression depth' },
-        'displaced-mass': { channel: 'G', effect: 'carve berms raise displaced snow mass' },
-        'wetness-or-compaction': { channel: 'B', effect: 'groove writes wetness, interpreted as compressed sheen' },
-      },
-      cameraAdjustments: [],
-      signatureMoment: {
-        enabled: true,
-        text: 'Spindrift plume on carve threshold',
-        reusedSystem: 'particles',
-        verificationPose: 'mechanic',
-      },
-      noveltyBudget: {
-        addsEngine: false,
-        addsAssetCategory: false,
-        addsPersistentBuffer: false,
-        addsMajorRenderPass: false,
-        addsSimulationSubsystem: false,
-        addsInput: false,
-        increasesAmbition: false,
-      },
-    },
-  },
-  {
-    name: 'Hoshi-no-Tani',
-    selection: {
-      creativeMode: 'signature',
-      path: 'showcase',
-      baseShowcase: 'Hoshi-no-Tani',
-      changedAxes: [],
-      ambition: 'everything',
-      biome: 'Ghibli Valley',
-      archetype: 'Traveller Coat',
-      mechanic: 'Flight / Glide',
-      camera: 'Cinematic',
-      renderingProfile: 'three-webgl2',
-      includedSections: ['vegetation', 'state-buffer', 'audio'],
-      extraSections: ['weather', 'water-bodies', 'architecture', 'destructibility'],
-      stateChannelContract: {
-        'wind-gust': { channel: 'B', effect: 'downwash writes wind-gust magnitude' },
-        'landing-depression': { channel: 'R', effect: 'landing depression becomes trample/blade bend' },
-      },
-      cameraAdjustments: ['verification-framing'],
-      signatureMoment: {
-        enabled: true,
-        text: 'Thermal updraft glint on viaduct flyby',
-        reusedSystem: 'particles',
-        verificationPose: 'mechanic',
-      },
-      noveltyBudget: {
-        addsEngine: false,
-        addsAssetCategory: false,
-        addsPersistentBuffer: false,
-        addsMajorRenderPass: false,
-        addsSimulationSubsystem: false,
-        addsInput: false,
-        increasesAmbition: false,
-      },
-    },
-  },
-  {
-    name: 'Dune Sea',
-    selection: {
-      creativeMode: 'proven',
-      path: 'showcase',
-      baseShowcase: 'Dune Sea',
-      changedAxes: [],
-      ambition: 'slice',
-      biome: 'Dune Desert',
-      archetype: 'Desert Nomad',
-      mechanic: 'Surf / Carve',
-      camera: 'Third Person',
-      renderingProfile: 'babylon-webgpu',
-      includedSections: [],
-      extraSections: [],
-      stateChannelContract: {},
-      cameraAdjustments: [],
-      signatureMoment: {
-        enabled: false,
-        text: '',
-        reusedSystem: '',
-        verificationPose: 'mechanic',
-      },
-      noveltyBudget: {
-        addsEngine: false,
-        addsAssetCategory: false,
-        addsPersistentBuffer: false,
-        addsMajorRenderPass: false,
-        addsSimulationSubsystem: false,
-        addsInput: false,
-        increasesAmbition: false,
-      },
-    },
-  },
-  {
-    name: 'Tidal Shelf',
-    selection: {
-      creativeMode: 'signature',
-      path: 'showcase',
-      baseShowcase: 'Tidal Shelf',
-      changedAxes: [],
-      ambition: 'showcase',
-      biome: 'Ocean Shelf',
-      archetype: 'Robed Mage',
-      mechanic: 'Grapple Swing',
-      camera: 'XR',
-      renderingProfile: 'babylon-webgpu',
-      includedSections: ['vegetation', 'state-buffer', 'audio'],
-      extraSections: [],
-      stateChannelContract: {
-        'anchor-displaced-mass': { channel: 'G', effect: 'displaced mass becomes localized foam coverage' },
-        'landing-depression': { channel: 'B', effect: 'landing depression becomes bed-scour depth' },
-        'hard-landing-disturbance': { channel: 'A', effect: 'disturbed sand becomes turbidity' },
-      },
-      cameraAdjustments: [
-        'body-rings-20-24',
-        'hands-feet-rings-10-12',
-        'stereo-target',
-        'double-character-budget',
-        'verification-framing',
-        'no-dof-motion-blur',
-      ],
-      signatureMoment: {
-        enabled: true,
-        text: 'Luminous caustic flash at grapple apex',
-        reusedSystem: 'shaders',
-        verificationPose: 'mechanic',
-      },
-      noveltyBudget: {
-        addsEngine: false,
-        addsAssetCategory: false,
-        addsPersistentBuffer: false,
-        addsMajorRenderPass: false,
-        addsSimulationSubsystem: false,
-        addsInput: false,
-        increasesAmbition: false,
-      },
-    },
-  },
-  {
-    name: 'Emberfall',
-    selection: {
-      creativeMode: 'signature',
-      path: 'showcase',
-      baseShowcase: 'Emberfall',
-      changedAxes: [],
-      ambition: 'showcase',
-      biome: 'Volcanic',
-      archetype: 'Armored Soldier',
-      mechanic: 'Beam Cannon',
-      camera: 'First Person',
-      renderingProfile: 'babylon-webgpu',
-      includedSections: ['vegetation', 'state-buffer', 'audio'],
-      extraSections: [],
-      stateChannelContract: {
-        'depression': { channel: 'R', effect: 'beam intersection reduces crust thickness' },
-        'heat-scorch-disturbance': { channel: 'B', effect: 'beam heat raises normalized temperature' },
-      },
-      cameraAdjustments: ['hand-rings-12', 'cloth-plus-one', 'hide-head-neck-only', 'verification-framing'],
-      signatureMoment: {
-        enabled: true,
-        text: 'Crust incandescence along scorch vector',
-        reusedSystem: 'material',
-        verificationPose: 'mechanic',
-      },
-      noveltyBudget: {
-        addsEngine: false,
-        addsAssetCategory: false,
-        addsPersistentBuffer: false,
-        addsMajorRenderPass: false,
-        addsSimulationSubsystem: false,
-        addsInput: false,
-        increasesAmbition: false,
-      },
-    },
-  },
-  {
-    name: 'Neon Monsoon',
-    selection: {
-      creativeMode: 'signature',
-      path: 'showcase',
-      baseShowcase: 'Neon Monsoon',
-      changedAxes: [],
-      ambition: 'everything',
-      biome: 'Night City',
-      archetype: 'Void Wanderer',
-      mechanic: 'Summon Vehicle',
-      camera: 'Third Person',
-      renderingProfile: 'three-webgl2',
-      includedSections: ['vegetation', 'state-buffer', 'audio'],
-      extraSections: ['weather', 'water-bodies', 'architecture', 'destructibility'],
-      stateChannelContract: {
-        'track-depression': { channel: 'R', effect: 'tracks displace puddle-water depth' },
-        'track-compaction-disturbance': { channel: 'B', effect: 'vehicle passage writes surface disturbance' },
-        'track-edge-displaced-mass': { channel: 'G', effect: 'edge displacement becomes ripple phase/amplitude' },
-      },
-      cameraAdjustments: [],
-      signatureMoment: {
-        enabled: true,
-        text: 'Sodium reflections flare during vehicle arrival',
-        reusedSystem: 'shaders',
-        verificationPose: 'mechanic',
-      },
-      noveltyBudget: {
-        addsEngine: false,
-        addsAssetCategory: false,
-        addsPersistentBuffer: false,
-        addsMajorRenderPass: false,
-        addsSimulationSubsystem: false,
-        addsInput: false,
-        increasesAmbition: false,
-      },
-    },
-  },
-];
+/** Helper to derive a clean valid selection directly from SHOWCASES registry entry */
+function deriveSelection(showcaseName, creativeMode = 'signature') {
+  const base = SHOWCASES[showcaseName];
+  if (!base) throw new Error(`Unknown showcase ${showcaseName}`);
 
-test('all six canonical showcase selections validate cleanly', () => {
-  for (const { name, selection } of canonicalShowcases) {
-    const errors = validateSelection(selection).filter((c) => c.severity === 'error');
+  const isProven = creativeMode === 'proven';
+  return {
+    creativeMode,
+    path: 'showcase',
+    baseShowcase: showcaseName,
+    changedAxes: [],
+    ambition: base.ambition,
+    biome: base.biome,
+    archetype: base.archetype,
+    mechanic: base.mechanic,
+    camera: base.camera,
+    renderingProfile: base.renderingProfile,
+    includedSections: [...base.includedSections],
+    extraSections: [...base.extraSections],
+    stateChannelContract: JSON.parse(JSON.stringify(base.stateChannelContract)),
+    cameraAdjustments: [...base.cameraAdjustments],
+    signatureMoment: {
+      enabled: !isProven,
+      text: isProven ? '' : 'Canonical signature spark effect',
+      reusedSystem: isProven ? '' : 'particles',
+      verificationPose: 'mechanic',
+    },
+    noveltyBudget: {
+      addsEngine: false,
+      addsAssetCategory: false,
+      addsPersistentBuffer: false,
+      addsMajorRenderPass: false,
+      addsSimulationSubsystem: false,
+      addsInput: false,
+      increasesAmbition: false,
+    },
+  };
+}
+
+test('all six canonical showcase selections derived from SHOWCASES validate cleanly', () => {
+  for (const name of Object.keys(SHOWCASES)) {
+    const sel = deriveSelection(name, 'signature');
+    const errors = validateSelection(sel).filter((c) => c.severity === 'error');
     assert.deepEqual(errors, [], `Canonical showcase '${name}' failed validation: ${errors.map((e) => e.message).join(', ')}`);
   }
 });
@@ -259,8 +63,97 @@ test('null, primitive, and array inputs do not throw and return selection-requir
   }
 });
 
+test('malformed nested inputs do not throw and return findings', () => {
+  const base = deriveSelection('Alpine Dawn');
+
+  const malformedCases = [
+    { key: 'includedSections', val: {} },
+    { key: 'extraSections', val: 42 },
+    { key: 'changedAxes', val: 123 },
+    { key: 'stateChannelContract', val: 'abc' },
+    { key: 'cameraAdjustments', val: 'xyz' },
+    { key: 'signatureMoment', val: 5 },
+    { key: 'noveltyBudget', val: 'foo' },
+  ];
+
+  for (const { key, val } of malformedCases) {
+    assert.doesNotThrow(() => {
+      const res = validateSelection({ ...base, [key]: val });
+      assert.ok(res.length > 0, `Expected error findings for malformed ${key}`);
+      assert.ok(res.some((c) => c.severity === 'error'), `Expected error severity for malformed ${key}`);
+    }, `Threw exception for malformed ${key}`);
+  }
+});
+
+test('reordered canonical section arrays do not count as axis drift', () => {
+  const sel = deriveSelection('Hoshi-no-Tani');
+  sel.includedSections = ['audio', 'state-buffer', 'vegetation']; // reordered
+  sel.extraSections = ['architecture', 'destructibility', 'weather', 'water-bodies']; // reordered
+
+  const errors = validateSelection(sel).filter((c) => c.severity === 'error');
+  assert.deepEqual(errors, []);
+});
+
+// ADVERSARIAL TEST 1
+test('adversarial 1: Signature Alpine Dawn with canonical channel destinations changed returns showcase-state-contract-drift', () => {
+  const sel = deriveSelection('Alpine Dawn', 'signature');
+  sel.stateChannelContract['depression'].channel = 'G'; // modified channel from R to G
+
+  const res = validateSelection(sel);
+  assert.ok(res.some((c) => c.rule === 'showcase-state-contract-drift'), 'Expected showcase-state-contract-drift error');
+});
+
+// ADVERSARIAL TEST 2
+test('adversarial 2: Fully custom selection with baseShowcase omitted returns base-showcase-not-null', () => {
+  const sel = deriveSelection('Alpine Dawn');
+  sel.creativeMode = 'experimental';
+  sel.path = 'fully-custom';
+  delete sel.baseShowcase; // omitted / undefined
+
+  const res = validateSelection(sel);
+  assert.ok(res.some((c) => c.rule === 'base-showcase-not-null'), 'Expected base-showcase-not-null error');
+});
+
+// ADVERSARIAL TEST 3
+test('adversarial 3: Slice selection with stateChannelContract omitted returns state-channel-contract-prohibited', () => {
+  const sel = deriveSelection('Dune Sea'); // Dune Sea is slice
+  delete sel.stateChannelContract; // omitted / undefined
+
+  const res = validateSelection(sel);
+  assert.ok(res.some((c) => c.rule === 'state-channel-contract-prohibited'), 'Expected state-channel-contract-prohibited error');
+});
+
+// ADVERSARIAL TEST 4
+test('adversarial 4: Selection with an unknown novelty-budget key returns novelty-budget-unknown', () => {
+  const sel = deriveSelection('Alpine Dawn');
+  sel.noveltyBudget.extraUnsupportedFlag = false;
+
+  const res = validateSelection(sel);
+  assert.ok(res.some((c) => c.rule === 'novelty-budget-unknown'), 'Expected novelty-budget-unknown error');
+});
+
+// ADVERSARIAL TEST 5
+test('adversarial 5: State-channel entry with an unknown property returns state-channel-entry-unknown', () => {
+  const sel = deriveSelection('Alpine Dawn');
+  sel.stateChannelContract['depression'].extraProp = true;
+
+  const res = validateSelection(sel);
+  assert.ok(res.some((c) => c.rule === 'state-channel-entry-unknown'), 'Expected state-channel-entry-unknown error');
+});
+
+// ADVERSARIAL TEST 6
+test('adversarial 6: Experimental Alpine Dawn with changed sections but changedAxes: [] returns changed-axes-mismatch', () => {
+  const sel = deriveSelection('Alpine Dawn');
+  sel.creativeMode = 'experimental';
+  sel.path = 'base-showcase';
+  sel.extraSections = ['weather']; // changed section while changedAxes remains []
+
+  const res = validateSelection(sel);
+  assert.ok(res.some((c) => c.rule === 'changed-axes-mismatch'), 'Expected changed-axes-mismatch error');
+});
+
 test('rejects invalid modes and mode/path combinations', () => {
-  const base = { ...canonicalShowcases[0].selection };
+  const base = deriveSelection('Alpine Dawn');
 
   const resMode = validateSelection({ ...base, creativeMode: 'invalid-mode' });
   assert.ok(resMode.some((c) => c.rule === 'creative-mode-invalid'));
@@ -274,9 +167,7 @@ test('rejects invalid modes and mode/path combinations', () => {
 
 test('rejects Proven and Signature drift from base showcase', () => {
   const driftedProven = {
-    ...canonicalShowcases[0].selection,
-    creativeMode: 'proven',
-    signatureMoment: { enabled: false, text: '', reusedSystem: '', verificationPose: 'mechanic' },
+    ...deriveSelection('Alpine Dawn', 'proven'),
     biome: 'Volcanic', // changed biome without using experimental mode/path
   };
   const res = validateSelection(driftedProven);
@@ -286,7 +177,7 @@ test('rejects Proven and Signature drift from base showcase', () => {
 test('rejects incorrect or excessive Experimental changed axes', () => {
   // Excessive changed axes: changing both biome and camera
   const expExcessive = {
-    ...canonicalShowcases[0].selection,
+    ...deriveSelection('Alpine Dawn'),
     creativeMode: 'experimental',
     path: 'base-showcase',
     biome: 'Volcanic',
@@ -304,7 +195,7 @@ test('rejects incorrect or excessive Experimental changed axes', () => {
 
   // Mismatched declared changedAxes vs actual
   const expMismatch = {
-    ...canonicalShowcases[0].selection,
+    ...deriveSelection('Alpine Dawn'),
     creativeMode: 'experimental',
     path: 'base-showcase',
     biome: 'Volcanic',
@@ -321,37 +212,17 @@ test('rejects incorrect or excessive Experimental changed axes', () => {
 
 test('rejects fully-custom selections with a non-null baseShowcase', () => {
   const customWithBase = {
+    ...deriveSelection('Alpine Dawn'),
     creativeMode: 'experimental',
     path: 'fully-custom',
-    baseShowcase: 'Alpine Dawn',
-    changedAxes: [],
-    ambition: 'slice',
-    biome: 'Alpine Snow',
-    archetype: 'Traveller Coat',
-    mechanic: 'Surf / Carve',
-    camera: 'Third Person',
-    renderingProfile: 'babylon-webgpu',
-    includedSections: [],
-    extraSections: [],
-    stateChannelContract: {},
-    cameraAdjustments: [],
-    signatureMoment: { enabled: true, text: 'spark text', reusedSystem: 'particles', verificationPose: 'mechanic' },
-    noveltyBudget: {
-      addsEngine: false,
-      addsAssetCategory: false,
-      addsPersistentBuffer: false,
-      addsMajorRenderPass: false,
-      addsSimulationSubsystem: false,
-      addsInput: false,
-      increasesAmbition: false,
-    },
+    baseShowcase: 'Alpine Dawn', // must be null!
   };
   const res = validateSelection(customWithBase);
   assert.ok(res.some((c) => c.rule === 'base-showcase-not-null'));
 });
 
 test('enforces ambition and section rules', () => {
-  const base = { ...canonicalShowcases[0].selection };
+  const base = deriveSelection('Alpine Dawn');
 
   // slice with included sections
   const resSlice = validateSelection({ ...base, ambition: 'slice', includedSections: ['vegetation'] });
@@ -376,7 +247,7 @@ test('enforces ambition and section rules', () => {
 });
 
 test('enforces state-channel contract rules', () => {
-  const base = { ...canonicalShowcases[0].selection };
+  const base = deriveSelection('Alpine Dawn');
 
   // Missing write key
   const missingKeyContract = { ...base.stateChannelContract };
@@ -408,7 +279,7 @@ test('enforces state-channel contract rules', () => {
 });
 
 test('enforces camera adjustments rules', () => {
-  const base = { ...canonicalShowcases[0].selection, camera: 'First Person' };
+  const base = deriveSelection('Emberfall'); // Emberfall uses First Person
 
   // Missing required camera adjustment
   const resMissing = validateSelection({ ...base, cameraAdjustments: ['hand-rings-12'] });
@@ -430,7 +301,7 @@ test('enforces camera adjustments rules', () => {
 });
 
 test('enforces Signature Moment enablement and required fields', () => {
-  const base = { ...canonicalShowcases[0].selection };
+  const base = deriveSelection('Alpine Dawn');
 
   // Proven with signature enabled -> error
   const resProvenEnabled = validateSelection({
@@ -458,7 +329,7 @@ test('enforces Signature Moment enablement and required fields', () => {
 });
 
 test('rejects novelty-budget flags when true', () => {
-  const base = { ...canonicalShowcases[0].selection };
+  const base = deriveSelection('Alpine Dawn');
 
   for (const flag of [
     'addsEngine',
@@ -478,12 +349,12 @@ test('rejects novelty-budget flags when true', () => {
 });
 
 test('formatStateChannelContract produces deterministic output and throws on invalid selection', () => {
-  const alpine = canonicalShowcases[0].selection;
+  const alpine = deriveSelection('Alpine Dawn');
   const formatted = formatStateChannelContract(alpine);
   assert.match(formatted, /^\* \*\*`depression`\*\* → \*\*`R`\*\*/m);
   assert.match(formatted, /carve groove lowers snow depression depth/);
 
-  const dune = canonicalShowcases[2].selection; // slice -> empty contract
+  const dune = deriveSelection('Dune Sea'); // slice -> empty contract
   assert.equal(formatStateChannelContract(dune), '');
 
   const invalid = { ...alpine, creativeMode: 'invalid' };

@@ -76,9 +76,8 @@ The Experimental fully custom path is the only path that runs the complete Step 
 **Experimental Mode Rules:**
 - Never select Experimental automatically; require explicit user selection.
 - Run `checkCoherence` on the final configuration.
-- Manually verify mechanic writes against biome state-buffer channels, camera and character compatibility, and ambition-level sections.
+- Run `validateSelection` from `selection.mjs` to verify the explicit state-channel contract, camera adjustments, ambition levels, and mode contracts.
 - Record all changes and compatibility decisions in `DECISIONS.md`.
-- Note: Batch 5 will strengthen these checks programmatically.
 
 ---
 

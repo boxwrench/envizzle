@@ -140,7 +140,7 @@ The level decides which of `TEMPLATE.md`'s three marked sections survive:
 
 **2. Biome** — one of: Alpine Snow, Ghibli Valley, Dune Desert, Ocean Shelf,
 Volcanic, Night City. This is the single largest decision: it supplies 19 of the
-37 tokens and the palette that Step 3 checks.
+38 tokens and the palette that Step 3 checks.
 
 **3. Archetype** — one of: Robed Mage, Traveller Coat, Armored Soldier, Desert
 Nomad, Void Wanderer. Archetypes are **parameters on one rig**, never alternative
@@ -195,8 +195,9 @@ After mode choices and before generation:
 2. **Run `validateSelection(selection)`** from `selection.mjs` to validate mode, route, section, camera, channel, and budget contracts.
 3. **Run `checkCoherence(config)`** from `check.mjs` on the chosen biome's palette and paradigm config (with `assetStrategy: 'zero-asset'`).
 4. **Report every conflict** from both validators with its `message` and `fix`, verbatim.
-   - `severity: 'error'` — block generation until resolved or explicitly overridden.
-   - `severity: 'warn'` — report and continue.
+   - `validateSelection` errors (`severity: 'error'`): hard blockers that cannot be overridden under any circumstances. Creative freedom operates only within hard structural contracts.
+   - `checkCoherence` errors (`severity: 'error'`): block generation by default, but may proceed if the user explicitly decides to override, recorded in `DECISIONS.md` under `## Deliberate Deviations`.
+   - `severity: 'warn'`: report and continue.
 5. **Format state-channel contract** using `formatStateChannelContract(selection)` when `state-buffer` is included, and insert it into `TEMPLATE.md` at `{{STATE_CHANNEL_CONTRACT}}`.
 6. **Record in DECISIONS.md**: creative mode, route/path, changed axis, sections, profile, channel contract mappings, validator results, and any deliberate overrides.
 
@@ -262,17 +263,7 @@ On the Experimental custom route, derive the nine config-level tokens like this:
 - Be visible when `window.__demo.setPose('mechanic')` is called.
 - Remain exactly one behavior, not a bundle of related features.
 
-**At `slice`, edit the mechanic text as you paste it.** Every mechanic's
-`CENTREPIECE_DESCRIPTION` ends with a **Writes:** paragraph naming state-buffer
-channels, and some add a line like *"a completed run stays visible from across the
-field."* At `slice` there is no §2.3, so drop the **Writes:** paragraph and any
-sentence promising a persistent mark; the mechanic's payload is its motion, its wake
-or beam mesh, and its particles. Leaving that prose in points the builder at a
-system the brief does not contain — the Dune Sea showcase config is `slice` with
-Surf / Carve and hits this directly. At `showcase` and `everything`, keep the
-paragraph and confirm each channel it names exists in the biome's
-`STATE_BUFFER_CHANNELS`; the channels are lettered per biome, so B in one biome is
-wind gust and in another is temperature. Match on meaning, not on letter.
+**When `state-buffer` is omitted (at `slice` or if dropped), edit the mechanic text as you paste it.** Every mechanic's `CENTREPIECE_DESCRIPTION` ends with a **Writes:** paragraph naming state-buffer channels, and some add a line like *"a completed run stays visible from across the field."* When `state-buffer` is omitted, drop the **Writes:** paragraph and any sentence promising a persistent mark; the mechanic's payload is its motion, its wake or beam mesh, and its particles. Leaving that prose in points the builder at a system the brief does not contain. When `state-buffer` is included, keep the paragraph and insert `{{STATE_CHANNEL_CONTRACT}}` formatted by `selection.mjs`.
 
 Tokens written as `{{NAME — default: …}}` in `TEMPLATE.md` carry a hint inside the
 braces. Replace the **whole** brace expression, hint included. A leftover hint is
@@ -323,7 +314,7 @@ This slot takes three pieces, in this order:
 3. **The biome's `FOOT_INTERACTION` text**, headed
    `### Foot interaction — <PRIMARY_MATERIAL_NAME>`.
 
-**`FOOT_INTERACTION` is not one of the 37 tokens.** It has no slot in
+**`FOOT_INTERACTION` is not one of the 38 tokens.** It has no slot in
 `TEMPLATE.md`. Every biome supplies it, and it is appended to the inlined
 `CHARACTER_RECIPE` here — nowhere else. Under it, add one sentence tying it to the
 recipe: *these effects fire from the single touchdown call site in Part 5, reading
@@ -426,6 +417,6 @@ you are reproducing the failure this skill exists to prevent.
 | `references/presets.md` → *Camera modes* | 4 modes; substituted into §2.6, no tokens |
 | `references/presets.md` → *Showcase configs* | 6 checked combinations; take one whole |
 | `references/character-recipe.md` | The humanoid spec, inlined verbatim at `{{CHARACTER_RECIPE}}` |
-| `TEMPLATE.md` | The skeleton: 37 tokens, 3 marked sections, the `window.__demo` hook in §6 |
+| `TEMPLATE.md` | The skeleton: 38 tokens, 3 marked sections, the `window.__demo` hook in §6 |
 | `check.mjs` | `validateBrief` (CLI: `node check.mjs <brief>`) and `checkCoherence(config)` |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |

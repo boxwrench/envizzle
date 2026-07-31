@@ -31,6 +31,12 @@ export const SHOWCASES = {
     renderingProfile: 'babylon-webgpu',
     includedSections: ['vegetation', 'state-buffer', 'audio'],
     extraSections: [],
+    cameraAdjustments: [],
+    stateChannelContract: {
+      'depression': { channel: 'R', effect: 'carve groove lowers snow depression depth' },
+      'displaced-mass': { channel: 'G', effect: 'carve berms raise displaced snow mass' },
+      'wetness-or-compaction': { channel: 'B', effect: 'groove writes wetness, interpreted as compressed sheen' },
+    },
   },
   'Hoshi-no-Tani': {
     name: 'Hoshi-no-Tani',
@@ -42,6 +48,11 @@ export const SHOWCASES = {
     renderingProfile: 'three-webgl2',
     includedSections: ['vegetation', 'state-buffer', 'audio'],
     extraSections: ['weather', 'water-bodies', 'architecture', 'destructibility'],
+    cameraAdjustments: ['verification-framing'],
+    stateChannelContract: {
+      'wind-gust': { channel: 'B', effect: 'downwash writes wind-gust magnitude' },
+      'landing-depression': { channel: 'R', effect: 'landing depression becomes trample/blade bend' },
+    },
   },
   'Dune Sea': {
     name: 'Dune Sea',
@@ -53,6 +64,8 @@ export const SHOWCASES = {
     renderingProfile: 'babylon-webgpu',
     includedSections: [],
     extraSections: [],
+    cameraAdjustments: [],
+    stateChannelContract: {},
   },
   'Tidal Shelf': {
     name: 'Tidal Shelf',
@@ -64,6 +77,19 @@ export const SHOWCASES = {
     renderingProfile: 'babylon-webgpu',
     includedSections: ['vegetation', 'state-buffer', 'audio'],
     extraSections: [],
+    cameraAdjustments: [
+      'body-rings-20-24',
+      'hands-feet-rings-10-12',
+      'stereo-target',
+      'double-character-budget',
+      'verification-framing',
+      'no-dof-motion-blur',
+    ],
+    stateChannelContract: {
+      'anchor-displaced-mass': { channel: 'G', effect: 'displaced mass becomes localized foam coverage' },
+      'landing-depression': { channel: 'B', effect: 'bed scour depth 0 -> 0.22 m' },
+      'hard-landing-disturbance': { channel: 'A', effect: 'disturbed sand becomes turbidity' },
+    },
   },
   'Emberfall': {
     name: 'Emberfall',
@@ -75,6 +101,11 @@ export const SHOWCASES = {
     renderingProfile: 'babylon-webgpu',
     includedSections: ['vegetation', 'state-buffer', 'audio'],
     extraSections: [],
+    cameraAdjustments: ['hand-rings-12', 'cloth-plus-one', 'hide-head-neck-only', 'verification-framing'],
+    stateChannelContract: {
+      'depression': { channel: 'R', effect: 'beam intersection reduces crust thickness' },
+      'heat-scorch-disturbance': { channel: 'B', effect: 'beam heat raises normalized temperature' },
+    },
   },
   'Neon Monsoon': {
     name: 'Neon Monsoon',
@@ -86,6 +117,12 @@ export const SHOWCASES = {
     renderingProfile: 'three-webgl2',
     includedSections: ['vegetation', 'state-buffer', 'audio'],
     extraSections: ['weather', 'water-bodies', 'architecture', 'destructibility'],
+    cameraAdjustments: [],
+    stateChannelContract: {
+      'track-depression': { channel: 'R', effect: 'tracks displace puddle-water depth' },
+      'track-compaction-disturbance': { channel: 'B', effect: 'vehicle passage writes surface disturbance' },
+      'track-edge-displaced-mass': { channel: 'G', effect: 'edge displacement becomes ripple phase/amplitude' },
+    },
   },
 };
 
@@ -152,6 +189,29 @@ export const CAMERA_REQUIREMENTS = {
 
 const conflict = (rule, severity, message, fix) => ({ rule, severity, message, fix });
 
+const areSectionSetsEqual = (arr1, arr2) => {
+  if (!Array.isArray(arr1) || !Array.isArray(arr2)) return false;
+  const s1 = new Set(arr1);
+  const s2 = new Set(arr2);
+  if (s1.size !== s2.size) return false;
+  for (const item of s1) {
+    if (!s2.has(item)) return false;
+  }
+  return true;
+};
+
+const areStateContractsEqual = (c1, c2) => {
+  if (!c1 || !c2 || typeof c1 !== 'object' || Array.isArray(c1) || Array.isArray(c2)) return false;
+  const k1 = Object.keys(c1).sort();
+  const k2 = Object.keys(c2).sort();
+  if (JSON.stringify(k1) !== JSON.stringify(k2)) return false;
+  for (const key of k1) {
+    if (!c1[key] || !c2[key] || typeof c1[key] !== 'object' || typeof c2[key] !== 'object') return false;
+    if (c1[key].channel !== c2[key].channel || c1[key].effect !== c2[key].effect) return false;
+  }
+  return true;
+};
+
 /**
  * Validate a creative selection object deterministically.
  * @returns {Array<{rule:string, severity:'error'|'warn', message:string, fix:string}>}
@@ -169,7 +229,7 @@ export function validateSelection(selection) {
     return out;
   }
 
-  // Enum validation
+  // 1. Enum validation
   const validModes = ['proven', 'signature', 'experimental'];
   if (!validModes.includes(selection.creativeMode)) {
     out.push(conflict(
@@ -246,7 +306,7 @@ export function validateSelection(selection) {
     ));
   }
 
-  // Mode and path combinations
+  // 2. Mode & path mismatch validation
   if (selection.creativeMode === 'proven' || selection.creativeMode === 'signature') {
     if (selection.path !== 'showcase') {
       out.push(conflict(
@@ -267,9 +327,9 @@ export function validateSelection(selection) {
     }
   }
 
-  // Base Showcase validation & Changed Axes
+  // 3. Base Showcase validation
   if (selection.path === 'showcase' || selection.path === 'base-showcase') {
-    if (!selection.baseShowcase || !SHOWCASES[selection.baseShowcase]) {
+    if (typeof selection.baseShowcase !== 'string' || !SHOWCASES[selection.baseShowcase]) {
       out.push(conflict(
         'base-showcase-invalid',
         'error',
@@ -278,29 +338,21 @@ export function validateSelection(selection) {
       ));
     }
   } else if (selection.path === 'fully-custom') {
-    if (selection.baseShowcase !== null && selection.baseShowcase !== undefined) {
+    if (selection.baseShowcase !== null) {
       out.push(conflict(
         'base-showcase-not-null',
         'error',
-        `Fully custom path requires baseShowcase to be null, got '${selection.baseShowcase}'.`,
+        `Fully custom path requires baseShowcase to be exactly null, got ${selection.baseShowcase === undefined ? 'undefined' : JSON.stringify(selection.baseShowcase)}.`,
         'Set baseShowcase to null for fully custom path.',
       ));
     }
   }
 
-  // Changed axes computation
-  const majorAxes = ['ambition', 'biome', 'archetype', 'mechanic', 'camera'];
-  const actualChangedMajorAxes = [];
-  if (selection.baseShowcase && SHOWCASES[selection.baseShowcase]) {
-    const base = SHOWCASES[selection.baseShowcase];
-    for (const axis of majorAxes) {
-      if (selection[axis] !== base[axis]) {
-        actualChangedMajorAxes.push(axis);
-      }
-    }
-  }
+  // 4. Validate changedAxes array
+  const allowedChangedAxisNames = ['ambition', 'biome', 'archetype', 'mechanic', 'camera'];
+  const isChangedAxesValidArray = Array.isArray(selection.changedAxes);
 
-  if (!Array.isArray(selection.changedAxes)) {
+  if (!isChangedAxesValidArray) {
     out.push(conflict(
       'changed-axes-invalid',
       'error',
@@ -308,6 +360,59 @@ export function validateSelection(selection) {
       'Provide an array for changedAxes.',
     ));
   } else {
+    const seenAxes = new Set();
+    let hasDuplicateAxes = false;
+    let hasUnknownAxes = false;
+    for (const axis of selection.changedAxes) {
+      if (!allowedChangedAxisNames.includes(axis)) {
+        hasUnknownAxes = true;
+      }
+      if (seenAxes.has(axis)) {
+        hasDuplicateAxes = true;
+      }
+      seenAxes.add(axis);
+    }
+    if (hasUnknownAxes) {
+      out.push(conflict(
+        'changed-axes-entry-invalid',
+        'error',
+        `changedAxes contains invalid axis entries. Allowed entries: ${allowedChangedAxisNames.join(', ')}.`,
+        `Use only valid major axes: ${allowedChangedAxisNames.join(', ')}.`,
+      ));
+    }
+    if (hasDuplicateAxes) {
+      out.push(conflict(
+        'changed-axes-duplicate',
+        'error',
+        'changedAxes contains duplicate entries.',
+        'Remove duplicate entries from changedAxes.',
+      ));
+    }
+  }
+
+  // 5. Compute actual changed major axes
+  const baseShowcaseObj = (typeof selection.baseShowcase === 'string' && SHOWCASES[selection.baseShowcase])
+    ? SHOWCASES[selection.baseShowcase]
+    : null;
+
+  const actualChangedMajorAxes = [];
+  if (baseShowcaseObj) {
+    if (selection.biome !== baseShowcaseObj.biome) actualChangedMajorAxes.push('biome');
+    if (selection.archetype !== baseShowcaseObj.archetype) actualChangedMajorAxes.push('archetype');
+    if (selection.mechanic !== baseShowcaseObj.mechanic) actualChangedMajorAxes.push('mechanic');
+    if (selection.camera !== baseShowcaseObj.camera) actualChangedMajorAxes.push('camera');
+
+    const isAmbitionValDifferent = selection.ambition !== baseShowcaseObj.ambition;
+    const isIncSectionsDifferent = !areSectionSetsEqual(selection.includedSections, baseShowcaseObj.includedSections);
+    const isExtraSectionsDifferent = !areSectionSetsEqual(selection.extraSections, baseShowcaseObj.extraSections);
+
+    if (isAmbitionValDifferent || isIncSectionsDifferent || isExtraSectionsDifferent) {
+      actualChangedMajorAxes.push('ambition');
+    }
+  }
+
+  // Cross-field checks for mode and changedAxes
+  if (isChangedAxesValidArray) {
     if (selection.creativeMode === 'proven' || selection.creativeMode === 'signature') {
       if (selection.changedAxes.length !== 0) {
         out.push(conflict(
@@ -317,15 +422,14 @@ export function validateSelection(selection) {
           'Set changedAxes: [].',
         ));
       }
-      if (selection.baseShowcase && SHOWCASES[selection.baseShowcase]) {
-        const base = SHOWCASES[selection.baseShowcase];
+      if (baseShowcaseObj) {
         if (
-          selection.ambition !== base.ambition ||
-          selection.biome !== base.biome ||
-          selection.archetype !== base.archetype ||
-          selection.mechanic !== base.mechanic ||
-          selection.camera !== base.camera ||
-          selection.renderingProfile !== base.renderingProfile
+          selection.ambition !== baseShowcaseObj.ambition ||
+          selection.biome !== baseShowcaseObj.biome ||
+          selection.archetype !== baseShowcaseObj.archetype ||
+          selection.mechanic !== baseShowcaseObj.mechanic ||
+          selection.camera !== baseShowcaseObj.camera ||
+          selection.renderingProfile !== baseShowcaseObj.renderingProfile
         ) {
           out.push(conflict(
             'showcase-drift',
@@ -335,14 +439,22 @@ export function validateSelection(selection) {
           ));
         }
         if (
-          JSON.stringify([...(selection.includedSections || [])].sort()) !== JSON.stringify([...base.includedSections].sort()) ||
-          JSON.stringify([...(selection.extraSections || [])].sort()) !== JSON.stringify([...base.extraSections].sort())
+          !areSectionSetsEqual(selection.includedSections, baseShowcaseObj.includedSections) ||
+          !areSectionSetsEqual(selection.extraSections, baseShowcaseObj.extraSections)
         ) {
           out.push(conflict(
             'showcase-sections-drift',
             'error',
             `${selection.creativeMode} mode requires intact showcase sections.`,
             'Match the base showcase includedSections and extraSections exactly.',
+          ));
+        }
+        if (!areStateContractsEqual(selection.stateChannelContract, baseShowcaseObj.stateChannelContract)) {
+          out.push(conflict(
+            'showcase-state-contract-drift',
+            'error',
+            `${selection.creativeMode} mode requires the exact canonical stateChannelContract of the showcase.`,
+            'Match the canonical showcase stateChannelContract exactly.',
           ));
         }
       }
@@ -377,14 +489,16 @@ export function validateSelection(selection) {
     }
   }
 
-  // Ambition & section rules
+  // 6. Validate includedSections and extraSections
   const coreSections = ['vegetation', 'state-buffer', 'audio'];
   const extraSectionsList = ['weather', 'water-bodies', 'architecture', 'destructibility'];
 
   const incSec = selection.includedSections;
   const extSec = selection.extraSections;
+  const isIncSecArray = Array.isArray(incSec);
+  const isExtSecArray = Array.isArray(extSec);
 
-  if (!Array.isArray(incSec)) {
+  if (!isIncSecArray) {
     out.push(conflict(
       'included-sections-invalid',
       'error',
@@ -411,7 +525,7 @@ export function validateSelection(selection) {
     }
   }
 
-  if (!Array.isArray(extSec)) {
+  if (!isExtSecArray) {
     out.push(conflict(
       'extra-sections-invalid',
       'error',
@@ -438,7 +552,7 @@ export function validateSelection(selection) {
     }
   }
 
-  if (Array.isArray(incSec) && Array.isArray(extSec)) {
+  if (isIncSecArray && isExtSecArray) {
     if (selection.ambition === 'slice') {
       if (incSec.length !== 0 || extSec.length !== 0) {
         out.push(conflict(
@@ -486,16 +600,16 @@ export function validateSelection(selection) {
     }
   }
 
-  // State-channel contract validation
-  const hasStateBuffer = Array.isArray(incSec) && incSec.includes('state-buffer');
+  // 7. Validate stateChannelContract
+  const hasStateBuffer = isIncSecArray && incSec.includes('state-buffer');
   const scc = selection.stateChannelContract;
 
   if (!hasStateBuffer) {
-    if (scc && typeof scc === 'object' && Object.keys(scc).length > 0) {
+    if (!scc || typeof scc !== 'object' || Array.isArray(scc) || Object.keys(scc).length !== 0) {
       out.push(conflict(
         'state-channel-contract-prohibited',
         'error',
-        'stateChannelContract must be empty when state-buffer is not included.',
+        'stateChannelContract must be an empty object {} when state-buffer is not included.',
         'Set stateChannelContract: {}.',
       ));
     }
@@ -544,6 +658,17 @@ export function validateSelection(selection) {
           return;
         }
 
+        const allowedEntryKeys = ['channel', 'effect'];
+        const unknownEntryProps = Object.keys(entry).filter((k) => !allowedEntryKeys.includes(k));
+        if (unknownEntryProps.length > 0) {
+          out.push(conflict(
+            'state-channel-entry-unknown',
+            'error',
+            `stateChannelContract key '${key}' contains unknown properties: ${unknownEntryProps.join(', ')}.`,
+            "State channel entries may contain only 'channel' and 'effect'.",
+          ));
+        }
+
         const validChannels = ['R', 'G', 'B', 'A'];
         if (!validChannels.includes(entry.channel)) {
           out.push(conflict(
@@ -582,7 +707,7 @@ export function validateSelection(selection) {
     }
   }
 
-  // Camera requirements validation
+  // 8. Validate cameraAdjustments
   const camAdj = selection.cameraAdjustments;
   if (!Array.isArray(camAdj)) {
     out.push(conflict(
@@ -613,7 +738,7 @@ export function validateSelection(selection) {
     }
   }
 
-  // Signature Moment validation
+  // 9. Validate signatureMoment
   const sig = selection.signatureMoment;
   if (!sig || typeof sig !== 'object' || Array.isArray(sig)) {
     out.push(conflict(
@@ -668,9 +793,9 @@ export function validateSelection(selection) {
     }
   }
 
-  // Novelty Budget validation
+  // 10. Validate noveltyBudget
   const nb = selection.noveltyBudget;
-  const nbKeys = [
+  const allowedNbKeys = [
     'addsEngine',
     'addsAssetCategory',
     'addsPersistentBuffer',
@@ -688,7 +813,17 @@ export function validateSelection(selection) {
       'Provide a noveltyBudget object.',
     ));
   } else {
-    nbKeys.forEach((key) => {
+    const unknownNbKeys = Object.keys(nb).filter((k) => !allowedNbKeys.includes(k));
+    if (unknownNbKeys.length > 0) {
+      out.push(conflict(
+        'novelty-budget-unknown',
+        'error',
+        `noveltyBudget contains unknown properties: ${unknownNbKeys.join(', ')}.`,
+        `Allowed noveltyBudget properties: ${allowedNbKeys.join(', ')}.`,
+      ));
+    }
+
+    allowedNbKeys.forEach((key) => {
       if (typeof nb[key] !== 'boolean') {
         out.push(conflict(
           'novelty-budget-type-error',

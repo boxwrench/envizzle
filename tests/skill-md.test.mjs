@@ -147,3 +147,12 @@ test('documents explicit mode control flow, interview reservation, baseline word
   assert.match(skill, /restores the selected configuration without the Signature Moment|removable, restoring the selected configuration/);
   assert.match(skill, /Set `ENABLE_SIGNATURE_MOMENT` to `false`; it is a no-op/);
 });
+
+test('SKILL.md contains no stale token-count or manual verification phrases', () => {
+  assert.doesNotMatch(skill, /37 tokens|of the 37|one of the 37|manually verify mechanic/i);
+});
+
+test('SKILL.md documents validateSelection errors as hard blockers', () => {
+  assert.match(skill, /validateSelection[\s\S]{0,200}hard blockers/i);
+  assert.match(skill, /checkCoherence[\s\S]{0,200}Deliberate Deviations/i);
+});
