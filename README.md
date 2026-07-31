@@ -153,9 +153,9 @@ image gates cannot run, and the verifier says so instead of passing.
 
 ## Status
 
-**Envizzle is in public alpha.** In Batch 6, progressive reference loading, central
-registries, operable selection CLI, coherence CLI, test fixtures, and cross-file contract
-verification were implemented, and all unit tests pass (`npm test`). Deterministic
+**Envizzle is in public alpha.** Progressive reference loading, central registries,
+operable selection CLI, coherence CLI, test fixtures, and cross-file contract
+verification are implemented, and all unit tests pass (`npm test`). Deterministic
 end-to-end brief assembly and multi-agent generated-demo benchmarking remain before a
 1.0 claim. See `docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the
 design and `docs/2026-07-29-envizzle-skill.md` for the task plan it was built from.
@@ -166,8 +166,8 @@ The original prompt templates this skill was distilled from
 their content was mined. Recover any with:
 
 ```bash
-git clone https://github.com/boxwrench/envizzle
-git log --diff-filter=D --name-only
+git log --diff-filter=D --summary -- legacy/
+git restore --source=<deletion-commit>^ -- legacy/<file>
 ```
 
 ## Attribution

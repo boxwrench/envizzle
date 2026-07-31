@@ -186,3 +186,17 @@ test('archetypes parameterise the shared rig and never name a primitive', () => 
   assert.match(content, /\d+\s*[x×]\s*\d+/, 'no Verlet grid dimensions');
   assert.match(content, /character-recipe\.md/, 'archetypes do not point at the shared rig');
 });
+
+test('showcases.md names selection validation and coherence validation, omitting stale manual re-check', () => {
+  const content = fs.readFileSync('references/showcases.md', 'utf8');
+  assert.match(content, /validateSelection|selection\.mjs validate/, 'showcases.md must mention selection validation');
+  assert.match(content, /checkCoherence|check\.mjs coherence/, 'showcases.md must mention coherence validation');
+  assert.doesNotMatch(content, /re-check that the mechanic/, 'showcases.md must not contain stale manual channel re-check instruction');
+});
+
+test('biomes.md distinguishes nineteen template tokens from FOOT_INTERACTION without stating twenty tokens', () => {
+  const content = fs.readFileSync('references/biomes.md', 'utf8');
+  assert.match(content, /nineteen (template )?tokens/i, 'biomes.md must state nineteen template tokens');
+  assert.match(content, /FOOT_INTERACTION/, 'biomes.md must mention FOOT_INTERACTION');
+  assert.doesNotMatch(content, /twenty tokens/i, 'biomes.md must not claim twenty tokens');
+});

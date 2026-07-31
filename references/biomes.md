@@ -13,7 +13,9 @@ This reference defines the six canonical Envizzle biomes, their numeric terrain 
 
 ---
 
-Each entry gives drop-in text for twenty tokens plus a machine-checkable palette. Values
+Each entry gives drop-in text for nineteen template tokens plus `FOOT_INTERACTION`
+(which is deliberately not one of the 38 template tokens), along with its machine-checkable
+palette. Values
 are written in the register of the brief, so they can be pasted without rewriting.
 
 `TERRAIN_NOISE_LAYERS` states a wavelength in metres **and** an amplitude for every

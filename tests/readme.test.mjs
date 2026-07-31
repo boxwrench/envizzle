@@ -33,3 +33,9 @@ test('README.md documents selection and coherence CLI commands', () => {
   assert.match(content, /node selection\.mjs/i, 'README.md missing selection CLI command');
   assert.match(content, /node check\.mjs coherence/i, 'README.md missing coherence CLI command');
 });
+
+test('README.md recovery instructions contain actual retrieval command and no batch process history', () => {
+  const content = fs.readFileSync('README.md', 'utf8');
+  assert.match(content, /git\s+(restore|show)/, 'README.md recovery instructions must contain git restore or git show command');
+  assert.doesNotMatch(content, /In Batch 6/i, 'README.md status section must not contain "In Batch 6"');
+});

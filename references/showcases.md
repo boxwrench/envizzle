@@ -23,9 +23,11 @@ taking a painterly paradigm from one place and a near-black palette from another
 result was a set of muddy, unusable frames. Neither half was wrong alone. Together they
 were unbuildable, and nobody noticed until the frames came back.
 
-If you do want to recombine, that is allowed under Experimental mode (defined in [modes.md](modes.md)) — but re-run `checkCoherence` on the result
-first, and re-check that the mechanic's channel writes from [mechanics.md](mechanics.md) exist in the biome's
-`STATE_BUFFER_CHANNELS`. Do the check before the build, not after.
+If you do want to recombine, that is allowed under Experimental mode (defined in [modes.md](modes.md)) — but run both deterministic validators before building:
+- `validateSelection` from `selection.mjs` (or `node selection.mjs validate <selection.json>`) to verify mode, path, ambition, section, camera, and state-channel contract compatibility;
+- `checkCoherence` from `check.mjs` (or `node check.mjs coherence <config.json>`) to verify art-direction and palette rules.
+
+Selection-validation errors are hard blockers. Run all validation before building, not after.
 
 Each config supplies the nine tokens the biome, archetype, mechanic, and camera do not:
 `PROJECT_NAME`, `RENDERING_PARADIGM`, `ENGINE`, `SHADER_LANG`, `SHADER_LANG_EXT`, `MATERIAL_API`,
