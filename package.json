@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "selection": "node selection.mjs"
+    "selection": "node selection.mjs",
+    "assemble": "node assemble.mjs"
   },
   "devDependencies": {
     "pngjs": "^7.0.0",

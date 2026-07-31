@@ -116,6 +116,64 @@ Validate an art direction config for palette coherence:
 node check.mjs coherence config.json
 ```
 
+Assemble a self-contained brief and safe project bundle:
+
+```bash
+# Print assembled brief to stdout
+node assemble.mjs assembly.json --stdout
+
+# Emit safe project bundle (<PROJECT>_TECHDEMO_PROMPT.md, HANDOFF.md, verify/)
+node assemble.mjs assembly.json --out path/to/project
+
+# Overwrite existing bundle target files safely
+node assemble.mjs assembly.json --out path/to/project --force
+```
+
+Assembly input example (`assembly.json`):
+
+```json
+{
+  "selection": {
+    "creativeMode": "signature",
+    "path": "showcase",
+    "baseShowcase": "Alpine Dawn",
+    "changedAxes": [],
+    "ambition": "showcase",
+    "biome": "Alpine Snow",
+    "archetype": "Traveller Coat",
+    "mechanic": "Surf / Carve",
+    "camera": "Third Person",
+    "renderingProfile": "babylon-webgpu",
+    "includedSections": ["vegetation", "state-buffer", "audio"],
+    "extraSections": [],
+    "cameraAdjustments": [],
+    "stateChannelContract": {
+      "depression": { "channel": "R", "effect": "carve groove lowers snow depression depth" },
+      "displaced-mass": { "channel": "G", "effect": "carve berms raise displaced snow mass" },
+      "wetness-or-compaction": { "channel": "B", "effect": "groove writes wetness, interpreted as compressed sheen" }
+    },
+    "signatureMoment": {
+      "enabled": true,
+      "text": "A high-speed carving turn erupts into a persistent crystalline spindrift arc.",
+      "reusedSystem": "particles",
+      "verificationPose": "mechanic"
+    },
+    "noveltyBudget": {
+      "addsEngine": false,
+      "addsAssetCategory": false,
+      "addsPersistentBuffer": false,
+      "addsMajorRenderPass": false,
+      "addsSimulationSubsystem": false,
+      "addsInput": false,
+      "increasesAmbition": false
+    }
+  },
+  "builderAgent": "Claude Code"
+}
+```
+
+The assembler validates selection and coherence rules, fills all 38 template tokens, inlines the character recipe and foot interaction, substitutes camera mode and state channel contracts, and writes the output bundle. Target collisions are refused by default unless `--force` is specified.
+
 Validate an assembled brief:
 
 ```bash
@@ -145,8 +203,11 @@ image gates cannot run, and the verifier says so instead of passing.
 | `references/cameras.md` | Camera modes and rendering profiles |
 | `references/showcases.md` | Canonical showcase configurations |
 | `references/character-recipe.md` | The numeric humanoid spec, inlined verbatim into every brief |
+| `references/assembly.md` | Assembly specification schema, input classification, CLI, and bundle rules |
 | `selection.mjs` | Selection validator (CLI: `node selection.mjs`) and central registries |
 | `check.mjs` | Brief validator (CLI) plus art-direction coherence rules (`node check.mjs coherence`) |
+| `reference-loader.mjs` | Strict reference loader and token extractor |
+| `assemble.mjs` | Deterministic brief assembler and safe output bundle writer |
 | `verify/` | Playwright run with the image gates |
 | `tests/` | `node:test` suite over all of the above |
 | `docs/` | Design spec and implementation plan |
@@ -154,10 +215,9 @@ image gates cannot run, and the verifier says so instead of passing.
 ## Status
 
 **Envizzle is in public alpha.** Progressive reference loading, central registries,
-operable selection CLI, coherence CLI, test fixtures, and cross-file contract
-verification are implemented, and all unit tests pass (`npm test`). Deterministic
-end-to-end brief assembly and multi-agent generated-demo benchmarking remain before a
-1.0 claim. See `docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the
+operable selection CLI, coherence CLI, deterministic brief assembly, safe project-bundle output,
+test fixtures, and cross-file contract verification are implemented, and all unit tests pass (`npm test`).
+Multi-agent generated-demo benchmarking remains listed as future work. See `docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the
 design and `docs/2026-07-29-envizzle-skill.md` for the task plan it was built from.
 
 The original prompt templates this skill was distilled from

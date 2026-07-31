@@ -33,9 +33,11 @@ these, and Step 4 runs it.
 - `references/cameras.md` — four camera modes, two supported rendering profiles.
 - `references/showcases.md` — six canonical showcase configurations.
 - `references/character-recipe.md` — the numeric humanoid spec, inlined into every brief.
+- `references/assembly.md` — assembly specification schema, creative input fields, mechanically derived fields, CLI usage, exit codes, and safe overwrite behavior.
 - `TEMPLATE.md` — the brief skeleton: 38 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
 - `selection.mjs` — `validateSelection` and `formatStateChannelContract` (CLI: `node selection.mjs`).
 - `check.mjs` — `validateBrief` and `checkCoherence` (CLI: `node check.mjs`).
+- `assemble.mjs` — deterministic brief assembler and safe output bundle writer (CLI: `node assemble.mjs`).
 - `verify/verify_demo.mjs` — the post-build visual verifier.
 
 ---
@@ -221,7 +223,18 @@ Any change to a selection parameter or palette entry invalidates previous result
 
 ---
 
-## Step 4 — Write the brief
+## Step 4 — Deterministic assembly & brief output
+
+Deterministic brief assembly using `assemble.mjs` is the preferred mechanical path after Step 3. See [references/assembly.md](references/assembly.md) for full specification schema, CLI usage, and overwrite rules.
+
+### Preferred Path: `assemble.mjs`
+
+1. Construct the assembly JSON matching the schema in [references/assembly.md](references/assembly.md).
+2. Run the assembler: `node assemble.mjs <assembly.json> --out <target-project-directory>`.
+3. Resolve every reported finding or error if validation fails.
+4. Hand off only a successfully assembled and validated bundle.
+
+The manual composition rules below remain the authoritative specification and fallback.
 
 Copy `TEMPLATE.md` to `<PROJECT>_TECHDEMO_PROMPT.md` in the target project
 directory — `PROJECT_NAME` upper-cased with hyphens turned into underscores, e.g.

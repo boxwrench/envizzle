@@ -1,0 +1,46 @@
+{
+  "selection": {
+    "creativeMode": "experimental",
+    "path": "base-showcase",
+    "baseShowcase": "Alpine Dawn",
+    "changedAxes": ["camera"],
+    "ambition": "showcase",
+    "biome": "Alpine Snow",
+    "archetype": "Traveller Coat",
+    "mechanic": "Surf / Carve",
+    "camera": "First Person",
+    "renderingProfile": "babylon-webgpu",
+    "includedSections": ["vegetation", "state-buffer", "audio"],
+    "extraSections": [],
+    "cameraAdjustments": ["hand-rings-12", "cloth-plus-one", "hide-head-neck-only", "verification-framing"],
+    "stateChannelContract": {
+      "depression": {
+        "channel": "R",
+        "effect": "carve groove lowers snow depression depth"
+      },
+      "displaced-mass": {
+        "channel": "G",
+        "effect": "carve berms raise displaced snow mass"
+      },
+      "wetness-or-compaction": {
+        "channel": "B",
+        "effect": "groove writes wetness, interpreted as compressed sheen"
+      }
+    },
+    "signatureMoment": {
+      "enabled": true,
+      "text": "A snow spray effect.",
+      "reusedSystem": "particles",
+      "verificationPose": "mechanic"
+    },
+    "noveltyBudget": {
+      "addsEngine": false,
+      "addsAssetCategory": false,
+      "addsPersistentBuffer": false,
+      "addsMajorRenderPass": false,
+      "addsSimulationSubsystem": false,
+      "addsInput": false,
+      "increasesAmbition": false
+    }
+  }
+}

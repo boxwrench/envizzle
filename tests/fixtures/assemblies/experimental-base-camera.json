@@ -1,0 +1,50 @@
+{
+  "selection": {
+    "creativeMode": "experimental",
+    "path": "base-showcase",
+    "baseShowcase": "Alpine Dawn",
+    "changedAxes": ["camera"],
+    "ambition": "showcase",
+    "biome": "Alpine Snow",
+    "archetype": "Traveller Coat",
+    "mechanic": "Surf / Carve",
+    "camera": "First Person",
+    "renderingProfile": "babylon-webgpu",
+    "includedSections": ["vegetation", "state-buffer", "audio"],
+    "extraSections": [],
+    "cameraAdjustments": ["hand-rings-12", "cloth-plus-one", "hide-head-neck-only", "verification-framing"],
+    "stateChannelContract": {
+      "depression": {
+        "channel": "R",
+        "effect": "carve groove lowers snow depression depth"
+      },
+      "displaced-mass": {
+        "channel": "G",
+        "effect": "carve berms raise displaced snow mass"
+      },
+      "wetness-or-compaction": {
+        "channel": "B",
+        "effect": "groove writes wetness, interpreted as compressed sheen"
+      }
+    },
+    "signatureMoment": {
+      "enabled": true,
+      "text": "A sudden first-person lean throws snow spray directly across the visor, momentarily catching the low sun.",
+      "reusedSystem": "particles",
+      "verificationPose": "mechanic"
+    },
+    "noveltyBudget": {
+      "addsEngine": false,
+      "addsAssetCategory": false,
+      "addsPersistentBuffer": false,
+      "addsMajorRenderPass": false,
+      "addsSimulationSubsystem": false,
+      "addsInput": false,
+      "increasesAmbition": false
+    }
+  },
+  "projectName": "ALPINE-FP-EXPERIMENTAL",
+  "coreInteractionSentence": "carve a first-person drift line, watch the snow spray whip across the lower frame",
+  "creativeSpark": "visor spray at sunrise",
+  "builderAgent": "Claude Code"
+}

@@ -1,0 +1,34 @@
+{
+  "selection": {
+    "creativeMode": "proven",
+    "path": "showcase",
+    "baseShowcase": "Dune Sea",
+    "changedAxes": [],
+    "ambition": "slice",
+    "biome": "Dune Desert",
+    "archetype": "Desert Nomad",
+    "mechanic": "Surf / Carve",
+    "camera": "Third Person",
+    "renderingProfile": "babylon-webgpu",
+    "includedSections": [],
+    "extraSections": [],
+    "cameraAdjustments": [],
+    "stateChannelContract": {},
+    "signatureMoment": {
+      "enabled": false,
+      "text": "",
+      "reusedSystem": "",
+      "verificationPose": "mechanic"
+    },
+    "noveltyBudget": {
+      "addsEngine": false,
+      "addsAssetCategory": false,
+      "addsPersistentBuffer": false,
+      "addsMajorRenderPass": false,
+      "addsSimulationSubsystem": false,
+      "addsInput": false,
+      "increasesAmbition": false
+    }
+  },
+  "builderAgent": "Claude Code"
+}

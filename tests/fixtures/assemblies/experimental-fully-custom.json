@@ -1,0 +1,52 @@
+{
+  "selection": {
+    "creativeMode": "experimental",
+    "path": "fully-custom",
+    "baseShowcase": null,
+    "changedAxes": [],
+    "ambition": "everything",
+    "biome": "Ghibli Valley",
+    "archetype": "Traveller Coat",
+    "mechanic": "Flight / Glide",
+    "camera": "Cinematic",
+    "renderingProfile": "three-webgl2",
+    "includedSections": ["vegetation", "state-buffer", "audio"],
+    "extraSections": ["weather", "water-bodies", "architecture", "destructibility"],
+    "cameraAdjustments": ["verification-framing"],
+    "stateChannelContract": {
+      "wind-gust": {
+        "channel": "B",
+        "effect": "downwash writes wind-gust magnitude"
+      },
+      "landing-depression": {
+        "channel": "R",
+        "effect": "landing depression becomes trample/blade bend"
+      }
+    },
+    "signatureMoment": {
+      "enabled": true,
+      "text": "A low swoop over the viaduct leaves a vortex ribbon in the morning mist that dissipates over 6 seconds.",
+      "reusedSystem": "particles",
+      "verificationPose": "mechanic"
+    },
+    "noveltyBudget": {
+      "addsEngine": false,
+      "addsAssetCategory": false,
+      "addsPersistentBuffer": false,
+      "addsMajorRenderPass": false,
+      "addsSimulationSubsystem": false,
+      "addsInput": false,
+      "increasesAmbition": false
+    }
+  },
+  "projectName": "GHIBLI-VALLEY-CUSTOM",
+  "coreInteractionSentence": "soar through the valley, sweep low over the river, watch the grass bend under your flight",
+  "creativeSpark": "morning mist vortex",
+  "builderAgent": "Claude Code",
+  "extraSectionMarkdown": {
+    "weather": "Dynamic wind gusts alter rain shear and grass wave speed.",
+    "water-bodies": "A carved river spline with 3-step quantised painterly specular.",
+    "architecture": "A stone viaduct with 9 arches spanning 14 m each.",
+    "destructibility": "Impacts dislodge stone fragments from ancient ruins along the bank."
+  }
+}
