@@ -139,6 +139,12 @@ export function loadReferenceCatalog(options = {}) {
     const tablePart = tableEnd !== -1 ? body.substring(0, tableEnd) : body;
     const tableParsed = parseMarkdownTable(tablePart, `biome '${name}' of references/biomes.md`);
 
+    for (const key of Object.keys(tableParsed)) {
+      if (!EXPECTED_BIOME_TABLE_TOKENS.includes(key)) {
+        throw new Error(`Unknown table token '${key}' in biome '${name}' of references/biomes.md`);
+      }
+    }
+
     for (const key of EXPECTED_BIOME_TABLE_TOKENS) {
       if (!tableParsed[key]) {
         throw new Error(`Missing table token '${key}' in biome '${name}' of references/biomes.md`);
@@ -147,6 +153,14 @@ export function loadReferenceCatalog(options = {}) {
     }
 
     // 2. Labeled tokens & FOOT_INTERACTION
+    const allowedBiomeLabeledMarkers = [...EXPECTED_BIOME_LABELED_TOKENS, 'FOOT_INTERACTION'];
+    const foundLabeledMarkers = [...body.matchAll(/\*\*`([A-Z0-9_]+)`\*\*/g)].map((m) => m[1]);
+    for (const markerKey of foundLabeledMarkers) {
+      if (!allowedBiomeLabeledMarkers.includes(markerKey)) {
+        throw new Error(`Unknown labeled token '${markerKey}' in biome '${name}' of references/biomes.md`);
+      }
+    }
+
     for (const key of EXPECTED_BIOME_LABELED_TOKENS) {
       const marker = `**\`${key}\`**`;
       const occurrences = countOccurrences(body, marker);
@@ -221,6 +235,13 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Malformed JSON coherence block in biome '${name}' of references/biomes.md: ${err.message}`);
     }
 
+    const allowedCohKeys = ['paradigm', 'assetStrategy', 'materialBehaviours', 'palette'];
+    for (const k of Object.keys(coherenceConfig)) {
+      if (!allowedCohKeys.includes(k)) {
+        throw new Error(`Unknown property '${k}' in JSON coherence block of biome '${name}' in references/biomes.md`);
+      }
+    }
+
     // Default assetStrategy to zero-asset if missing
     if (!coherenceConfig.assetStrategy) {
       coherenceConfig.assetStrategy = 'zero-asset';
@@ -241,10 +262,17 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Malformed JSON coherence block shape in biome '${name}' of references/biomes.md`);
     }
 
+    const allowedPaletteEntryKeys = ['role', 'hex', 'area'];
     for (const p of coherenceConfig.palette) {
+      if (!p || typeof p !== 'object' || Array.isArray(p)) {
+        throw new Error(`Malformed palette entry in JSON coherence block of biome '${name}' in references/biomes.md`);
+      }
+      for (const k of Object.keys(p)) {
+        if (!allowedPaletteEntryKeys.includes(k)) {
+          throw new Error(`Unknown palette-entry property '${k}' in JSON coherence block of biome '${name}' in references/biomes.md`);
+        }
+      }
       if (
-        !p ||
-        typeof p !== 'object' ||
         typeof p.role !== 'string' ||
         typeof p.hex !== 'string' ||
         !/^#[0-9a-fA-F]{6}$/.test(p.hex) ||
@@ -345,6 +373,12 @@ export function loadReferenceCatalog(options = {}) {
 
     // Table tokens: CENTREPIECE_MECHANIC, CENTREPIECE_INPUT
     const tableParsed = parseMarkdownTable(body, `mechanic '${name}' of references/mechanics.md`);
+    const allowedMechanicTableKeys = ['CENTREPIECE_MECHANIC', 'CENTREPIECE_INPUT'];
+    for (const k of Object.keys(tableParsed)) {
+      if (!allowedMechanicTableKeys.includes(k)) {
+        throw new Error(`Unknown table token '${k}' in mechanic '${name}' of references/mechanics.md`);
+      }
+    }
     if (!tableParsed.CENTREPIECE_MECHANIC) {
       throw new Error(`Missing CENTREPIECE_MECHANIC in mechanic '${name}' of references/mechanics.md`);
     }
@@ -364,6 +398,13 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Duplicate CENTREPIECE_DESCRIPTION in mechanic '${name}' of references/mechanics.md`);
     }
 
+    const foundMechBoldMarkers = [...body.matchAll(/\*\*`([A-Z0-9_]+)`\*\*/g)].map((m) => m[1]);
+    for (const mKey of foundMechBoldMarkers) {
+      if (mKey !== 'CENTREPIECE_DESCRIPTION') {
+        throw new Error(`Unknown labeled token '${mKey}' in mechanic '${name}' of references/mechanics.md`);
+      }
+    }
+
     const descIdx = body.indexOf(descMarker);
     const descStart = descIdx + descMarker.length;
     let descEnd = body.indexOf('- `ABILITY_1_NAME`', descStart);
@@ -376,6 +417,13 @@ export function loadReferenceCatalog(options = {}) {
 
     // Abilities
     const abilities = ['ABILITY_1_NAME', 'ABILITY_2_NAME', 'ABILITY_3_NAME'];
+    const foundAbilityKeys = [...body.matchAll(/-\s*`\s*([A-Z0-9_]+)\s*`\s*—/g)].map((m) => m[1]);
+    for (const abKey of foundAbilityKeys) {
+      if (!abilities.includes(abKey)) {
+        throw new Error(`Unknown ability field '${abKey}' in mechanic '${name}' of references/mechanics.md`);
+      }
+    }
+
     for (const abKey of abilities) {
       const regex = new RegExp(`-\\s*\`\\s*${abKey}\\s*\`\\s*—\\s*(.+)`, 'g');
       const matches = [...body.matchAll(regex)];
@@ -462,15 +510,22 @@ export function loadReferenceCatalog(options = {}) {
     foundProfileKeys.push(profKey);
 
     const parseBullets = (text) => {
+      const allowedProfileFields = ['ENGINE', 'SHADER_LANG', 'SHADER_LANG_EXT', 'MATERIAL_API'];
       const result = {};
-      const matches = [...text.matchAll(/-\s*\*\*`([A-Z0-9_]+)`\*\*:\s*`([^`]+)`/g)];
+      const matches = [...text.matchAll(/-\s*\*\*`([A-Z0-9_]+)`\*\*:?\s*`([^`]+)`/g)];
       for (const m of matches) {
         const key = m[1];
         const val = m[2];
+        if (!allowedProfileFields.includes(key)) {
+          throw new Error(`Unknown rendering-profile field '${key}' in '${profKey}' of references/cameras.md`);
+        }
         if (Object.prototype.hasOwnProperty.call(result, key)) {
           throw new Error(`Duplicate rendering-profile field '${key}' in '${profKey}' of references/cameras.md`);
         }
         result[key] = val;
+      }
+      if (Object.keys(result).length !== 4) {
+        throw new Error(`Expected exactly 4 rendering profile fields in '${profKey}', found ${Object.keys(result).length}`);
       }
       return result;
     };
@@ -524,6 +579,34 @@ export function loadReferenceCatalog(options = {}) {
     foundShowcaseNames.push(name);
 
     const parsed = parseMarkdownTable(section, `showcase '${name}' in references/showcases.md`);
+
+    const allowedShowcaseFields = [
+      'PROJECT_NAME',
+      'Biome',
+      'Archetype',
+      'Mechanic',
+      'Camera',
+      'Ambition',
+      'Included sections',
+      'Extra sections',
+      'State-channel contract',
+      'RENDERING_PARADIGM',
+      'ENGINE',
+      'SHADER_LANG / SHADER_LANG_EXT',
+      'SHADER_LANG',
+      'SHADER_LANG_EXT',
+      'MATERIAL_API',
+      'ASSET_STRATEGY',
+      'TARGET_BROWSER_AND_HARDWARE',
+      'CORE_INTERACTION_SENTENCE',
+    ];
+
+    for (const k of Object.keys(parsed)) {
+      if (!allowedShowcaseFields.includes(k)) {
+        throw new Error(`Unknown showcase field '${k}' in '${name}' of references/showcases.md`);
+      }
+    }
+
     const expected = SHOWCASES[name];
 
     const projectName = parsed.PROJECT_NAME;
@@ -544,8 +627,24 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Missing required showcase fields in '${name}' of references/showcases.md`);
     }
 
-    if (!assetStrategy.includes('100% Zero-Asset Procedural')) {
-      throw new Error(`Showcase '${name}' assetStrategy must promise 100% Zero-Asset Procedural`);
+    if (!/^[A-Z0-9]+(-[A-Z0-9]+)*$/.test(projectName) || projectName.includes('/') || projectName.includes('\\') || projectName.includes('..')) {
+      throw new Error(`Showcase '${name}' projectName '${projectName}' is invalid`);
+    }
+
+    if (assetStrategy !== '100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)') {
+      throw new Error(`Showcase '${name}' assetStrategy must promise 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)`);
+    }
+
+    const selectedBiomeObj = biomes[parsed.Biome];
+    if (!selectedBiomeObj) {
+      throw new Error(`Showcase '${name}' references unknown biome '${parsed.Biome}'`);
+    }
+    const expectedParadigmString = selectedBiomeObj.coherenceConfig.paradigm === 'photoreal'
+      ? 'AAA Photoreal'
+      : 'Ghibli-Style Painterly Anime';
+
+    if (renderingParadigm !== expectedParadigmString) {
+      throw new Error(`Showcase '${name}' rendering paradigm mismatch: expected '${expectedParadigmString}', got '${renderingParadigm}'`);
     }
 
     // Parse included and extra sections
@@ -598,17 +697,49 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Showcase '${name}' rendering profile tuple mismatch with '${expected.renderingProfile}'`);
     }
 
-    // Cross check state-channel contract string
+    // Parse and compare full state-channel contract
     const sccStr = parsed['State-channel contract'] || '';
-    if (expected.includedSections.includes('state-buffer')) {
-      for (const [key, val] of Object.entries(expected.stateChannelContract)) {
-        if (!sccStr.includes(key) || !sccStr.includes(val.channel)) {
-          throw new Error(`Showcase '${name}' state-channel contract string mismatch for key '${key}'`);
+    if (expected.includedSections.includes('state-buffer') && Object.keys(expected.stateChannelContract).length > 0) {
+      const entries = sccStr.split(';').map((e) => e.trim()).filter((e) => e.length > 0);
+      const parsedContract = {};
+      for (const entryStr of entries) {
+        const match = entryStr.match(/^([a-z0-9-]+)\s*→\s*([RGBA])\s*\(([^)]+)\):\s*(.+)$/);
+        if (!match) {
+          throw new Error(`Showcase '${name}' state-channel contract string malformed entry: '${entryStr}'`);
+        }
+        const key = match[1];
+        const channel = match[2];
+        const nativeMeaning = match[3].trim();
+        const effect = match[4].trim();
+        if (Object.prototype.hasOwnProperty.call(parsedContract, key)) {
+          throw new Error(`Showcase '${name}' state-channel contract duplicate key '${key}'`);
+        }
+        parsedContract[key] = { channel, nativeMeaning, effect };
+      }
+
+      const expectedKeys = Object.keys(expected.stateChannelContract);
+      const parsedKeys = Object.keys(parsedContract);
+      if (parsedKeys.length !== expectedKeys.length || expectedKeys.some((k) => !parsedContract[k])) {
+        throw new Error(`Showcase '${name}' state-channel contract key set mismatch: expected [${expectedKeys.join(', ')}], got [${parsedKeys.join(', ')}]`);
+      }
+
+      const biomeChanMap = BIOME_CHANNELS[expected.biome] || {};
+      for (const [key, expVal] of Object.entries(expected.stateChannelContract)) {
+        const pVal = parsedContract[key];
+        if (pVal.channel !== expVal.channel) {
+          throw new Error(`Showcase '${name}' state-channel contract string mismatch for key '${key}': channel mismatch expected '${expVal.channel}', got '${pVal.channel}'`);
+        }
+        if (pVal.effect !== expVal.effect) {
+          throw new Error(`Showcase '${name}' state-channel contract string mismatch for key '${key}': effect mismatch expected '${expVal.effect}', got '${pVal.effect}'`);
+        }
+        const expectedNative = biomeChanMap[expVal.channel];
+        if (pVal.nativeMeaning !== expectedNative) {
+          throw new Error(`Showcase '${name}' state-channel contract string mismatch for key '${key}': native channel meaning mismatch expected '${expectedNative}', got '${pVal.nativeMeaning}'`);
         }
       }
     } else {
-      if (!sccStr.includes('none')) {
-        throw new Error(`Showcase '${name}' state-channel contract should state none when state-buffer is omitted`);
+      if (sccStr.trim() !== 'none (omitted at slice)') {
+        throw new Error(`Showcase '${name}' state-channel contract should state none (omitted at slice) when state-buffer is omitted`);
       }
     }
 

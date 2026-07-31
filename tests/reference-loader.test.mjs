@@ -270,6 +270,162 @@ test('loader regression 11: rejects changed rendering tuple', () => {
   );
 });
 
+test('loader regression 12: rejects changed state-channel effect text', () => {
+  withTempCatalog(
+    (root) => {
+      const showPath = path.join(root, 'references', 'showcases.md');
+      const content = fs.readFileSync(showPath, 'utf8');
+      const modified = content.replace(
+        'carve groove lowers snow depression depth',
+        'MUTATED effect text for carve groove'
+      );
+      fs.writeFileSync(showPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /state-channel contract string mismatch for key 'depression'/);
+    }
+  );
+});
+
+test('loader regression 13: rejects swapped state channels', () => {
+  withTempCatalog(
+    (root) => {
+      const showPath = path.join(root, 'references', 'showcases.md');
+      const content = fs.readFileSync(showPath, 'utf8');
+      const modified = content.replace(
+        'depression → R',
+        'depression → G'
+      ).replace(
+        'displaced-mass → G',
+        'displaced-mass → R'
+      );
+      fs.writeFileSync(showPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /state-channel contract string mismatch for key 'depression'/);
+    }
+  );
+});
+
+test('loader regression 14: rejects unknown biome table token', () => {
+  withTempCatalog(
+    (root) => {
+      const bioPath = path.join(root, 'references', 'biomes.md');
+      const content = fs.readFileSync(bioPath, 'utf8');
+      const modified = content.replace(
+        '| `NAIVE_DEFAULT` | white |',
+        '| `NAIVE_DEFAULT` | white |\n| `UNKNOWN_TABLE_TOKEN` | unknown |'
+      );
+      fs.writeFileSync(bioPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Unknown table token 'UNKNOWN_TABLE_TOKEN'/);
+    }
+  );
+});
+
+test('loader regression 15: rejects unknown biome labeled token', () => {
+  withTempCatalog(
+    (root) => {
+      const bioPath = path.join(root, 'references', 'biomes.md');
+      const content = fs.readFileSync(bioPath, 'utf8');
+      const modified = content.replace(
+        '**`TERRAIN_PHILOSOPHY_SENTENCE`**',
+        '**`UNKNOWN_LABELED_TOKEN`** — Extra prose.\n\n**`TERRAIN_PHILOSOPHY_SENTENCE`**'
+      );
+      fs.writeFileSync(bioPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Unknown labeled token 'UNKNOWN_LABELED_TOKEN'/);
+    }
+  );
+});
+
+test('loader regression 16: rejects unknown biome coherence-config property', () => {
+  withTempCatalog(
+    (root) => {
+      const bioPath = path.join(root, 'references', 'biomes.md');
+      const content = fs.readFileSync(bioPath, 'utf8');
+      const modified = content.replace(
+        '"paradigm": "photoreal",',
+        '"paradigm": "photoreal",\n    "unknownProperty": true,'
+      );
+      fs.writeFileSync(bioPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Unknown property 'unknownProperty'/);
+    }
+  );
+});
+
+test('loader regression 17: rejects unknown palette-entry property', () => {
+  withTempCatalog(
+    (root) => {
+      const bioPath = path.join(root, 'references', 'biomes.md');
+      const content = fs.readFileSync(bioPath, 'utf8');
+      const modified = content.replace(
+        '{ "role": "lit-snow", "hex": "#f0f4f8", "area": "large" }',
+        '{ "role": "lit-snow", "hex": "#f0f4f8", "area": "large", "extraField": "invalid" }'
+      );
+      fs.writeFileSync(bioPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Unknown palette-entry property 'extraField'/);
+    }
+  );
+});
+
+test('loader regression 18: rejects unknown rendering-profile field', () => {
+  withTempCatalog(
+    (root) => {
+      const camPath = path.join(root, 'references', 'cameras.md');
+      const content = fs.readFileSync(camPath, 'utf8');
+      const modified = content.replace(
+        '- **`ENGINE`**: `Babylon.js',
+        '- **`EXTRA_PROFILE_FIELD`**: `invalid`\n- **`ENGINE`**: `Babylon.js'
+      );
+      fs.writeFileSync(camPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Unknown rendering-profile field 'EXTRA_PROFILE_FIELD'/);
+    }
+  );
+});
+
+test('loader regression 19: rejects showcase rendering-paradigm drift', () => {
+  withTempCatalog(
+    (root) => {
+      const showPath = path.join(root, 'references', 'showcases.md');
+      const content = fs.readFileSync(showPath, 'utf8');
+      const modified = content.replace(
+        '| `RENDERING_PARADIGM` | AAA Photoreal |',
+        '| `RENDERING_PARADIGM` | Ghibli-Style Painterly Anime |'
+      );
+      fs.writeFileSync(showPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Showcase 'Alpine Dawn' rendering paradigm mismatch/);
+    }
+  );
+});
+
+test('loader regression 20: rejects non-exact asset strategy', () => {
+  withTempCatalog(
+    (root) => {
+      const showPath = path.join(root, 'references', 'showcases.md');
+      const content = fs.readFileSync(showPath, 'utf8');
+      const modified = content.replace(
+        '100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)',
+        'NOT 100% Zero-Asset Procedural; use a CDN'
+      );
+      fs.writeFileSync(showPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Showcase 'Alpine Dawn' assetStrategy must promise 100% Zero-Asset Procedural/);
+    }
+  );
+});
+
 test('missing or duplicate token fields fail loudly', () => {
   assert.throws(() => {
     loadReferenceCatalog({ rootDir: '/non/existent/dir' });

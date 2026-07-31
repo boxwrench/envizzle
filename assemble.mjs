@@ -427,6 +427,11 @@ export function validateAssemblySpec(spec, options = {}) {
     }
   }
 
+  // Include policy warnings in findings
+  for (const warn of coherenceWarnings) {
+    out.push(warn);
+  }
+
   // 9. Validate extraSectionMarkdown
   const selExtra = Array.isArray(selection.extraSections) ? selection.extraSections : [];
   const extraMarkdown = spec.extraSectionMarkdown;
@@ -817,6 +822,10 @@ export function assembleBrief(spec, options = {}) {
   const cohErrorsCount = cohConflicts.filter((c) => c.severity === 'error').length;
   const cohWarnings = cohConflicts.filter((c) => c.severity === 'warn');
   const overrides = spec.coherenceOverrides || [];
+  let cohStatus = cohErrorsCount === 0 ? 'clean' : 'has errors';
+  if (overrides.length > 0 && cohErrorsCount === 0) {
+    cohStatus = 'accepted deliberate deviation';
+  }
 
   let assemblyDecisionsText = `\n\n## Assembly Decisions\n\n` +
     `- **Creative Mode:** ${creativeModeTitle}\n` +
@@ -829,7 +838,12 @@ export function assembleBrief(spec, options = {}) {
     `- **Extra Sections:** ${selection.extraSections.length > 0 ? selection.extraSections.join(', ') : 'none'}\n` +
     `- **State Channel Contract:** ${stateChannelDecisionsText}\n` +
     `- **Selection Validation:** clean (${selErrorsCount} errors, ${selWarningsCount} warnings)\n` +
-    `- **Coherence Validation:** ${cohErrorsCount === 0 ? 'clean' : 'has errors'} (${cohWarnings.length} warning(s))`;
+    `- **Coherence Validation:** ${cohStatus} (${cohWarnings.length} warning(s))`;
+
+  if (cohWarnings.length > 0) {
+    assemblyDecisionsText += `\n\n### Coherence Warnings\n\n` +
+      cohWarnings.map((w) => `- **${w.rule}:** ${w.message} (Fix: ${w.fix})`).join('\n');
+  }
 
   if (overrides.length > 0) {
     assemblyDecisionsText += `\n\n## Deliberate Deviations\n\n` +
@@ -863,12 +877,18 @@ export function writeBundle(spec, outDir, options = {}) {
   const rootDir = options.rootDir ? path.resolve(options.rootDir) : path.dirname(fileURLToPath(import.meta.url));
   const verifySrc = path.join(rootDir, 'verify');
 
-  // Preflight 1: Check source verifier files exist before modifying anything
+  // Preflight 1: Read all verifier files into memory before creating/modifying targets
   const verifierFiles = ['README.md', 'gates.mjs', 'verify_demo.mjs'];
+  const cachedVerifierFiles = {};
   for (const vf of verifierFiles) {
     const srcPath = path.join(verifySrc, vf);
     if (!fs.existsSync(srcPath) || !fs.statSync(srcPath).isFile()) {
       throw new Error(`Missing or unreadable verifier source file: '${srcPath}'`);
+    }
+    try {
+      cachedVerifierFiles[vf] = fs.readFileSync(srcPath, 'utf8');
+    } catch (err) {
+      throw new Error(`Missing or unreadable verifier source file: '${srcPath}': ${err.message}`);
     }
   }
 
@@ -914,7 +934,7 @@ export function writeBundle(spec, outDir, options = {}) {
     throw err;
   }
 
-  // All preflight checks passed — perform writes
+  // All preflight checks passed — perform writes from cached verifier contents
   fs.mkdirSync(verifyTargetDir, { recursive: true });
 
   fs.writeFileSync(path.join(targetDir, fileName), brief, 'utf8');
@@ -931,10 +951,9 @@ export function writeBundle(spec, outDir, options = {}) {
 
   fs.writeFileSync(path.join(targetDir, 'HANDOFF.md'), handoffContent, 'utf8');
 
-  for (const f of verifierFiles) {
-    const src = path.join(verifySrc, f);
-    const dest = path.join(targetDir, 'verify', f);
-    fs.copyFileSync(src, dest);
+  for (const vf of verifierFiles) {
+    const dest = path.join(targetDir, 'verify', vf);
+    fs.writeFileSync(dest, cachedVerifierFiles[vf], 'utf8');
   }
 
   return {

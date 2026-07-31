@@ -209,12 +209,25 @@ test('valid warning-only assembly succeeds and records warnings in Assembly Deci
     ],
   };
 
+  const findings = validateAssemblySpec(spec, { rootDir: repoRoot });
+  const accentCapFinding = findings.find((f) => f.rule === 'accent-cap');
+  assert.ok(accentCapFinding, 'validateAssemblySpec findings must include accent-cap warning');
+  assert.equal(accentCapFinding.severity, 'warn');
+  assert.ok(accentCapFinding.message.includes('Emissive should stay under'));
+  assert.ok(accentCapFinding.fix.includes('Demote some accents'));
+
   const { brief, warnings } = assembleBrief(spec, { rootDir: repoRoot });
   assert.ok(brief);
-  assert.ok(warnings.length > 0, 'Coherence warnings should be present');
+  const accentCapWarning = warnings.find((w) => w.rule === 'accent-cap');
+  assert.ok(accentCapWarning, 'warnings returned by assembleBrief must include accent-cap warning');
+  assert.equal(accentCapWarning.severity, 'warn');
+  assert.ok(accentCapWarning.message.includes('Emissive should stay under'));
+  assert.ok(accentCapWarning.fix.includes('Demote some accents'));
+
   assert.ok(brief.includes('## Assembly Decisions'));
-  assert.ok(brief.includes('- **Coherence Validation:** clean ('));
-  assert.ok(brief.includes(`warning(s))`));
+  assert.ok(brief.includes('- **Coherence Validation:** clean (1 warning(s))'));
+  assert.ok(brief.includes('### Coherence Warnings'));
+  assert.ok(brief.includes(`- **accent-cap:** ${accentCapFinding.message} (Fix: ${accentCapFinding.fix})`));
 });
 
 test('Assembly Decisions records complete state-channel mapping keys, channels, and effects', () => {
@@ -406,12 +419,16 @@ test('writeBundle preflight: missing verifier source leaves destination untouche
     const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
 
     const outTargetDir = path.join(tmpRoot, 'output-bundle');
+    fs.mkdirSync(outTargetDir, { recursive: true });
+    const sentinelFile = path.join(outTargetDir, 'SENTINEL.txt');
+    fs.writeFileSync(sentinelFile, 'EXISTING_SENTINEL', 'utf8');
 
     assert.throws(() => {
-      writeBundle(spec, outTargetDir, { rootDir: tmpRoot });
+      writeBundle(spec, outTargetDir, { rootDir: tmpRoot, force: true });
     }, /Missing or unreadable verifier source file/);
 
-    assert.equal(fs.existsSync(outTargetDir), false, 'Target directory must not be created when preflight fails');
+    assert.equal(fs.existsSync(sentinelFile), true, 'Existing output directory contents must remain untouched');
+    assert.equal(fs.readdirSync(outTargetDir).length, 1, 'No new files should be written when preflight fails');
   } finally {
     removeTempDir(tmpRoot);
   }
