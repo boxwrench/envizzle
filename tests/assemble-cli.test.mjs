@@ -157,6 +157,59 @@ test('assemble CLI on malformed JSON fixture exits 2 with no stack trace', () =>
   assert.equal(error.stderr.includes('at Module.'), false);
 });
 
+test('assemble CLI on invalid grammar combinations exits 2 with usage on stderr', () => {
+  const badArgsList = [
+    [validFixture, '--stdout', '--force'],
+    [validFixture, '--stdout', '--stdout'],
+    [validFixture, '--out', './dir', '--out', './dir2'],
+    [validFixture, '--out', './dir', '--force', '--force'],
+    [validFixture, '--stdout', 'extra-arg'],
+    [validFixture, '--unknown-flag'],
+  ];
+
+  for (const badArgs of badArgsList) {
+    let error;
+    try {
+      execFileSync(process.execPath, [assembleScript, ...badArgs], {
+        encoding: 'utf8',
+        cwd: repoRoot,
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      error = err;
+    }
+
+    assert.ok(error, `Expected CLI to fail for args: ${badArgs.join(' ')}`);
+    assert.equal(error.status, 2, `Expected status 2 for args: ${badArgs.join(' ')}`);
+    assert.ok(error.stderr.includes('Usage:'), `Expected stderr usage for args: ${badArgs.join(' ')}`);
+  }
+});
+
+test('assemble CLI when output path is a file exits 2', () => {
+  const tmpDir = makeTempDir();
+  const filePath = path.join(tmpDir, 'existing-file.txt');
+  fs.writeFileSync(filePath, 'IAMFILE', 'utf8');
+
+  try {
+    let error;
+    try {
+      execFileSync(process.execPath, [assembleScript, validFixture, '--out', filePath], {
+        encoding: 'utf8',
+        cwd: repoRoot,
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      error = err;
+    }
+
+    assert.ok(error);
+    assert.equal(error.status, 2);
+    assert.ok(error.stderr.includes('is a file'));
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
 test('assemble CLI on missing file or bad flags exits 2 with usage on stderr', () => {
   let error;
   try {
@@ -172,21 +225,6 @@ test('assemble CLI on missing file or bad flags exits 2 with usage on stderr', (
   assert.ok(error);
   assert.equal(error.status, 2);
   assert.ok(error.stderr.includes("Failed to read file 'nonexistent.json'"));
-
-  let flagError;
-  try {
-    execFileSync(process.execPath, [assembleScript, validFixture, '--invalid-flag'], {
-      encoding: 'utf8',
-      cwd: repoRoot,
-      stdio: 'pipe',
-    });
-  } catch (err) {
-    flagError = err;
-  }
-
-  assert.ok(flagError);
-  assert.equal(flagError.status, 2);
-  assert.ok(flagError.stderr.includes('Usage:'));
 });
 
 test('failed validation leaves no partial bundle directory', () => {

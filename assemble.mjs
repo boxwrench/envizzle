@@ -30,6 +30,13 @@ const ALLOWED_ASSEMBLY_KEYS = [
   'extraSectionMarkdown',
 ];
 
+const ALLOWED_COHERENCE_CONFIG_KEYS = [
+  'paradigm',
+  'assetStrategy',
+  'materialBehaviours',
+  'palette',
+];
+
 /**
  * Validate an assembly specification object.
  * Returns array of conflict objects: { rule, severity, message, fix }
@@ -86,15 +93,31 @@ export function validateAssemblySpec(spec, options = {}) {
   }
 
   const selection = spec.selection || {};
-  const isWholeShowcase = selection.path === 'showcase' && (selection.creativeMode === 'proven' || selection.creativeMode === 'signature');
+  const isBaseShowcasePath = (selection.path === 'showcase' || selection.path === 'base-showcase');
   const baseShowcaseObj = selection.baseShowcase && catalog.showcases[selection.baseShowcase] ? catalog.showcases[selection.baseShowcase] : null;
+  const isWholeShowcase = selection.path === 'showcase' && (selection.creativeMode === 'proven' || selection.creativeMode === 'signature');
 
   // 3. Validate projectName
-  let projectName = spec.projectName;
-  if (!projectName || typeof projectName !== 'string' || projectName.trim() === '') {
-    if (isWholeShowcase && baseShowcaseObj) {
-      projectName = baseShowcaseObj.projectName;
+  if (spec.projectName !== undefined && spec.projectName !== null) {
+    if (typeof spec.projectName !== 'string' || spec.projectName.trim() === '') {
+      out.push(conflict(
+        'project-name-invalid',
+        'error',
+        'Supplied projectName must be a non-empty string.',
+        'Provide an upper-case hyphenated projectName or set to null/undefined to derive.',
+      ));
     } else {
+      if (!/^[A-Z0-9]+(-[A-Z0-9]+)*$/.test(spec.projectName) || spec.projectName.includes('/') || spec.projectName.includes('\\') || spec.projectName.includes('..')) {
+        out.push(conflict(
+          'project-name-invalid',
+          'error',
+          `projectName '${spec.projectName}' is invalid. Must be upper-case, hyphenated safe name with no path separators or traversal.`,
+          'Use upper-case letters, numbers, and single hyphens (e.g. "MY-DEMO").',
+        ));
+      }
+    }
+  } else {
+    if (!isWholeShowcase || !baseShowcaseObj) {
       out.push(conflict(
         'project-name-required',
         'error',
@@ -104,23 +127,18 @@ export function validateAssemblySpec(spec, options = {}) {
     }
   }
 
-  if (projectName && typeof projectName === 'string') {
-    if (!/^[A-Z0-9]+(-[A-Z0-9]+)*$/.test(projectName) || projectName.includes('/') || projectName.includes('\\') || projectName.includes('..')) {
+  // 4. Validate coreInteractionSentence
+  if (spec.coreInteractionSentence !== undefined && spec.coreInteractionSentence !== null) {
+    if (typeof spec.coreInteractionSentence !== 'string' || spec.coreInteractionSentence.trim() === '') {
       out.push(conflict(
-        'project-name-invalid',
+        'core-interaction-sentence-invalid',
         'error',
-        `projectName '${projectName}' is invalid. Must be upper-case, hyphenated safe name with no path separators or traversal.`,
-        'Use upper-case letters, numbers, and single hyphens (e.g. "MY-DEMO").',
+        'Supplied coreInteractionSentence must be a non-empty string.',
+        'Provide a non-empty string or set to null/undefined to derive.',
       ));
     }
-  }
-
-  // 4. Validate coreInteractionSentence
-  let coreSentence = spec.coreInteractionSentence;
-  if (!coreSentence || typeof coreSentence !== 'string' || coreSentence.trim() === '') {
-    if (isWholeShowcase && baseShowcaseObj) {
-      coreSentence = baseShowcaseObj.coreInteractionSentence;
-    } else {
+  } else {
+    if (!isWholeShowcase || !baseShowcaseObj) {
       out.push(conflict(
         'core-interaction-sentence-required',
         'error',
@@ -131,8 +149,15 @@ export function validateAssemblySpec(spec, options = {}) {
   }
 
   // 5. Validate creativeSpark
-  if (selection.creativeMode === 'proven') {
-    if (spec.creativeSpark !== undefined && spec.creativeSpark !== null && typeof spec.creativeSpark === 'string' && spec.creativeSpark.trim() !== '') {
+  if (spec.creativeSpark !== undefined && spec.creativeSpark !== null) {
+    if (typeof spec.creativeSpark !== 'string') {
+      out.push(conflict(
+        'creative-spark-invalid-type',
+        'error',
+        'creativeSpark must be a string when supplied.',
+        'Provide a string for creativeSpark or omit it.',
+      ));
+    } else if (selection.creativeMode === 'proven' && spec.creativeSpark.trim() !== '') {
       out.push(conflict(
         'proven-creative-spark-forbidden',
         'error',
@@ -142,118 +167,279 @@ export function validateAssemblySpec(spec, options = {}) {
     }
   }
 
+  // 6. Validate builderAgent
+  if (spec.builderAgent !== undefined && spec.builderAgent !== null) {
+    if (typeof spec.builderAgent !== 'string' || spec.builderAgent.trim() === '' || /[\r\n]/.test(spec.builderAgent)) {
+      out.push(conflict(
+        'builder-agent-invalid',
+        'error',
+        'builderAgent must be a non-empty, single-line string when supplied.',
+        'Provide a single-line string for builderAgent.',
+      ));
+    }
+  }
+
+  // 7. Validate coherenceConfig & structural errors
   const biomeObj = selection.biome ? catalog.biomes[selection.biome] : null;
   const canonicalCoherence = biomeObj ? biomeObj.coherenceConfig : null;
 
-  let effectiveCoherence = spec.coherenceConfig;
-  if (effectiveCoherence === undefined || effectiveCoherence === null) {
+  let coherenceErrors = [];
+  let coherenceWarnings = [];
+  let isStructuralCoherenceError = false;
+
+  if (spec.coherenceConfig !== undefined && spec.coherenceConfig !== null) {
+    if (typeof spec.coherenceConfig !== 'object' || Array.isArray(spec.coherenceConfig)) {
+      out.push(conflict(
+        'coherence-config-invalid',
+        'error',
+        'coherenceConfig must be a plain object when supplied.',
+        'Provide a plain object for coherenceConfig.',
+      ));
+      isStructuralCoherenceError = true;
+    } else {
+      const unknownCohKeys = Object.keys(spec.coherenceConfig).filter((k) => !ALLOWED_COHERENCE_CONFIG_KEYS.includes(k));
+      if (unknownCohKeys.length > 0) {
+        out.push(conflict(
+          'coherence-config-unknown-key',
+          'error',
+          `coherenceConfig contains unknown properties: ${unknownCohKeys.join(', ')}.`,
+          `Allowed properties: ${ALLOWED_COHERENCE_CONFIG_KEYS.join(', ')}.`,
+        ));
+        isStructuralCoherenceError = true;
+      }
+
+      if (spec.coherenceConfig.assetStrategy !== undefined && spec.coherenceConfig.assetStrategy !== 'zero-asset') {
+        out.push(conflict(
+          'coherence-asset-strategy-invalid',
+          'error',
+          `assetStrategy in coherenceConfig must be 'zero-asset', got '${spec.coherenceConfig.assetStrategy}'.`,
+          "Set assetStrategy: 'zero-asset'.",
+        ));
+        isStructuralCoherenceError = true;
+      }
+
+      const cfg = spec.coherenceConfig;
+      if (!['photoreal', 'painterly'].includes(cfg.paradigm)) {
+        out.push(conflict(
+          'coherence-paradigm-invalid',
+          'error',
+          `paradigm in coherenceConfig must be 'photoreal' or 'painterly', got '${cfg.paradigm}'.`,
+          "Set paradigm to 'photoreal' or 'painterly'.",
+        ));
+        isStructuralCoherenceError = true;
+      }
+
+      if (typeof cfg.materialBehaviours !== 'string' || cfg.materialBehaviours.trim() === '') {
+        out.push(conflict(
+          'coherence-material-behaviours-invalid',
+          'error',
+          'materialBehaviours in coherenceConfig must be a non-empty string.',
+          'Provide non-empty materialBehaviours.',
+        ));
+        isStructuralCoherenceError = true;
+      }
+
+      if (!Array.isArray(cfg.palette) || cfg.palette.length === 0) {
+        out.push(conflict(
+          'palette-required',
+          'error',
+          'palette in coherenceConfig must be a non-empty array.',
+          'Provide a non-empty palette array.',
+        ));
+        isStructuralCoherenceError = true;
+      } else {
+        let hasLargeArea = false;
+        for (let i = 0; i < cfg.palette.length; i++) {
+          const entry = cfg.palette[i];
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            out.push(conflict(
+              'palette-entry-invalid',
+              'error',
+              `Palette entry at index ${i} must be a plain object.`,
+              'Provide { role, hex, area } object.',
+            ));
+            isStructuralCoherenceError = true;
+            continue;
+          }
+          if (typeof entry.role !== 'string' || entry.role.trim() === '') {
+            out.push(conflict(
+              'palette-role-invalid',
+              'error',
+              `Palette entry at index ${i} has invalid role.`,
+              'Provide non-empty role string.',
+            ));
+            isStructuralCoherenceError = true;
+          }
+          if (typeof entry.hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(entry.hex)) {
+            out.push(conflict(
+              'palette-hex-invalid',
+              'error',
+              `Palette entry at index ${i} has invalid hex '${entry.hex}'.`,
+              'Use valid 6-character hex format e.g. "#f0f4f8".',
+            ));
+            isStructuralCoherenceError = true;
+          }
+          if (!['large', 'medium', 'accent'].includes(entry.area)) {
+            out.push(conflict(
+              'palette-area-invalid',
+              'error',
+              `Palette entry at index ${i} has invalid area '${entry.area}'.`,
+              "Set area to 'large', 'medium', or 'accent'.",
+            ));
+            isStructuralCoherenceError = true;
+          }
+          if (entry.area === 'large') {
+            hasLargeArea = true;
+          }
+        }
+        if (!hasLargeArea) {
+          out.push(conflict(
+            'palette-large-area-required',
+            'error',
+            'Palette must contain at least one large-area entry.',
+            'Assign area: "large" to at least one primary background/surface entry.',
+          ));
+          isStructuralCoherenceError = true;
+        }
+      }
+
+      const isWholeShowcase = selection.path === 'showcase' && (selection.creativeMode === 'proven' || selection.creativeMode === 'signature');
+      if (isWholeShowcase && canonicalCoherence) {
+        const sameParadigm = cfg.paradigm === canonicalCoherence.paradigm;
+        const sameBehaviours = cfg.materialBehaviours === canonicalCoherence.materialBehaviours;
+        const samePalette = JSON.stringify(cfg.palette) === JSON.stringify(canonicalCoherence.palette);
+        if (!sameParadigm || !sameBehaviours || !samePalette) {
+          out.push(conflict(
+            'proven-signature-coherence-config-drift',
+            'error',
+            'Proven and Signature modes must use the exact canonical coherence configuration of the selected biome.',
+            'Omit coherenceConfig or set it to null to use the canonical configuration.',
+          ));
+        }
+      }
+
+      if (!isStructuralCoherenceError) {
+        const coherenceConflicts = checkCoherence({
+          paradigm: cfg.paradigm,
+          assetStrategy: 'zero-asset',
+          materialBehaviours: cfg.materialBehaviours,
+          palette: cfg.palette,
+        });
+        for (const c of coherenceConflicts) {
+          if (c.severity === 'error') coherenceErrors.push(c);
+          else if (c.severity === 'warn') coherenceWarnings.push(c);
+        }
+      }
+    }
+  } else {
+    // Using canonical coherence config
     if (canonicalCoherence) {
-      effectiveCoherence = {
+      const coherenceConflicts = checkCoherence({
         paradigm: canonicalCoherence.paradigm,
         assetStrategy: 'zero-asset',
         materialBehaviours: canonicalCoherence.materialBehaviours,
         palette: canonicalCoherence.palette,
-      };
-    }
-  } else {
-    // If coherenceConfig is provided explicitly
-    if (isWholeShowcase && canonicalCoherence) {
-      // Must match canonical
-      const sameParadigm = effectiveCoherence.paradigm === canonicalCoherence.paradigm;
-      const sameBehaviours = effectiveCoherence.materialBehaviours === canonicalCoherence.materialBehaviours;
-      const samePalette = JSON.stringify(effectiveCoherence.palette) === JSON.stringify(canonicalCoherence.palette);
-      if (!sameParadigm || !sameBehaviours || !samePalette) {
-        out.push(conflict(
-          'proven-signature-coherence-config-drift',
-          'error',
-          'Proven and Signature modes must use the exact canonical coherence configuration of the selected biome.',
-          'Omit coherenceConfig or set it to null to use the canonical configuration.',
-        ));
-      }
-    }
-    if (!effectiveCoherence.assetStrategy) {
-      effectiveCoherence = { ...effectiveCoherence, assetStrategy: 'zero-asset' };
-    }
-  }
-
-  const coherenceErrors = [];
-  const coherenceWarnings = [];
-
-  if (effectiveCoherence) {
-    const coherenceConflicts = checkCoherence(effectiveCoherence);
-    for (const c of coherenceConflicts) {
-      if (c.severity === 'error') {
-        coherenceErrors.push(c);
-      } else if (c.severity === 'warn') {
-        coherenceWarnings.push(c);
+      });
+      for (const c of coherenceConflicts) {
+        if (c.severity === 'error') coherenceErrors.push(c);
+        else if (c.severity === 'warn') coherenceWarnings.push(c);
       }
     }
   }
 
-  // Validate coherenceOverrides
-  const overrides = spec.coherenceOverrides || [];
-  if (!Array.isArray(overrides)) {
-    out.push(conflict(
-      'coherence-overrides-invalid',
-      'error',
-      'coherenceOverrides must be an array.',
-      'Provide an array for coherenceOverrides.',
-    ));
-  } else {
-    const seenRules = new Set();
-    const activeCoherenceErrorRules = new Set(coherenceErrors.map((e) => e.rule));
+  // 8. Validate coherenceOverrides
+  const overrides = spec.coherenceOverrides;
+  if (overrides !== undefined && overrides !== null) {
+    if (!Array.isArray(overrides)) {
+      out.push(conflict(
+        'coherence-overrides-invalid',
+        'error',
+        'coherenceOverrides must be an array.',
+        'Provide an array for coherenceOverrides.',
+      ));
+    } else {
+      const seenRules = new Set();
+      const activeCoherenceErrorRules = new Set(coherenceErrors.map((e) => e.rule));
 
-    for (const ov of overrides) {
-      if (!ov || typeof ov !== 'object' || typeof ov.rule !== 'string' || typeof ov.reason !== 'string' || ov.reason.trim() === '') {
-        out.push(conflict(
-          'coherence-override-entry-invalid',
-          'error',
-          'Every coherence override entry must be an object with a rule string and a non-empty reason string.',
-          'Provide { rule: string, reason: string }.',
-        ));
-        continue;
-      }
-      if (seenRules.has(ov.rule)) {
-        out.push(conflict(
-          'coherence-override-duplicate',
-          'error',
-          `Duplicate coherence override for rule '${ov.rule}'.`,
-          'Provide at most one override per rule.',
-        ));
-      }
-      seenRules.add(ov.rule);
+      for (let i = 0; i < overrides.length; i++) {
+        const ov = overrides[i];
+        if (!ov || typeof ov !== 'object' || Array.isArray(ov)) {
+          out.push(conflict(
+            'coherence-override-entry-invalid',
+            'error',
+            `coherenceOverrides entry at index ${i} must be a plain object.`,
+            'Provide { rule: string, reason: string }.',
+          ));
+          continue;
+        }
 
-      if (!activeCoherenceErrorRules.has(ov.rule)) {
-        out.push(conflict(
-          'coherence-override-unused',
-          'error',
-          `Coherence override '${ov.rule}' is unused because no such coherence error was raised.`,
-          'Remove unused coherence overrides.',
-        ));
+        const allowedOvKeys = ['rule', 'reason'];
+        const unknownOvProps = Object.keys(ov).filter((k) => !allowedOvKeys.includes(k));
+        if (unknownOvProps.length > 0) {
+          out.push(conflict(
+            'coherence-override-entry-unknown',
+            'error',
+            `coherenceOverrides entry for '${ov.rule || i}' contains unknown properties: ${unknownOvProps.join(', ')}.`,
+            "Override entries may contain only 'rule' and 'reason'.",
+          ));
+        }
+
+        if (typeof ov.rule !== 'string' || typeof ov.reason !== 'string' || ov.reason.trim() === '') {
+          out.push(conflict(
+            'coherence-override-entry-invalid',
+            'error',
+            'Every coherence override entry must be an object with a rule string and a non-empty reason string.',
+            'Provide { rule: string, reason: string }.',
+          ));
+          continue;
+        }
+        if (seenRules.has(ov.rule)) {
+          out.push(conflict(
+            'coherence-override-duplicate',
+            'error',
+            `Duplicate coherence override for rule '${ov.rule}'.`,
+            'Provide at most one override per rule.',
+          ));
+        }
+        seenRules.add(ov.rule);
+
+        if (!activeCoherenceErrorRules.has(ov.rule)) {
+          out.push(conflict(
+            'coherence-override-unused',
+            'error',
+            `Coherence override '${ov.rule}' is unused because no such coherence error was raised.`,
+            'Remove unused coherence overrides.',
+          ));
+        }
+      }
+
+      // Require matching override for un-overridden coherence error
+      for (const err of coherenceErrors) {
+        if (!seenRules.has(err.rule)) {
+          out.push(err);
+        }
       }
     }
-
-    // Require matching override for every un-overridden coherence error
+  } else {
+    // No overrides provided: un-overridden coherence errors are errors
     for (const err of coherenceErrors) {
-      if (!seenRules.has(err.rule)) {
-        out.push(err);
-      }
+      out.push(err);
     }
   }
 
-  // 7. Validate extraSectionMarkdown
+  // 9. Validate extraSectionMarkdown
   const selExtra = Array.isArray(selection.extraSections) ? selection.extraSections : [];
   const extraMarkdown = spec.extraSectionMarkdown;
 
-  if (selExtra.length > 0) {
-    if (!extraMarkdown || typeof extraMarkdown !== 'object' || Array.isArray(extraMarkdown)) {
+  if (extraMarkdown !== undefined && extraMarkdown !== null) {
+    if (typeof extraMarkdown !== 'object' || Array.isArray(extraMarkdown)) {
       out.push(conflict(
-        'extra-section-markdown-required',
+        'extra-section-markdown-invalid',
         'error',
-        'extraSectionMarkdown object is required when extraSections are selected.',
-        `Provide extraSectionMarkdown object with keys: ${selExtra.join(', ')}.`,
+        'extraSectionMarkdown must be a plain object when supplied.',
+        'Provide a plain object for extraSectionMarkdown.',
       ));
-    } else {
+    } else if (selExtra.length > 0) {
       const markdownKeys = Object.keys(extraMarkdown);
       for (const sec of selExtra) {
         if (!markdownKeys.includes(sec)) {
@@ -320,14 +506,23 @@ export function validateAssemblySpec(spec, options = {}) {
           }
         }
       }
+    } else {
+      if (Object.keys(extraMarkdown).length > 0) {
+        out.push(conflict(
+          'extra-section-markdown-unselected',
+          'error',
+          'extraSectionMarkdown contains bodies for sections when no extraSections are selected.',
+          'Set extraSectionMarkdown to {} or omit when extraSections is [].',
+        ));
+      }
     }
   } else {
-    if (extraMarkdown && typeof extraMarkdown === 'object' && Object.keys(extraMarkdown).length > 0) {
+    if (selExtra.length > 0) {
       out.push(conflict(
-        'extra-section-markdown-unselected',
+        'extra-section-markdown-required',
         'error',
-        'extraSectionMarkdown contains bodies for sections when no extraSections are selected.',
-        'Set extraSectionMarkdown to {} or omit when extraSections is [].',
+        'extraSectionMarkdown object is required when extraSections are selected.',
+        `Provide extraSectionMarkdown object with keys: ${selExtra.join(', ')}.`,
       ));
     }
   }
@@ -354,12 +549,10 @@ export function assembleBrief(spec, options = {}) {
   const catalog = loadReferenceCatalog(options);
   const selection = spec.selection;
 
-  // Resolve values
   const baseShowcaseObj = selection.baseShowcase && catalog.showcases[selection.baseShowcase] ? catalog.showcases[selection.baseShowcase] : null;
-  const isWholeShowcase = selection.path === 'showcase' && (selection.creativeMode === 'proven' || selection.creativeMode === 'signature');
 
   let projectName = spec.projectName;
-  if (!projectName && isWholeShowcase && baseShowcaseObj) {
+  if (!projectName && baseShowcaseObj) {
     projectName = baseShowcaseObj.projectName;
   }
   const fileName = `${projectName.replace(/-/g, '_')}_TECHDEMO_PROMPT.md`;
@@ -384,8 +577,16 @@ export function assembleBrief(spec, options = {}) {
   const renderingParadigm = effectiveCoherence.paradigm === 'photoreal' ? 'AAA Photoreal' : 'Ghibli-Style Painterly Anime';
 
   let coreInteractionSentence = spec.coreInteractionSentence;
-  if (!coreInteractionSentence && isWholeShowcase && baseShowcaseObj) {
+  if (!coreInteractionSentence && baseShowcaseObj) {
     coreInteractionSentence = baseShowcaseObj.coreInteractionSentence;
+  }
+
+  // Creative Spark
+  let creativeSparkVal = 'surprise me';
+  if (selection.creativeMode === 'proven') {
+    creativeSparkVal = 'none';
+  } else if (typeof spec.creativeSpark === 'string' && spec.creativeSpark.trim() !== '') {
+    creativeSparkVal = spec.creativeSpark.trim();
   }
 
   // Signature Moment
@@ -400,7 +601,7 @@ export function assembleBrief(spec, options = {}) {
 
   // Target browser and hardware
   let targetHardware = 'Chrome stable on Windows 11, RTX-class GPU, 2560×1440';
-  if (isWholeShowcase && baseShowcaseObj) {
+  if (baseShowcaseObj) {
     targetHardware = baseShowcaseObj.targetBrowserAndHardware;
   }
   if (selection.camera === 'XR') {
@@ -415,23 +616,32 @@ export function assembleBrief(spec, options = {}) {
 
   // Format State Channel Contract
   const hasStateBuffer = selection.includedSections && selection.includedSections.includes('state-buffer');
+  const hasAudio = selection.includedSections && selection.includedSections.includes('audio');
   const stateChannelContractText = hasStateBuffer ? formatStateChannelContract(selection) : '';
 
-  // Mechanic description adjustment if state-buffer omitted
+  // Mechanic description & ability text adjustment if state-buffer omitted
   let mechanicDescriptionText = mechanic.tokens.CENTREPIECE_DESCRIPTION;
+  let ability1Text = mechanic.tokens.ABILITY_1_NAME;
+  let ability2Text = mechanic.tokens.ABILITY_2_NAME;
+  let ability3Text = mechanic.tokens.ABILITY_3_NAME;
+
   if (!hasStateBuffer) {
-    // Remove **Writes:** paragraph and persistent promises
+    // Remove **Writes:** paragraph and persistent promises across ALL 5 mechanics
     mechanicDescriptionText = mechanicDescriptionText.replace(/\*\*Writes:\*\*[\s\S]*?(?=\n\n|\n-|$)/, '').trim();
     mechanicDescriptionText = mechanicDescriptionText.replace(/A completed run stays visible from across the field\./g, '');
     mechanicDescriptionText = mechanicDescriptionText.replace(/so the sweep path stays legible for roughly 50 s\./g, '');
-    mechanicDescriptionText = mechanicDescriptionText.replace(/its track lingering\./g, '');
+    mechanicDescriptionText = mechanicDescriptionText.replace(/both of which write into the shared buffers[\s\S]*?as the character is/g, 'both of which integrate into the scene, so it is embedded in the world exactly as the character is');
     mechanicDescriptionText = mechanicDescriptionText.trim();
+
+    if (selection.mechanic === 'Summon Vehicle') {
+      ability2Text = ability2Text.replace(/,\s*and a persistent track\./g, '.').replace(/and a persistent track/g, '');
+      ability3Text = ability3Text.replace(/,\s*its track lingering\./g, '.').replace(/its track lingering/g, '');
+    }
   }
 
   // Character Recipe Composition
   const charRecipePath = path.join(rootDir, 'references', 'character-recipe.md');
   const charRecipeFull = fs.readFileSync(charRecipePath, 'utf8');
-  // Strip top-level title # Character recipe — procedural humanoid
   const charRecipeBody = charRecipeFull.replace(/^# Character recipe[^\n]*\n/, '').trim();
 
   let ringCountAdjustment = '';
@@ -441,7 +651,18 @@ export function assembleBrief(spec, options = {}) {
     ringCountAdjustment = '\n\n**XR Camera Adjustment:** Ring counts rise to 20–24 segments on the body and 10–12 on hands and feet.';
   }
 
-  const singleTouchdownSentence = 'These effects fire from the single touchdown call site in Part 5, reading plantedPos[leg], and from nowhere else.';
+  let singleTouchdownSentence = 'These effects fire from the single touchdown call site in Part 5, reading plantedPos[leg], and from nowhere else.';
+  const omittedNotes = [];
+  if (!hasStateBuffer) {
+    omittedNotes.push('Note: state-buffer is omitted; stateBuffer.addSplat(...) is a disabled/no-op integration hook and must not cause a state buffer to be instantiated.');
+  }
+  if (!hasAudio) {
+    omittedNotes.push('Note: audio is omitted; audio.footfall(...) is a disabled/no-op integration hook and must not cause an audio system to be instantiated.');
+  }
+
+  if (omittedNotes.length > 0) {
+    singleTouchdownSentence += ` (${omittedNotes.join(' ')})`;
+  }
 
   const fullCharacterRecipe = `${charRecipeBody}\n\n### Archetype — ${selection.archetype}\n\n${archetype.body}\n\n### Foot interaction — ${biome.tokens.PRIMARY_MATERIAL_NAME}\n\n${biome.footInteraction}\n\n${singleTouchdownSentence}${ringCountAdjustment}`;
 
@@ -488,42 +709,45 @@ export function assembleBrief(spec, options = {}) {
     CENTREPIECE_MECHANIC: mechanic.tokens.CENTREPIECE_MECHANIC,
     CENTREPIECE_INPUT: formattedInput,
     CENTREPIECE_DESCRIPTION: mechanicDescriptionText,
-    ABILITY_1_NAME: mechanic.tokens.ABILITY_1_NAME,
-    ABILITY_2_NAME: mechanic.tokens.ABILITY_2_NAME,
-    ABILITY_3_NAME: mechanic.tokens.ABILITY_3_NAME,
+    ABILITY_1_NAME: ability1Text,
+    ABILITY_2_NAME: ability2Text,
+    ABILITY_3_NAME: ability3Text,
     AUDIO_ENGINE_SPEC: biome.tokens.AUDIO_ENGINE_SPEC,
     ATMOSPHERIC_LIFE_SPEC: biome.tokens.ATMOSPHERIC_LIFE_SPEC,
   };
 
-  // Perform Token Replacement
+  // Perform Token Replacement cleanly (preventing double periods ..)
   let result = templateText.replace(/Hold\s+\{\{CENTREPIECE_INPUT[^}]*\}\}/g, formattedInput);
-  result = result.replace(/\{\{([A-Z0-9_]+)(?:[^}]*)?\}\}/g, (match, tokenKey) => {
+  result = result.replace(/\{\{([A-Z0-9_]+)(?:[^}]*)?\}\}(\.?)/g, (match, tokenKey, trailingDot) => {
     if (tokenMap[tokenKey] !== undefined) {
-      return tokenMap[tokenKey];
+      const val = tokenMap[tokenKey];
+      if (trailingDot === '.' && val.endsWith('.')) {
+        return val;
+      }
+      return val + trailingDot;
     }
     return match;
   });
 
-  // Handle Marked Sections
+  // Handle Marked Core Sections Independently
   const coreSections = ['state-buffer', 'vegetation', 'audio'];
   for (const sec of coreSections) {
-    const startMarker = `<!--SECTION:${sec}-->`;
-    const endMarker = `<!--/SECTION-->`;
     const isKept = selection.includedSections.includes(sec);
+    const blockRegex = new RegExp(`<!--SECTION:${sec}-->[\\s\\S]*?<!--/SECTION-->[\\r\\n]*`, 'g');
 
     if (isKept) {
-      // Remove marker lines, keep body
-      result = result.replace(new RegExp(`${startMarker}\\r?\\n?`, 'g'), '');
-      result = result.replace(new RegExp(`${endMarker}\\r?\\n?`, 'g'), '');
+      result = result.replace(blockRegex, (match) => {
+        // Strip only start and end markers of this block
+        let inner = match.replace(new RegExp(`<!--SECTION:${sec}-->[\\r\\n]*`), '');
+        inner = inner.replace(new RegExp(`[\\r\\n]*<!--/SECTION-->[\\r\\n]*`), '\n\n');
+        return inner;
+      });
     } else {
-      // Remove entire block including markers and body
-      const blockRegex = new RegExp(`${startMarker}[\\s\\S]*?${endMarker}\\r?\\n?`, 'g');
       result = result.replace(blockRegex, '');
     }
   }
 
   // Camera Substitution in §2.6
-  // Replace paragraph starting with "Use third-person, action-MMO framing..."
   const oldThirdPersonRegex = /Use third-person, action-MMO framing[\s\S]*?(?=\*\*Initial Spawn Rule:\*\*)/;
   let cameraReplacementBody = camera.body;
 
@@ -560,7 +784,6 @@ export function assembleBrief(spec, options = {}) {
   }
 
   if (extraSectionsText) {
-    // Insert after §2.8 Audio Engine & Atmospheric Life (or end of §2.7 if audio omitted)
     const audioSecEnd = result.indexOf('---', result.indexOf('## 2. Systems'));
     if (audioSecEnd !== -1) {
       result = result.slice(0, audioSecEnd) + extraSectionsText + '\n\n' + result.slice(audioSecEnd);
@@ -569,22 +792,44 @@ export function assembleBrief(spec, options = {}) {
     }
   }
 
-  // Append Assembly Decisions
-  const coherenceWarnings = checkCoherence(effectiveCoherence).filter((c) => c.severity === 'warn');
+  // Format State Channel Contract for Assembly Decisions
+  let stateChannelDecisionsText = 'none (state-buffer omitted)';
+  if (hasStateBuffer && selection.stateChannelContract && Object.keys(selection.stateChannelContract).length > 0) {
+    const biomeChanMap = BIOME_CHANNELS[selection.biome] || {};
+    const contractEntries = Object.entries(selection.stateChannelContract).map(([key, entry]) => {
+      const channel = entry.channel;
+      const meaning = biomeChanMap[channel] || '';
+      return `${key} → ${channel} (${meaning}): ${entry.effect}`;
+    });
+    stateChannelDecisionsText = contractEntries.join('; ');
+  }
+
+  const selConflicts = validateSelection(selection);
+  const selErrorsCount = selConflicts.filter((c) => c.severity === 'error').length;
+  const selWarningsCount = selConflicts.filter((c) => c.severity === 'warn').length;
+
+  const cohConflicts = checkCoherence({
+    paradigm: effectiveCoherence.paradigm,
+    assetStrategy: 'zero-asset',
+    materialBehaviours: effectiveCoherence.materialBehaviours,
+    palette: effectiveCoherence.palette,
+  });
+  const cohErrorsCount = cohConflicts.filter((c) => c.severity === 'error').length;
+  const cohWarnings = cohConflicts.filter((c) => c.severity === 'warn');
   const overrides = spec.coherenceOverrides || [];
 
   let assemblyDecisionsText = `\n\n## Assembly Decisions\n\n` +
     `- **Creative Mode:** ${creativeModeTitle}\n` +
     `- **Path and Base Showcase:** ${selection.path}${selection.baseShowcase ? ` (${selection.baseShowcase})` : ''}\n` +
     `- **Changed Major Axes:** ${Array.isArray(selection.changedAxes) && selection.changedAxes.length > 0 ? selection.changedAxes.join(', ') : 'none'}\n` +
-    `- **Creative Spark:** ${spec.creativeSpark || (selection.creativeMode === 'proven' ? 'none' : 'surprise me')}\n` +
+    `- **Creative Spark:** ${creativeSparkVal}\n` +
     `- **Signature Moment:** ${selection.signatureMoment && selection.signatureMoment.enabled ? `${selection.signatureMoment.text} (Reused system: ${selection.signatureMoment.reusedSystem})` : 'disabled'}\n` +
     `- **Rendering Profile:** ${selection.renderingProfile}\n` +
     `- **Included Sections:** ${selection.includedSections.length > 0 ? selection.includedSections.join(', ') : 'none'}\n` +
     `- **Extra Sections:** ${selection.extraSections.length > 0 ? selection.extraSections.join(', ') : 'none'}\n` +
-    `- **State Channel Contract:** ${hasStateBuffer ? Object.keys(selection.stateChannelContract).join(', ') : 'none (state-buffer omitted)'}\n` +
-    `- **Selection Validation:** clean (0 errors, 0 warnings)\n` +
-    `- **Coherence Validation:** clean (${coherenceWarnings.length} warning(s))`;
+    `- **State Channel Contract:** ${stateChannelDecisionsText}\n` +
+    `- **Selection Validation:** clean (${selErrorsCount} errors, ${selWarningsCount} warnings)\n` +
+    `- **Coherence Validation:** ${cohErrorsCount === 0 ? 'clean' : 'has errors'} (${cohWarnings.length} warning(s))`;
 
   if (overrides.length > 0) {
     assemblyDecisionsText += `\n\n## Deliberate Deviations\n\n` +
@@ -599,7 +844,6 @@ export function assembleBrief(spec, options = {}) {
     throw new Error(`Assembled brief failed final validation: ${briefVal.problems.join(' | ')}`);
   }
 
-  // Check for forbidden active reference-file links
   if (/references\/[a-z0-9_-]+\.md|TEMPLATE\.md|selection\.mjs|check\.mjs/.test(result)) {
     throw new Error('Assembled brief contains active reference file dependencies');
   }
@@ -608,7 +852,7 @@ export function assembleBrief(spec, options = {}) {
     projectName,
     fileName,
     brief: result,
-    warnings: coherenceWarnings,
+    warnings: cohWarnings,
   };
 }
 
@@ -616,9 +860,37 @@ export function assembleBrief(spec, options = {}) {
  * Safely write the generated project bundle to output directory.
  */
 export function writeBundle(spec, outDir, options = {}) {
+  const rootDir = options.rootDir ? path.resolve(options.rootDir) : path.dirname(fileURLToPath(import.meta.url));
+  const verifySrc = path.join(rootDir, 'verify');
+
+  // Preflight 1: Check source verifier files exist before modifying anything
+  const verifierFiles = ['README.md', 'gates.mjs', 'verify_demo.mjs'];
+  for (const vf of verifierFiles) {
+    const srcPath = path.join(verifySrc, vf);
+    if (!fs.existsSync(srcPath) || !fs.statSync(srcPath).isFile()) {
+      throw new Error(`Missing or unreadable verifier source file: '${srcPath}'`);
+    }
+  }
+
+  // Preflight 2: Assemble brief to determine output fileName
   const { projectName, fileName, brief, warnings } = assembleBrief(spec, options);
   const targetDir = path.resolve(outDir);
 
+  // Preflight 3: Output directory and verify directory path type checks
+  if (fs.existsSync(targetDir) && !fs.statSync(targetDir).isDirectory()) {
+    const err = new Error(`Output path '${targetDir}' exists and is a file, not a directory.`);
+    err.code = 'ENOTDIR';
+    throw err;
+  }
+
+  const verifyTargetDir = path.join(targetDir, 'verify');
+  if (fs.existsSync(verifyTargetDir) && !fs.statSync(verifyTargetDir).isDirectory()) {
+    const err = new Error(`Verify path '${verifyTargetDir}' exists and is a file, not a directory.`);
+    err.code = 'ENOTDIR';
+    throw err;
+  }
+
+  // Preflight 4: Target file collisions and type checks
   const targetFiles = [
     path.join(targetDir, fileName),
     path.join(targetDir, 'HANDOFF.md'),
@@ -627,7 +899,14 @@ export function writeBundle(spec, outDir, options = {}) {
     path.join(targetDir, 'verify', 'verify_demo.mjs'),
   ];
 
-  // Destination collision preflight
+  for (const tf of targetFiles) {
+    if (fs.existsSync(tf) && fs.statSync(tf).isDirectory()) {
+      const err = new Error(`Target file path '${tf}' is a directory collision.`);
+      err.code = 'EISDIR';
+      throw err;
+    }
+  }
+
   const existingCollisions = targetFiles.filter((f) => fs.existsSync(f));
   if (existingCollisions.length > 0 && !options.force) {
     const err = new Error(`Destination collision: target file '${existingCollisions[0]}' already exists. Use --force to overwrite.`);
@@ -635,13 +914,11 @@ export function writeBundle(spec, outDir, options = {}) {
     throw err;
   }
 
-  // Create directories
-  fs.mkdirSync(path.join(targetDir, 'verify'), { recursive: true });
+  // All preflight checks passed — perform writes
+  fs.mkdirSync(verifyTargetDir, { recursive: true });
 
-  // Write brief
   fs.writeFileSync(path.join(targetDir, fileName), brief, 'utf8');
 
-  // Write HANDOFF.md
   const builderAgentLabel = spec.builderAgent || 'the coding agent named by the user';
   const handoffContent = `# Handoff\n\n` +
     `- **Brief:** \`${fileName}\` — give this file to the coding agent, whole. It needs nothing else.\n` +
@@ -654,11 +931,7 @@ export function writeBundle(spec, outDir, options = {}) {
 
   fs.writeFileSync(path.join(targetDir, 'HANDOFF.md'), handoffContent, 'utf8');
 
-  // Copy verify directory from repo root
-  const rootDir = options.rootDir ? path.resolve(options.rootDir) : path.dirname(fileURLToPath(import.meta.url));
-  const verifySrc = path.join(rootDir, 'verify');
-
-  for (const f of ['README.md', 'gates.mjs', 'verify_demo.mjs']) {
+  for (const f of verifierFiles) {
     const src = path.join(verifySrc, f);
     const dest = path.join(targetDir, 'verify', f);
     fs.copyFileSync(src, dest);
@@ -689,43 +962,60 @@ function printUsageAndExit(code, toStderr = false) {
 
 function runCli() {
   const args = process.argv.slice(2);
-  if (args.length === 0 || args.includes('--help') || args.includes('-h') || args.includes('help')) {
+
+  if (args.length === 0 || (args.length === 1 && (args[0] === '--help' || args[0] === '-h' || args[0] === 'help'))) {
     printUsageAndExit(args.length === 0 ? 2 : 0, args.length === 0);
   }
 
-  const specFile = args[0];
-  if (!specFile || specFile.startsWith('-')) {
-    printUsageAndExit(2, true);
-  }
-
-  const stdoutFlag = args.includes('--stdout');
-  const outIdx = args.indexOf('--out');
-  const forceFlag = args.includes('--force');
-
-  if ((stdoutFlag && outIdx !== -1) || (!stdoutFlag && outIdx === -1)) {
-    printUsageAndExit(2, true);
-  }
-
+  let stdoutCount = 0;
+  let outCount = 0;
+  let forceCount = 0;
+  let positionalArgs = [];
   let outDir = null;
-  if (outIdx !== -1) {
-    outDir = args[outIdx + 1];
-    if (!outDir || outDir.startsWith('-')) {
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--stdout') {
+      stdoutCount++;
+    } else if (arg === '--out') {
+      outCount++;
+      if (i + 1 >= args.length) {
+        printUsageAndExit(2, true);
+      }
+      outDir = args[++i];
+      if (!outDir || outDir.startsWith('-')) {
+        printUsageAndExit(2, true);
+      }
+    } else if (arg === '--force') {
+      forceCount++;
+    } else if (arg.startsWith('-')) {
       printUsageAndExit(2, true);
+    } else {
+      positionalArgs.push(arg);
     }
   }
 
-  // Check unknown flags
-  const allowedFlags = ['--stdout', '--out', '--force'];
-  for (let i = 1; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--out') {
-      i++;
-      continue;
-    }
-    if (!allowedFlags.includes(arg)) {
-      printUsageAndExit(2, true);
-    }
+  if (stdoutCount > 1 || outCount > 1 || forceCount > 1) {
+    printUsageAndExit(2, true);
   }
+
+  if (stdoutCount > 0 && forceCount > 0) {
+    printUsageAndExit(2, true);
+  }
+
+  if (stdoutCount > 0 && outCount > 0) {
+    printUsageAndExit(2, true);
+  }
+
+  if (stdoutCount === 0 && outCount === 0) {
+    printUsageAndExit(2, true);
+  }
+
+  if (positionalArgs.length !== 1) {
+    printUsageAndExit(2, true);
+  }
+
+  const specFile = positionalArgs[0];
 
   let rawSpec;
   try {
@@ -743,7 +1033,7 @@ function runCli() {
     process.exit(2);
   }
 
-  if (stdoutFlag) {
+  if (stdoutFlag(stdoutCount)) {
     try {
       const { brief } = assembleBrief(spec);
       process.stdout.write(brief);
@@ -762,11 +1052,11 @@ function runCli() {
 
   if (outDir) {
     try {
-      const result = writeBundle(spec, outDir, { force: forceFlag });
+      const result = writeBundle(spec, outDir, { force: forceCount > 0 });
       console.log(JSON.stringify(result, null, 2));
       process.exit(0);
     } catch (err) {
-      if (err.code === 'EEXIST') {
+      if (err.code === 'EEXIST' || err.code === 'ENOTDIR' || err.code === 'EISDIR') {
         console.error(err.message);
         process.exit(2);
       }
@@ -777,11 +1067,15 @@ function runCli() {
         process.exit(1);
       }
       console.error(err.message);
-      process.exit(1);
+      process.exit(2);
     }
   }
 
   printUsageAndExit(2, true);
+}
+
+function stdoutFlag(count) {
+  return count > 0;
 }
 
 function isMain() {

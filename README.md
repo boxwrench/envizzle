@@ -216,7 +216,9 @@ image gates cannot run, and the verifier says so instead of passing.
 
 **Envizzle is in public alpha.** Progressive reference loading, central registries,
 operable selection CLI, coherence CLI, deterministic brief assembly, safe project-bundle output,
-test fixtures, and cross-file contract verification are implemented, and all unit tests pass (`npm test`).
+test fixtures, cross-file contract verification, and strict assembly integrity (input non-mutation,
+non-overridable structural coherence errors, source preflight, independent section replacement,
+state-buffer omission across all five mechanics) are implemented, and all unit tests pass (`npm test`).
 Multi-agent generated-demo benchmarking remains listed as future work. See `docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the
 design and `docs/2026-07-29-envizzle-skill.md` for the task plan it was built from.
 

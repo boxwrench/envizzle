@@ -91,7 +91,7 @@ screenshot someone shares.
 | `PROJECT_NAME` | DUNE-SEA |
 | Biome | Dune Desert |
 | Archetype | Desert Nomad |
-| Mechanic | Surf / Carve (sandboard) |
+| Mechanic | Surf / Carve |
 | Camera | Third Person |
 | Ambition | `slice` |
 | Included sections | none |

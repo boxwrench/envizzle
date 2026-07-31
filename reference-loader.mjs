@@ -54,18 +54,41 @@ function getRepoRoot() {
   return path.dirname(fileURLToPath(import.meta.url));
 }
 
-function parseMarkdownTable(tableText) {
+function countOccurrences(str, sub) {
+  if (!sub) return 0;
+  let count = 0;
+  let pos = 0;
+  while ((pos = str.indexOf(sub, pos)) !== -1) {
+    count++;
+    pos += sub.length;
+  }
+  return count;
+}
+
+function parseMarkdownTable(tableText, sourceName = 'table') {
   const rows = tableText.trim().split('\n');
   const table = {};
   for (const row of rows) {
     const trimmed = row.trim();
-    if (!trimmed.startsWith('|') || trimmed.includes('|---|') || trimmed.includes('| Token |') || trimmed.includes('| Field |') || trimmed.includes('| Parameter |')) {
+    if (
+      !trimmed.startsWith('|') ||
+      trimmed.includes('|---|') ||
+      trimmed.includes('| Token |') ||
+      trimmed.includes('| Field |') ||
+      trimmed.includes('| Parameter |')
+    ) {
       continue;
     }
-    const parts = trimmed.split('|').map((p) => p.trim()).filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+    const parts = trimmed
+      .split('|')
+      .map((p) => p.trim())
+      .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
     if (parts.length >= 2) {
       const rawKey = parts[0].replace(/[`*]/g, '').trim();
       const rawVal = parts[1].trim();
+      if (Object.prototype.hasOwnProperty.call(table, rawKey)) {
+        throw new Error(`Duplicate table-token row '${rawKey}' in ${sourceName}`);
+      }
       table[rawKey] = rawVal;
     }
   }
@@ -92,8 +115,6 @@ export function loadReferenceCatalog(options = {}) {
   // Parse Biomes
   const biomes = {};
   const canonicalBiomeNames = Object.keys(BIOME_CHANNELS);
-  
-  // Split biomes.md by ### headings
   const biomeSections = biomesMd.split(/^### /m).slice(1);
   const foundBiomeNames = [];
 
@@ -101,9 +122,9 @@ export function loadReferenceCatalog(options = {}) {
     const titleLineEnd = section.indexOf('\n');
     if (titleLineEnd === -1) continue;
     const name = section.substring(0, titleLineEnd).trim();
+
     if (!canonicalBiomeNames.includes(name)) {
-      // Ignore non-canonical sections if any
-      continue;
+      throw new Error(`Unknown biome entry '${name}' in references/biomes.md`);
     }
     if (foundBiomeNames.includes(name)) {
       throw new Error(`Duplicate biome entry '${name}' in references/biomes.md`);
@@ -116,7 +137,7 @@ export function loadReferenceCatalog(options = {}) {
     // 1. Table tokens
     const tableEnd = body.indexOf('\n\n**`TERRAIN_PHILOSOPHY_SENTENCE`**');
     const tablePart = tableEnd !== -1 ? body.substring(0, tableEnd) : body;
-    const tableParsed = parseMarkdownTable(tablePart);
+    const tableParsed = parseMarkdownTable(tablePart, `biome '${name}' of references/biomes.md`);
 
     for (const key of EXPECTED_BIOME_TABLE_TOKENS) {
       if (!tableParsed[key]) {
@@ -128,12 +149,16 @@ export function loadReferenceCatalog(options = {}) {
     // 2. Labeled tokens & FOOT_INTERACTION
     for (const key of EXPECTED_BIOME_LABELED_TOKENS) {
       const marker = `**\`${key}\`**`;
-      const idx = body.indexOf(marker);
-      if (idx === -1) {
+      const occurrences = countOccurrences(body, marker);
+      if (occurrences === 0) {
         throw new Error(`Missing labeled token '${key}' in biome '${name}' of references/biomes.md`);
       }
+      if (occurrences > 1) {
+        throw new Error(`Duplicate labeled-token marker '${key}' in biome '${name}' of references/biomes.md`);
+      }
+
+      const idx = body.indexOf(marker);
       const startPos = idx + marker.length;
-      // Find end of token content: next **`TOKEN`** or **`FOOT_INTERACTION`** or ```json
       let endPos = body.length;
       const nextMarkers = [
         ...EXPECTED_BIOME_LABELED_TOKENS.map((k) => `**\`${k}\`**`),
@@ -159,10 +184,15 @@ export function loadReferenceCatalog(options = {}) {
 
     // FOOT_INTERACTION
     const fiMarker = '**`FOOT_INTERACTION`**';
-    const fiIdx = body.indexOf(fiMarker);
-    if (fiIdx === -1) {
+    const fiOccurrences = countOccurrences(body, fiMarker);
+    if (fiOccurrences === 0) {
       throw new Error(`Missing FOOT_INTERACTION in biome '${name}' of references/biomes.md`);
     }
+    if (fiOccurrences > 1) {
+      throw new Error(`Duplicate FOOT_INTERACTION in biome '${name}' of references/biomes.md`);
+    }
+
+    const fiIdx = body.indexOf(fiMarker);
     const fiStartPos = fiIdx + fiMarker.length;
     let fiEndPos = body.indexOf('```json', fiStartPos);
     if (fiEndPos === -1) fiEndPos = body.length;
@@ -174,11 +204,16 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Empty FOOT_INTERACTION in biome '${name}' of references/biomes.md`);
     }
 
-    // Fenced JSON
-    const jsonMatch = body.match(/```json\s*\n([\s\S]*?)\n```/);
-    if (!jsonMatch) {
+    // Fenced JSON coherence block
+    const jsonBlocks = body.match(/```json\s*\n([\s\S]*?)\n```/g);
+    if (!jsonBlocks || jsonBlocks.length === 0) {
       throw new Error(`Missing JSON coherence block in biome '${name}' of references/biomes.md`);
     }
+    if (jsonBlocks.length > 1) {
+      throw new Error(`Duplicate JSON coherence block in biome '${name}' of references/biomes.md`);
+    }
+
+    const jsonMatch = body.match(/```json\s*\n([\s\S]*?)\n```/);
     let coherenceConfig;
     try {
       coherenceConfig = JSON.parse(jsonMatch[1]);
@@ -186,7 +221,59 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Malformed JSON coherence block in biome '${name}' of references/biomes.md: ${err.message}`);
     }
 
-    // Cross check tokens count
+    // Default assetStrategy to zero-asset if missing
+    if (!coherenceConfig.assetStrategy) {
+      coherenceConfig.assetStrategy = 'zero-asset';
+    }
+
+    // Validate shape safely
+    if (
+      !coherenceConfig ||
+      typeof coherenceConfig !== 'object' ||
+      Array.isArray(coherenceConfig) ||
+      !['photoreal', 'painterly'].includes(coherenceConfig.paradigm) ||
+      coherenceConfig.assetStrategy !== 'zero-asset' ||
+      typeof coherenceConfig.materialBehaviours !== 'string' ||
+      !coherenceConfig.materialBehaviours.trim() ||
+      !Array.isArray(coherenceConfig.palette) ||
+      coherenceConfig.palette.length === 0
+    ) {
+      throw new Error(`Malformed JSON coherence block shape in biome '${name}' of references/biomes.md`);
+    }
+
+    for (const p of coherenceConfig.palette) {
+      if (
+        !p ||
+        typeof p !== 'object' ||
+        typeof p.role !== 'string' ||
+        typeof p.hex !== 'string' ||
+        !/^#[0-9a-fA-F]{6}$/.test(p.hex) ||
+        !['large', 'medium', 'accent'].includes(p.area)
+      ) {
+        throw new Error(`Malformed palette entry in JSON coherence block of biome '${name}' in references/biomes.md`);
+      }
+    }
+
+    // Run checkCoherence safely
+    try {
+      const cohErrors = checkCoherence({
+        paradigm: coherenceConfig.paradigm,
+        assetStrategy: 'zero-asset',
+        materialBehaviours: coherenceConfig.materialBehaviours,
+        palette: coherenceConfig.palette,
+      }).filter((c) => c.severity === 'error');
+
+      if (cohErrors.length > 0) {
+        throw new Error(`Coherence check error in biome '${name}': ${cohErrors.map((e) => e.message).join(' | ')}`);
+      }
+    } catch (err) {
+      if (err.message.startsWith('Coherence check error in biome')) {
+        throw err;
+      }
+      throw new Error(`Coherence check failed for biome '${name}' of references/biomes.md: ${err.message}`);
+    }
+
+    // Cross-check tokens count
     if (Object.keys(tokens).length !== 19) {
       throw new Error(`Expected exactly 19 tokens in biome '${name}', found ${Object.keys(tokens).length}`);
     }
@@ -215,7 +302,9 @@ export function loadReferenceCatalog(options = {}) {
     const titleLineEnd = section.indexOf('\n');
     if (titleLineEnd === -1) continue;
     const name = section.substring(0, titleLineEnd).trim();
-    if (!ARCHETYPES.includes(name)) continue;
+    if (!ARCHETYPES.includes(name)) {
+      throw new Error(`Unknown archetype entry '${name}' in references/archetypes.md`);
+    }
     if (foundArchetypeNames.includes(name)) {
       throw new Error(`Duplicate archetype entry '${name}' in references/archetypes.md`);
     }
@@ -243,7 +332,9 @@ export function loadReferenceCatalog(options = {}) {
     const titleLineEnd = section.indexOf('\n');
     if (titleLineEnd === -1) continue;
     const name = section.substring(0, titleLineEnd).trim();
-    if (!canonicalMechanicNames.includes(name)) continue;
+    if (!canonicalMechanicNames.includes(name)) {
+      throw new Error(`Unknown mechanic entry '${name}' in references/mechanics.md`);
+    }
     if (foundMechanicNames.includes(name)) {
       throw new Error(`Duplicate mechanic entry '${name}' in references/mechanics.md`);
     }
@@ -253,7 +344,7 @@ export function loadReferenceCatalog(options = {}) {
     const tokens = {};
 
     // Table tokens: CENTREPIECE_MECHANIC, CENTREPIECE_INPUT
-    const tableParsed = parseMarkdownTable(body);
+    const tableParsed = parseMarkdownTable(body, `mechanic '${name}' of references/mechanics.md`);
     if (!tableParsed.CENTREPIECE_MECHANIC) {
       throw new Error(`Missing CENTREPIECE_MECHANIC in mechanic '${name}' of references/mechanics.md`);
     }
@@ -265,10 +356,15 @@ export function loadReferenceCatalog(options = {}) {
 
     // CENTREPIECE_DESCRIPTION
     const descMarker = '**`CENTREPIECE_DESCRIPTION`**';
-    const descIdx = body.indexOf(descMarker);
-    if (descIdx === -1) {
+    const descOccurrences = countOccurrences(body, descMarker);
+    if (descOccurrences === 0) {
       throw new Error(`Missing CENTREPIECE_DESCRIPTION in mechanic '${name}' of references/mechanics.md`);
     }
+    if (descOccurrences > 1) {
+      throw new Error(`Duplicate CENTREPIECE_DESCRIPTION in mechanic '${name}' of references/mechanics.md`);
+    }
+
+    const descIdx = body.indexOf(descMarker);
     const descStart = descIdx + descMarker.length;
     let descEnd = body.indexOf('- `ABILITY_1_NAME`', descStart);
     if (descEnd === -1) descEnd = body.length;
@@ -281,11 +377,15 @@ export function loadReferenceCatalog(options = {}) {
     // Abilities
     const abilities = ['ABILITY_1_NAME', 'ABILITY_2_NAME', 'ABILITY_3_NAME'];
     for (const abKey of abilities) {
-      const match = body.match(new RegExp(`-\\s*\`\\s*${abKey}\\s*\`\\s*—\\s*(.+)`));
-      if (!match || !match[1].trim()) {
+      const regex = new RegExp(`-\\s*\`\\s*${abKey}\\s*\`\\s*—\\s*(.+)`, 'g');
+      const matches = [...body.matchAll(regex)];
+      if (matches.length === 0) {
         throw new Error(`Missing token '${abKey}' in mechanic '${name}' of references/mechanics.md`);
       }
-      tokens[abKey] = match[1].trim();
+      if (matches.length > 1) {
+        throw new Error(`Duplicate ability field '${abKey}' in mechanic '${name}' of references/mechanics.md`);
+      }
+      tokens[abKey] = matches[0][1].trim();
     }
 
     if (Object.keys(tokens).length !== 6) {
@@ -304,7 +404,13 @@ export function loadReferenceCatalog(options = {}) {
   // Parse Cameras & Rendering Profiles
   const cameras = {};
   const canonicalCameraNames = Object.keys(CAMERA_REQUIREMENTS);
-  const cameraSections = camerasMd.split(/^### /m).slice(1);
+
+  const renderingProfilesMarker = '## Rendering profiles';
+  const renderingProfilesIdx = camerasMd.indexOf(renderingProfilesMarker);
+  const cameraPart = renderingProfilesIdx !== -1 ? camerasMd.substring(0, renderingProfilesIdx) : camerasMd;
+  const profilePart = renderingProfilesIdx !== -1 ? camerasMd.substring(renderingProfilesIdx) : '';
+
+  const cameraSections = cameraPart.split(/^### /m).slice(1);
   const foundCameraNames = [];
 
   for (const section of cameraSections) {
@@ -312,18 +418,19 @@ export function loadReferenceCatalog(options = {}) {
     if (titleLineEnd === -1) continue;
     const name = section.substring(0, titleLineEnd).trim();
 
-    if (canonicalCameraNames.includes(name)) {
-      if (foundCameraNames.includes(name)) {
-        throw new Error(`Duplicate camera entry '${name}' in references/cameras.md`);
-      }
-      foundCameraNames.push(name);
-      // Cut off at next section or '---' or '## Rendering profiles'
-      let bodyEnd = section.indexOf('\n---');
-      if (bodyEnd === -1) bodyEnd = section.indexOf('\n## ');
-      if (bodyEnd === -1) bodyEnd = section.length;
-      const body = section.substring(titleLineEnd + 1, bodyEnd).trim();
-      cameras[name] = { name, body };
+    if (!canonicalCameraNames.includes(name)) {
+      throw new Error(`Unknown camera entry '${name}' in references/cameras.md`);
     }
+    if (foundCameraNames.includes(name)) {
+      throw new Error(`Duplicate camera entry '${name}' in references/cameras.md`);
+    }
+    foundCameraNames.push(name);
+
+    let bodyEnd = section.indexOf('\n---');
+    if (bodyEnd === -1) bodyEnd = section.indexOf('\n## ');
+    if (bodyEnd === -1) bodyEnd = section.length;
+    const body = section.substring(titleLineEnd + 1, bodyEnd).trim();
+    cameras[name] = { name, body };
   }
 
   for (const name of canonicalCameraNames) {
@@ -334,8 +441,8 @@ export function loadReferenceCatalog(options = {}) {
 
   // Rendering Profiles in cameras.md
   const renderingProfiles = {};
-  const profileSection = camerasMd.substring(camerasMd.indexOf('## Rendering profiles'));
-  const profSubsections = profileSection.split(/^### /m).slice(1);
+  const profSubsections = profilePart.split(/^### /m).slice(1);
+  const foundProfileKeys = [];
 
   for (const sub of profSubsections) {
     const titleLineEnd = sub.indexOf('\n');
@@ -344,42 +451,53 @@ export function loadReferenceCatalog(options = {}) {
 
     let profKey = null;
     if (title.includes('Babylon WebGPU')) profKey = 'babylon-webgpu';
-    if (title.includes('Three WebGL2')) profKey = 'three-webgl2';
-
-    if (profKey) {
-      const parseBullets = (text) => {
-        const result = {};
-        const matches = text.matchAll(/-\s*\*\*`([A-Z0-9_]+)`\*\*:\s*`([^`]+)`/g);
-        for (const m of matches) {
-          result[m[1]] = m[2];
-        }
-        return result;
-      };
-
-      const parsed = parseBullets(sub);
-      const engine = parsed.ENGINE;
-      const shaderLang = parsed.SHADER_LANG;
-      const shaderLangExt = parsed.SHADER_LANG_EXT;
-      const materialApi = parsed.MATERIAL_API;
-
-      const expected = RENDERING_PROFILES[profKey];
-      if (
-        engine !== expected.engine ||
-        shaderLang !== expected.shaderLang ||
-        shaderLangExt !== expected.shaderLangExt ||
-        materialApi !== expected.materialApi
-      ) {
-        throw new Error(`Rendering profile field mismatch for '${profKey}' between references/cameras.md and selection.mjs`);
-      }
-
-      renderingProfiles[profKey] = {
-        id: profKey,
-        engine,
-        shaderLang,
-        shaderLangExt,
-        materialApi,
-      };
+    else if (title.includes('Three WebGL2')) profKey = 'three-webgl2';
+    else {
+      throw new Error(`Unknown rendering profile section '${title}' in references/cameras.md`);
     }
+
+    if (foundProfileKeys.includes(profKey)) {
+      throw new Error(`Duplicate rendering profile '${profKey}' in references/cameras.md`);
+    }
+    foundProfileKeys.push(profKey);
+
+    const parseBullets = (text) => {
+      const result = {};
+      const matches = [...text.matchAll(/-\s*\*\*`([A-Z0-9_]+)`\*\*:\s*`([^`]+)`/g)];
+      for (const m of matches) {
+        const key = m[1];
+        const val = m[2];
+        if (Object.prototype.hasOwnProperty.call(result, key)) {
+          throw new Error(`Duplicate rendering-profile field '${key}' in '${profKey}' of references/cameras.md`);
+        }
+        result[key] = val;
+      }
+      return result;
+    };
+
+    const parsed = parseBullets(sub);
+    const engine = parsed.ENGINE;
+    const shaderLang = parsed.SHADER_LANG;
+    const shaderLangExt = parsed.SHADER_LANG_EXT;
+    const materialApi = parsed.MATERIAL_API;
+
+    const expected = RENDERING_PROFILES[profKey];
+    if (
+      engine !== expected.engine ||
+      shaderLang !== expected.shaderLang ||
+      shaderLangExt !== expected.shaderLangExt ||
+      materialApi !== expected.materialApi
+    ) {
+      throw new Error(`Rendering profile field mismatch for '${profKey}' between references/cameras.md and selection.mjs`);
+    }
+
+    renderingProfiles[profKey] = {
+      id: profKey,
+      engine,
+      shaderLang,
+      shaderLangExt,
+      materialApi,
+    };
   }
 
   if (Object.keys(renderingProfiles).length !== 2) {
@@ -396,14 +514,16 @@ export function loadReferenceCatalog(options = {}) {
     const titleLineEnd = section.indexOf('\n');
     if (titleLineEnd === -1) continue;
     const name = section.substring(0, titleLineEnd).trim();
-    if (!canonicalShowcaseNames.includes(name)) continue;
 
+    if (!canonicalShowcaseNames.includes(name)) {
+      throw new Error(`Unknown showcase entry '${name}' in references/showcases.md`);
+    }
     if (foundShowcaseNames.includes(name)) {
       throw new Error(`Duplicate showcase entry '${name}' in references/showcases.md`);
     }
     foundShowcaseNames.push(name);
 
-    const parsed = parseMarkdownTable(section);
+    const parsed = parseMarkdownTable(section, `showcase '${name}' in references/showcases.md`);
     const expected = SHOWCASES[name];
 
     const projectName = parsed.PROJECT_NAME;
@@ -412,13 +532,35 @@ export function loadReferenceCatalog(options = {}) {
     const targetBrowserAndHardware = parsed.TARGET_BROWSER_AND_HARDWARE;
     const renderingParadigm = parsed.RENDERING_PARADIGM;
     const engine = parsed.ENGINE;
-    const shaderLang = parsed['SHADER_LANG / SHADER_LANG_EXT'] ? parsed['SHADER_LANG / SHADER_LANG_EXT'].split('/')[0].trim() : parsed.SHADER_LANG;
-    const shaderLangExt = parsed['SHADER_LANG / SHADER_LANG_EXT'] ? parsed['SHADER_LANG / SHADER_LANG_EXT'].split('/')[1].trim().replace(/[`]/g, '') : parsed.SHADER_LANG_EXT;
+    const shaderLang = parsed['SHADER_LANG / SHADER_LANG_EXT']
+      ? parsed['SHADER_LANG / SHADER_LANG_EXT'].split('/')[0].trim()
+      : parsed.SHADER_LANG;
+    const shaderLangExt = parsed['SHADER_LANG / SHADER_LANG_EXT']
+      ? parsed['SHADER_LANG / SHADER_LANG_EXT'].split('/')[1].trim().replace(/[`]/g, '')
+      : parsed.SHADER_LANG_EXT;
     const materialApi = parsed.MATERIAL_API;
 
     if (!projectName || !coreInteractionSentence || !assetStrategy || !targetBrowserAndHardware || !renderingParadigm) {
       throw new Error(`Missing required showcase fields in '${name}' of references/showcases.md`);
     }
+
+    if (!assetStrategy.includes('100% Zero-Asset Procedural')) {
+      throw new Error(`Showcase '${name}' assetStrategy must promise 100% Zero-Asset Procedural`);
+    }
+
+    // Parse included and extra sections
+    const parsedIncStr = parsed['Included sections'] || '';
+    const parsedExtraStr = parsed['Extra sections'] || '';
+
+    const parsedIncSections = parsedIncStr === 'none' || !parsedIncStr
+      ? []
+      : parsedIncStr.split(',').map((s) => s.replace(/[`]/g, '').trim());
+
+    const parsedExtraSections = parsedExtraStr === 'none' || !parsedExtraStr
+      ? []
+      : parsedExtraStr.split(',').map((s) => s.replace(/[`]/g, '').trim());
+
+    const parsedAmbition = (parsed.Ambition || '').replace(/[`]/g, '').trim();
 
     // Cross-check structural fields with selection.mjs SHOWCASES
     if (parsed.Biome !== expected.biome) {
@@ -426,6 +568,48 @@ export function loadReferenceCatalog(options = {}) {
     }
     if (parsed.Archetype !== expected.archetype) {
       throw new Error(`Showcase '${name}' archetype mismatch: expected '${expected.archetype}', got '${parsed.Archetype}'`);
+    }
+    if (parsed.Mechanic !== expected.mechanic) {
+      throw new Error(`Showcase '${name}' mechanic mismatch: expected '${expected.mechanic}', got '${parsed.Mechanic}'`);
+    }
+    if (parsed.Camera !== expected.camera) {
+      throw new Error(`Showcase '${name}' camera mismatch: expected '${expected.camera}', got '${parsed.Camera}'`);
+    }
+    if (parsedAmbition !== expected.ambition) {
+      throw new Error(`Showcase '${name}' ambition mismatch: expected '${expected.ambition}', got '${parsedAmbition}'`);
+    }
+
+    const sortArr = (arr) => [...arr].sort();
+    if (JSON.stringify(sortArr(parsedIncSections)) !== JSON.stringify(sortArr(expected.includedSections))) {
+      throw new Error(`Showcase '${name}' includedSections mismatch: expected ${JSON.stringify(expected.includedSections)}, got ${JSON.stringify(parsedIncSections)}`);
+    }
+    if (JSON.stringify(sortArr(parsedExtraSections)) !== JSON.stringify(sortArr(expected.extraSections))) {
+      throw new Error(`Showcase '${name}' extraSections mismatch: expected ${JSON.stringify(expected.extraSections)}, got ${JSON.stringify(parsedExtraSections)}`);
+    }
+
+    // Cross-check rendering profile tuple
+    const expectedProfile = RENDERING_PROFILES[expected.renderingProfile];
+    if (
+      engine !== expectedProfile.engine ||
+      shaderLang !== expectedProfile.shaderLang ||
+      shaderLangExt !== expectedProfile.shaderLangExt ||
+      materialApi !== expectedProfile.materialApi
+    ) {
+      throw new Error(`Showcase '${name}' rendering profile tuple mismatch with '${expected.renderingProfile}'`);
+    }
+
+    // Cross check state-channel contract string
+    const sccStr = parsed['State-channel contract'] || '';
+    if (expected.includedSections.includes('state-buffer')) {
+      for (const [key, val] of Object.entries(expected.stateChannelContract)) {
+        if (!sccStr.includes(key) || !sccStr.includes(val.channel)) {
+          throw new Error(`Showcase '${name}' state-channel contract string mismatch for key '${key}'`);
+        }
+      }
+    } else {
+      if (!sccStr.includes('none')) {
+        throw new Error(`Showcase '${name}' state-channel contract should state none when state-buffer is omitted`);
+      }
     }
 
     showcases[name] = {
@@ -439,13 +623,13 @@ export function loadReferenceCatalog(options = {}) {
       assetStrategy,
       targetBrowserAndHardware,
       coreInteractionSentence,
-      biome: expected.biome,
-      archetype: expected.archetype,
-      mechanic: expected.mechanic,
-      camera: expected.camera,
-      ambition: expected.ambition,
-      includedSections: expected.includedSections,
-      extraSections: expected.extraSections,
+      biome: parsed.Biome,
+      archetype: parsed.Archetype,
+      mechanic: parsed.Mechanic,
+      camera: parsed.Camera,
+      ambition: parsedAmbition,
+      includedSections: parsedIncSections,
+      extraSections: parsedExtraSections,
       stateChannelContract: expected.stateChannelContract,
       cameraAdjustments: expected.cameraAdjustments,
       renderingProfile: expected.renderingProfile,

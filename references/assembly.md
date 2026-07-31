@@ -11,6 +11,7 @@ This reference documents the assembly specification schema, creative input field
 - [CLI Examples](#cli-examples)
 - [Exit Codes](#exit-codes)
 - [Safe Overwrite Behavior](#safe-overwrite-behavior)
+- [Strict Assembly Integrity](#strict-assembly-integrity)
 
 ---
 
@@ -140,3 +141,17 @@ node assemble.mjs tests/fixtures/assemblies/signature-alpine.json --out ./my-pro
 * Passing `--force` permits overwriting only those five expected files.
 * Never recursively delete or wipe the output directory.
 * Unrelated files in `<output-directory>` are preserved untouched.
+
+---
+
+## Strict Assembly Integrity
+
+### Input Non-Mutation
+`validateAssemblySpec` and `assembleBrief` never mutate the caller's input spec object. Validated fields are copied before modification.
+
+### Structural vs Policy Coherence Errors
+* **Structural errors** (missing/null palette, non-zero-asset strategy, invalid hex) are non-overridable and always block assembly. Providing a `coherenceOverrides` entry for a structural rule has no effect.
+* **Policy/art-direction errors** (luminance, contrast, saturation) can be deliberately overridden with `{ rule, reason }` entries in `coherenceOverrides`.
+
+### Source Preflight
+Before creating any output directory or file, `writeBundle` verifies that all three verifier source files (`verify/README.md`, `verify/gates.mjs`, `verify/verify_demo.mjs`) exist and are readable in `rootDir`. If any source is missing, the function throws immediately and no target files are created.

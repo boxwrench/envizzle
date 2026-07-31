@@ -442,7 +442,10 @@ you are reproducing the failure this skill exists to prevent.
 | `references/cameras.md` | 4 camera modes (substituted into §2.6) and 2 rendering profiles |
 | `references/showcases.md` | 6 canonical showcase configurations |
 | `references/character-recipe.md` | The humanoid spec, inlined verbatim at `{{CHARACTER_RECIPE}}` |
+| `references/assembly.md` | Assembly schema, creative vs mechanically derived fields, CLI exit codes, safe overwrite rules, strict integrity |
 | `TEMPLATE.md` | The skeleton: 38 tokens, 3 marked sections, the `window.__demo` hook in §6 |
 | `selection.mjs` | `validateSelection`, `formatStateChannelContract` (CLI: `node selection.mjs`) |
 | `check.mjs` | `validateBrief`, `checkCoherence` (CLI: `node check.mjs`) |
+| `assemble.mjs` | Deterministic brief assembler and safe bundle writer (CLI: `node assemble.mjs`) |
+| `reference-loader.mjs` | Strict reference loader with duplicate/unknown entry detection and cross-checking |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |

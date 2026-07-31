@@ -60,7 +60,9 @@ No fallbacks. If GPU context is absent, show a single line of text and stop.
 
 Build a geometry clipmap or nested-ring LOD centred on the player, so triangle density is high near the camera and falls off with distance. Aim for roughly sub-10 cm vertex spacing in the inner ring at default zoom.
 
-Height comes from layered procedural noise composited on the GPU: {{TERRAIN_NOISE_LAYERS}}.
+Height comes from layered procedural noise composited on the GPU:
+
+{{TERRAIN_NOISE_LAYERS}}
 
 {{TERRAIN_LANDMARKS}}
 
