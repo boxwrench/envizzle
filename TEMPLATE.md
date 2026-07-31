@@ -93,6 +93,10 @@ Prefer RGBA16F for the state buffer. Before allocation, verify through the selec
 
 {{STATE_BUFFER_CHANNELS}}
 
+**State Channel Contract & Mechanic Interoperability:**
+
+{{STATE_CHANNEL_CONTRACT}}
+
 **Rules:**
 
 {{DEFORMATION_TYPE}} is persistent and additive, accumulated by writing brush splats into the target each frame.
@@ -187,7 +191,7 @@ Before declaring the demo complete, verify each item:
 - Palette harmony: all colours read as cohesive and art-directed.
 - Distant terrain shows clear aerial perspective.
 - Surface detail is legible at 3 distinct scales simultaneously.
-- State marks displace mass/vegetation, self-shadow, and soften over time.
+- If the state-buffer section is included, state marks displace mass/vegetation, self-shadow, and soften over time. When state-buffer is omitted, state marks and the mechanic's persistent Writes: paragraph do not apply and are removed.
 - In Proven mode, the configured centrepiece interaction is readable in the mechanic verification capture.
 - In Signature and Experimental modes, the Signature Moment is clearly visible in the mechanic verification capture (`window.__demo.setPose('mechanic')`) without requiring a separate verifier pose or API.
 - Disabling `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` restores the selected configuration without the Signature Moment.

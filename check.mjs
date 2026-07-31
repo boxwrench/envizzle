@@ -108,7 +108,7 @@ const conflict = (rule, severity, message, fix) => ({ rule, severity, message, f
 export function validateConfig(config) {
   const out = [];
 
-  if (!config || typeof config !== 'object') {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
     out.push(conflict(
       'config-required', 'error',
       'Configuration must be a non-null object.',

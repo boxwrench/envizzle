@@ -1228,6 +1228,9 @@ Each config supplies the nine tokens the biome, archetype, mechanic, and camera 
 | Mechanic | Surf / Carve |
 | Camera | Third Person |
 | Ambition | `showcase` |
+| Included sections | `vegetation`, `state-buffer`, `audio` |
+| Extra sections | none |
+| State-channel contract | depression → R (depression depth in metres, 0 -> 0.45): carve groove lowers snow depression depth; displaced-mass → G (displaced mass, berm height 0 -> 0.25 m): carve berms raise displaced snow mass; wetness-or-compaction → B (wetness 0 -> 1): groove writes wetness, interpreted as compressed sheen |
 | `RENDERING_PARADIGM` | AAA Photoreal |
 | `ENGINE` | Babylon.js latest stable, WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
@@ -1250,6 +1253,9 @@ persistent groove that proves the world is simulated rather than decorated.
 | Mechanic | Flight / Glide |
 | Camera | Cinematic |
 | Ambition | `everything` |
+| Included sections | `vegetation`, `state-buffer`, `audio` |
+| Extra sections | `weather`, `water-bodies`, `architecture`, `destructibility` |
+| State-channel contract | wind-gust → B (wind gust magnitude): downwash writes wind-gust magnitude; landing-depression → R (trample, blade bend 0 -> 1): landing depression becomes trample/blade bend |
 | `RENDERING_PARADIGM` | Ghibli-Style Painterly Anime |
 | `ENGINE` | Three.js latest stable, WebGLRenderer (WebGL2 only) |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | GLSL ES 3.00 raw modules / `glsl` |
@@ -1273,6 +1279,9 @@ screenshot someone shares.
 | Mechanic | Surf / Carve (sandboard) |
 | Camera | Third Person |
 | Ambition | `slice` |
+| Included sections | none |
+| Extra sections | none |
+| State-channel contract | none (omitted at slice) |
 | `RENDERING_PARADIGM` | AAA Photoreal |
 | `ENGINE` | Babylon.js latest stable, WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
@@ -1296,6 +1305,9 @@ complete image with four systems in it. Start here if you are building a first d
 | Mechanic | Grapple Swing |
 | Camera | XR |
 | Ambition | `showcase` |
+| Included sections | `vegetation`, `state-buffer`, `audio` |
+| Extra sections | none |
+| State-channel contract | anchor-displaced-mass → G (foam coverage 0 -> 1): displaced mass becomes localized foam coverage; landing-depression → B (bed scour depth 0 -> 0.22 m): landing depression becomes bed-scour depth; hard-landing-disturbance → A (turbidity 0 -> 1): disturbed sand becomes turbidity |
 | `RENDERING_PARADIGM` | AAA Photoreal |
 | `ENGINE` | Babylon.js latest stable, WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
@@ -1318,6 +1330,9 @@ distance cues. The XR budget on the rig is what makes the mage's hands hold up a
 | Mechanic | Beam Cannon |
 | Camera | First Person |
 | Ambition | `showcase` |
+| Included sections | `vegetation`, `state-buffer`, `audio` |
+| Extra sections | none |
+| State-channel contract | depression → R (crust thickness 0 -> 0.25 m): beam intersection reduces crust thickness; heat-scorch-disturbance → B (temperature normalised 0 -> 1): beam heat raises normalized temperature |
 | `RENDERING_PARADIGM` | AAA Photoreal |
 | `ENGINE` | Babylon.js latest stable, WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
@@ -1341,6 +1356,9 @@ armoured cuffs at contact range where the exposure work shows.
 | Mechanic | Summon Vehicle |
 | Camera | Third Person |
 | Ambition | `everything` |
+| Included sections | `vegetation`, `state-buffer`, `audio` |
+| Extra sections | `weather`, `water-bodies`, `architecture`, `destructibility` |
+| State-channel contract | track-depression → R (water depth 0 -> 0.04 m): tracks displace puddle-water depth; track-compaction-disturbance → B (disturbance from footsteps and vehicles 0 -> 1): vehicle passage writes surface disturbance; track-edge-displaced-mass → G (ripple phase and amplitude): edge displacement becomes ripple phase/amplitude |
 | `RENDERING_PARADIGM` | AAA Photoreal |
 | `ENGINE` | Three.js latest stable, WebGLRenderer (WebGL2 only) |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | GLSL ES 3.00 raw modules / `glsl` |

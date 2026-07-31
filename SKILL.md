@@ -28,7 +28,8 @@ these, and Step 4 runs it.
 
 - `references/presets.md` — the menu: creative modes, ambition levels, biomes, archetypes, mechanics, camera modes, showcase configs.
 - `references/character-recipe.md` — the numeric humanoid spec, inlined into every brief.
-- `TEMPLATE.md` — the brief skeleton: 37 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
+- `TEMPLATE.md` — the brief skeleton: 38 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
+- `selection.mjs` — `validateSelection` and `formatStateChannelContract`.
 - `check.mjs` — `validateBrief` (also a CLI) and `checkCoherence`.
 - `verify/verify_demo.mjs` — the post-build visual verifier.
 
@@ -186,73 +187,22 @@ Also collect, in the same pass:
 
 ---
 
-## Step 3 — Coherence check (mandatory, before writing anything)
+## Step 3 — Selection & Coherence validation (mandatory, before writing anything)
 
-Build the config object from the chosen biome's fenced `json` block and check it.
-The block gives `paradigm`, `materialBehaviours`, and `palette`; you must **add
-`assetStrategy: 'zero-asset'`** yourself, because two of the six rules do not fire
-without it and a missing field reads as a pass.
+After mode choices and before generation:
 
-Write a scratch file in the skill root and run it:
+1. **Construct the selection object** matching `selection.mjs` schema (`creativeMode`, `path`, `baseShowcase`, `changedAxes`, `ambition`, `biome`, `archetype`, `mechanic`, `camera`, `renderingProfile`, `includedSections`, `extraSections`, `stateChannelContract`, `cameraAdjustments`, `signatureMoment`, `noveltyBudget`).
+2. **Run `validateSelection(selection)`** from `selection.mjs` to validate mode, route, section, camera, channel, and budget contracts.
+3. **Run `checkCoherence(config)`** from `check.mjs` on the chosen biome's palette and paradigm config (with `assetStrategy: 'zero-asset'`).
+4. **Report every conflict** from both validators with its `message` and `fix`, verbatim.
+   - `severity: 'error'` — block generation until resolved or explicitly overridden.
+   - `severity: 'warn'` — report and continue.
+5. **Format state-channel contract** using `formatStateChannelContract(selection)` when `state-buffer` is included, and insert it into `TEMPLATE.md` at `{{STATE_CHANNEL_CONTRACT}}`.
+6. **Record in DECISIONS.md**: creative mode, route/path, changed axis, sections, profile, channel contract mappings, validator results, and any deliberate overrides.
 
-```js
-// coherence-check.mjs — delete when done
-import { checkCoherence } from './check.mjs';
+### Re-run checks after any adjustment.
 
-const config = {
-  paradigm: 'photoreal',            // from the biome's json block
-  assetStrategy: 'zero-asset',      // add this; rules R5/R6 need it
-  materialBehaviours: '…',          // from the biome's json block
-  palette: [ /* …the biome's palette, verbatim… */ ],
-};
-
-const conflicts = checkCoherence(config);
-console.log(conflicts.length === 0 ? 'coherent' : JSON.stringify(conflicts, null, 2));
-```
-
-```bash
-node coherence-check.mjs
-```
-
-Each conflict is `{rule, severity, message, fix}`. Report **every** conflict to the
-user with its `message` and its `fix`, verbatim — never silently correct one. The
-rules encode defaults, not truth.
-
-- `severity: 'error'` — do not write the brief until the user either takes the fix
-  or explicitly overrides.
-- `severity: 'warn'` — report and continue.
-
-**Record every override.** Append a `## Deliberate Deviations` heading to the end
-of the brief (after §6) with one bullet per override: the rule name, what the user
-chose instead, and their reason in their own words. Without it the builder reads a
-muddy palette as a mistake to correct, and either "fixes" it or half-fixes it.
-
-### Re-run the check after any adjustment. This is a step, not a suggestion.
-
-Any change to a palette entry, an `area` value, or the paradigm invalidates the
-previous result. Re-run `coherence-check.mjs` on the edited config before writing
-the brief.
-
-The **Volcanic** palette is the reason this is a hard step. Its mean large-area
-luminance is **0.125** against a floor of **0.10** — the narrowest margin of any
-shipped palette, and the only one where an ordinary-looking edit crosses a rule.
-The three large areas are `ash-sky` 0.250, `ash-plain` 0.120, and `basalt` 0.006,
-with `steam-lit` 0.725 as the light anchor at medium area. Verified failures:
-
-| Edit | Fails |
-|---|---|
-| Darken `ash-plain` toward the basalt (e.g. `#3a342f`) | `large-area-mean-floor` |
-| Demote `ash-sky` to medium, or darken it to the ash-plain value | `large-area-all-dark`, `large-area-mean-floor` |
-| Demote `steam-lit` to accent | `light-anchor`, `accent-cap` |
-
-`ash-sky` carries the margin; `ash-plain` sits below the mean, so removing or
-demoting it *raises* the mean and still passes. That is exactly why you re-run the
-check instead of reasoning about it — the intuitive answer here is wrong. Any
-Volcanic adjustment gets re-checked without exception.
-
-Also re-check when you recombine across showcase configs, and re-check the
-mechanic's channel writes against the biome's `STATE_BUFFER_CHANNELS` at the same
-time. Do the checks before the build, not after.
+Any change to a selection parameter or palette entry invalidates previous results. Re-run coherence check and selection validator before writing the brief. Volcanic adjustments and custom axis recombinations get re-checked without exception.
 
 ---
 
@@ -263,7 +213,7 @@ directory — `PROJECT_NAME` upper-cased with hyphens turned into underscores, e
 `ALPINE-DAWN` → `ALPINE_DAWN_TECHDEMO_PROMPT.md`. Then do the five things below,
 in this order.
 
-### 4a. Fill the 37 tokens
+### 4a. Fill the 38 tokens
 
 Paste preset text **as written**. It is token text, not inspiration: every value
 carries metres, counts, amplitudes, or grid dimensions, and rewriting one into an
@@ -276,6 +226,7 @@ adjective undoes the only thing that makes the brief work.
 | **Biome** — 19 | `PRIMARY_ENVIRONMENT`, `PRIMARY_MATERIAL_NAME`, `NAIVE_DEFAULT`, `TERRAIN_PHILOSOPHY_SENTENCE`, `TERRAIN_NOISE_LAYERS`, `TERRAIN_LANDMARKS`, `FAR_FIELD_TREATMENT`, `MATERIAL_BEHAVIOURS`, `DEFORMATION_TYPE`, `DEFORMATION_MARKS`, `RECOVERY_MECHANISM`, `RECOVERY_OUTCOME`, `STATE_BUFFER_COVERAGE`, `STATE_BUFFER_TEXEL_SIZE`, `STATE_BUFFER_CHANNELS`, `WIND_FIELD_ARCH`, `GRASS_SYSTEM_SPEC`, `AUDIO_ENGINE_SPEC`, `ATMOSPHERIC_LIFE_SPEC` |
 | **Mechanic** — 6 | `CENTREPIECE_MECHANIC`, `CENTREPIECE_INPUT`, `CENTREPIECE_DESCRIPTION`, `ABILITY_1_NAME`, `ABILITY_2_NAME`, `ABILITY_3_NAME` |
 | **Character recipe + archetype** — 1 | `CHARACTER_RECIPE` (see 4c) |
+| **State-channel contract** — 1 | `STATE_CHANNEL_CONTRACT` (formatted by selection validator) |
 | **Archetype** | none — its content goes inside `CHARACTER_RECIPE` |
 | **Camera mode** | none — it substitutes §2.6 (see 4d) |
 

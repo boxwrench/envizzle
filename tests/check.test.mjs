@@ -6,6 +6,7 @@ import {
   findStraySectionMarkers,
   findTemplateLiteralLeaks,
   validateBrief,
+  validateConfig,
 } from '../check.mjs';
 
 test('finds a bare unresolved token', () => {
@@ -61,11 +62,12 @@ test('the shipped TEMPLATE.md has no ${} leaks', () => {
 test('the shipped TEMPLATE.md still has its tokens and sections', () => {
   const tpl = fs.readFileSync('TEMPLATE.md', 'utf8');
   const tokens = findUnresolvedTokens(tpl);
-  assert.equal(tokens.length, 37, `template tokens count is ${tokens.length}, expected 37`);
+  assert.equal(tokens.length, 38, `template tokens count is ${tokens.length}, expected 38`);
   assert.ok(tokens.includes('CREATIVE_MODE'), 'template missing CREATIVE_MODE token');
   assert.ok(tokens.includes('SIGNATURE_MOMENT'), 'template missing SIGNATURE_MOMENT token');
   assert.ok(tokens.includes('MATERIAL_API'), 'template missing MATERIAL_API token');
   assert.ok(tokens.includes('CHARACTER_RECIPE'), 'template missing CHARACTER_RECIPE token');
+  assert.ok(tokens.includes('STATE_CHANNEL_CONTRACT'), 'template missing STATE_CHANNEL_CONTRACT token');
   assert.ok(findStraySectionMarkers(tpl).length >= 4, 'template lost its section markers');
   assert.doesNotMatch(tpl, /guarantee 100% hardware compatibility/i, 'template contains stale compatibility claim');
   assert.doesNotMatch(tpl, /break the requirement/i, 'template contains old universal break the requirement phrase');
@@ -80,4 +82,10 @@ test('TEMPLATE.md enforces mode-neutral baseline and Proven toggle contract', ()
   assert.match(tpl, /Proven[\s\S]*?ENABLE_SIGNATURE_MOMENT[\s\S]*?(false|no-op)/i, 'TEMPLATE.md missing Proven toggle false/no-op language');
   assert.match(tpl, /ENABLE_SIGNATURE_MOMENT/, 'TEMPLATE.md missing ENABLE_SIGNATURE_MOMENT');
   assert.match(tpl, /mechanic verification capture/i, 'TEMPLATE.md missing mechanic verification capture language');
+});
+
+test('validateConfig rejects array input as config-required', () => {
+  const conflicts = validateConfig([]);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].rule, 'config-required');
 });
