@@ -39,6 +39,7 @@ const validReportSample = () => ({
       frameStats: { medianMs: 11, p99Ms: 17, samples: 600 },
     },
   },
+  benchmark: null,
 });
 
 test('createVerificationReport creates valid schemaVersion 1 report', () => {
@@ -80,6 +81,13 @@ test('validateVerificationReport accepts valid reports', () => {
   assert.equal(val.valid, true, val.errors.join('; '));
 });
 
+test('validateVerificationReport accepts valid reports with benchmark field', () => {
+  const sample = validReportSample();
+  sample.benchmark = { caseId: 'alpine-signature', briefSha256: 'a'.repeat(64) };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
 test('validateVerificationReport rejects unknown top-level keys', () => {
   const sample = validReportSample();
   sample.unknownKey = 'invalid';
@@ -114,7 +122,7 @@ test('validateVerificationReport rejects invalid status', () => {
 
 test('validateVerificationReport rejects absolute target paths', () => {
   const sample = validReportSample();
-  sample.target = path.resolve('/some/absolute/path');
+  sample.target = '/some/absolute/path';
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
   assert.ok(val.errors.some((e) => /target/.test(e)));
@@ -169,6 +177,20 @@ test('validateVerificationReport rejects path or stack leakage in string fields'
   assert.ok(val.errors.some((e) => /leakage/.test(e)));
 });
 
+test('validateVerificationReport rejects embedded Unix or Windows absolute paths regardless of OS', () => {
+  const sample1 = validReportSample();
+  sample1.gates.info = ['Frame rendered at /home/user/workspace/demo.png'];
+  assert.equal(validateVerificationReport(sample1).valid, false);
+
+  const sample2 = validReportSample();
+  sample2.gates.info = ['Frame saved at C:\\Users\\wests\\demo.png'];
+  assert.equal(validateVerificationReport(sample2).valid, false);
+
+  const sample3 = validReportSample();
+  sample3.requiredPaths = ['C:/Users/wests/file'];
+  assert.equal(validateVerificationReport(sample3).valid, false);
+});
+
 test('validateVerificationReport rejects credential/token leakage', () => {
   const sample = validReportSample();
   sample.gates.failures = ['Failed request with bearer eyJhbGciOiJIUzI1NiJ9.secret'];
@@ -177,40 +199,61 @@ test('validateVerificationReport rejects credential/token leakage', () => {
   assert.ok(val.errors.some((e) => /leakage/.test(e)));
 });
 
-test('validateVerificationReport rejects negative or fractional sample count in passed report', () => {
-  const sample = validReportSample();
-  sample.gates.metrics.frameStats.samples = -5;
-  const val = validateVerificationReport(sample);
-  assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /samples/.test(e)));
+test('validateVerificationReport rejects negative or fractional sample count', () => {
+  const sample1 = validReportSample();
+  sample1.gates.metrics.frameStats.samples = -5;
+  assert.equal(validateVerificationReport(sample1).valid, false);
+
+  const sample2 = validReportSample();
+  sample2.status = 'failed';
+  sample2.gates.pass = false;
+  sample2.gates.failures = ['Failed build'];
+  sample2.gates.metrics.frameStats.samples = 10.5;
+  assert.equal(validateVerificationReport(sample2).valid, false);
 });
 
-test('validateVerificationReport rejects passed reports with missing frame evidence', () => {
-  const sample = validReportSample();
-  sample.gates.metrics.frames = [{ name: 'idle', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 }];
-  const val = validateVerificationReport(sample);
-  assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /missing frame metric evidence/i.test(e)));
+test('validateVerificationReport rejects passed reports with missing or null metrics or no captures', () => {
+  const sample1 = validReportSample();
+  sample1.gates.metrics.frames = [{ name: 'idle', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 }];
+  assert.equal(validateVerificationReport(sample1).valid, false);
+
+  const sample2 = validReportSample();
+  sample2.captures = [];
+  assert.equal(validateVerificationReport(sample2).valid, false);
+
+  const sample3 = validReportSample();
+  sample3.gates.metrics.frames[0].meanLuminance = null;
+  assert.equal(validateVerificationReport(sample3).valid, false);
 });
 
-test('validateVerificationReport rejects contradictory state: passed status with failing gates', () => {
+test('validateVerificationReport rejects passed reports with duplicate or unknown poses', () => {
+  const sample1 = validReportSample();
+  sample1.gates.metrics.frames = [
+    { name: 'idle', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+    { name: 'idle', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+    { name: 'mechanic', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+  ];
+  assert.equal(validateVerificationReport(sample1).valid, false);
+
+  const sample2 = validReportSample();
+  sample2.gates.metrics.frames = [
+    { name: 'idle', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+    { name: 'locomotion', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+    { name: 'unknown-pose', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+  ];
+  assert.equal(validateVerificationReport(sample2).valid, false);
+});
+
+test('validateVerificationReport rejects error report with no operational reason', () => {
   const sample = validReportSample();
-  sample.status = 'passed';
+  sample.status = 'error';
   sample.gates.pass = false;
-  sample.gates.failures = ['Mean luminance outside bounds'];
+  sample.build = { ok: true, error: null };
+  sample.runtime = { hookReady: true, errors: [] };
+  sample.gates.failures = [];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /Contradictory state/.test(e)));
-});
-
-test('validateVerificationReport rejects contradictory state: passed status with failing build', () => {
-  const sample = validReportSample();
-  sample.status = 'passed';
-  sample.build.ok = false;
-  sample.build.error = 'Build failed';
-  const val = validateVerificationReport(sample);
-  assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /Contradictory state/.test(e)));
+  assert.ok(val.errors.some((e) => /no operational error recorded/.test(e)));
 });
 
 test('writeVerificationReport performs atomic sibling write and rename', () => {

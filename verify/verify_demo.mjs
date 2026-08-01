@@ -1,4 +1,5 @@
 import { execSync, spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -134,6 +135,66 @@ async function waitForServer(url, timeoutMs) {
   );
 }
 
+function discoverBenchmarkContext(targetDir) {
+  let caseJsonPath = path.join(targetDir, 'case.json');
+  if (!fs.existsSync(caseJsonPath)) {
+    caseJsonPath = path.join(path.dirname(targetDir), 'case.json');
+  }
+  if (!fs.existsSync(caseJsonPath)) {
+    caseJsonPath = path.join(targetDir, '..', 'case.json');
+  }
+
+  if (!fs.existsSync(caseJsonPath)) {
+    return null;
+  }
+
+  let caseMeta;
+  try {
+    caseMeta = JSON.parse(fs.readFileSync(caseJsonPath, 'utf8'));
+  } catch (err) {
+    throw new Error(`Failed to parse case.json: ${err.message}`);
+  }
+
+  if (typeof caseMeta.caseId !== 'string' || typeof caseMeta.briefSha256 !== 'string') {
+    throw new Error('case.json missing required caseId or briefSha256');
+  }
+
+  // Find prompt files ending in _TECHDEMO_PROMPT.md
+  const candidateDirs = [targetDir, path.join(targetDir, 'bundle'), path.dirname(targetDir)];
+  const candidatePromptPaths = new Set();
+
+  for (const cd of candidateDirs) {
+    if (fs.existsSync(cd) && fs.statSync(cd).isDirectory()) {
+      for (const file of fs.readdirSync(cd)) {
+        if (file.endsWith('_TECHDEMO_PROMPT.md')) {
+          candidatePromptPaths.add(path.join(cd, file));
+        }
+      }
+    }
+  }
+
+  const promptFiles = Array.from(candidatePromptPaths);
+  if (promptFiles.length === 0) {
+    throw new Error(`No techdemo prompt brief file found for benchmark case '${caseMeta.caseId}'`);
+  }
+  if (promptFiles.length > 1) {
+    throw new Error(`Multiple candidate prompt brief files found for benchmark case '${caseMeta.caseId}': [${promptFiles.map((p) => path.basename(p)).join(', ')}]`);
+  }
+
+  const promptPath = promptFiles[0];
+  const promptBytes = fs.readFileSync(promptPath);
+  const actualHash = crypto.createHash('sha256').update(promptBytes).digest('hex');
+
+  if (actualHash !== caseMeta.briefSha256) {
+    throw new Error(`Prompt file hash mismatch: prompt file '${path.basename(promptPath)}' hash '${actualHash}' does not match case.json briefSha256 '${caseMeta.briefSha256}'`);
+  }
+
+  return {
+    caseId: caseMeta.caseId,
+    briefSha256: caseMeta.briefSha256,
+  };
+}
+
 export async function verifyDemo(projectDir, options = {}) {
   const startedAt = new Date().toISOString();
   const startTime = Date.now();
@@ -149,6 +210,7 @@ export async function verifyDemo(projectDir, options = {}) {
   const failures = [];
   const logInfo = [];
   const writtenCaptures = [];
+  let isOperationalError = false;
 
   const fail = (m) => {
     failures.push(m);
@@ -157,6 +219,14 @@ export async function verifyDemo(projectDir, options = {}) {
   const pass = (m) => {
     if (!options.silent) console.log(`PASS: ${m}`);
   };
+
+  let benchmarkContext = null;
+  try {
+    benchmarkContext = discoverBenchmarkContext(targetDir);
+  } catch (err) {
+    isOperationalError = true;
+    fail(`Benchmark discovery error: ${err.message}`);
+  }
 
   // Check required paths
   const missingPaths = [];
@@ -169,17 +239,25 @@ export async function verifyDemo(projectDir, options = {}) {
     }
   }
 
-  let buildOk = missingPaths.length === 0;
-  let buildError = missingPaths.length > 0 ? `Missing required paths: ${missingPaths.join(', ')}` : null;
+  let buildOk = missingPaths.length === 0 && !isOperationalError;
+  let buildError = isOperationalError
+    ? failures[0]
+    : (missingPaths.length > 0 ? `Missing required paths: ${missingPaths.join(', ')}` : null);
 
   if (buildOk) {
-    try {
-      execSync('npx vite build', { cwd: targetDir, stdio: 'pipe' });
+    // Test-only escape hatch: lets injected-failure regression tests reach the
+    // browser/server stage without a real network-dependent vite build.
+    if (options._testSkipBuildExec) {
       pass('production build compiled with zero errors');
-    } catch (err) {
-      buildOk = false;
-      buildError = `build failed: ${err.stderr?.toString() ?? err.message}`;
-      fail(buildError);
+    } else {
+      try {
+        execSync('npx vite build', { cwd: targetDir, stdio: 'pipe' });
+        pass('production build compiled with zero errors');
+      } catch (err) {
+        buildOk = false;
+        buildError = `build failed: ${err.stderr?.toString() ?? err.message}`;
+        fail(buildError);
+      }
     }
   }
 
@@ -187,7 +265,7 @@ export async function verifyDemo(projectDir, options = {}) {
   const runtimeErrors = [];
   let gateResult = {
     pass: false,
-    failures: buildOk ? ['Runtime check failed'] : [buildError],
+    failures: buildOk ? ['Runtime check failed'] : [buildError || 'Build check failed'],
     info: [],
     metrics: {
       frames: [],
@@ -200,22 +278,43 @@ export async function verifyDemo(projectDir, options = {}) {
     let server = null;
     let browser = null;
     try {
-      const playwright = options.playwright || (await import('playwright'));
+      let playwright;
+      try {
+        playwright = options.playwright || (await import('playwright'));
+      } catch (pwErr) {
+        isOperationalError = true;
+        throw new Error(`Failed to load Playwright: ${pwErr.message}`);
+      }
 
       const port = 5300 + Math.floor(Math.random() * 600);
       const origin = `http://localhost:${port}`;
-      server = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
-        cwd: targetDir,
-        shell: true,
-        detached: process.platform !== 'win32',
-      });
+      try {
+        server = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
+          cwd: targetDir,
+          shell: true,
+          detached: process.platform !== 'win32',
+        });
+      } catch (spawnErr) {
+        isOperationalError = true;
+        throw new Error(`Failed to spawn dev server: ${spawnErr.message}`);
+      }
 
-      await waitForServer(origin, 30000);
+      try {
+        await waitForServer(origin, 30000);
+      } catch (srvErr) {
+        isOperationalError = true;
+        throw srvErr;
+      }
 
-      browser = await playwright.chromium.launch({
-        headless: true,
-        args: ['--enable-unsafe-webgpu', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
-      });
+      try {
+        browser = await playwright.chromium.launch({
+          headless: true,
+          args: ['--enable-unsafe-webgpu', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
+        });
+      } catch (launchErr) {
+        isOperationalError = true;
+        throw new Error(`Failed to launch browser: ${launchErr.message}`);
+      }
 
       const page = await browser.newPage({ viewport: { width: 2560, height: 1440 } });
       page.on('pageerror', (e) => runtimeErrors.push(e.message));
@@ -282,6 +381,9 @@ export async function verifyDemo(projectDir, options = {}) {
         else gateResult.failures.forEach(fail);
       }
     } catch (err) {
+      isOperationalError = true;
+      gateResult.pass = false;
+      gateResult.failures = [...(gateResult.failures || []), err.message];
       fail(`verification crashed: ${err.message}`);
     } finally {
       if (browser) {
@@ -297,7 +399,8 @@ export async function verifyDemo(projectDir, options = {}) {
 
   const finishedAt = new Date().toISOString();
   const durationMs = Date.now() - startTime;
-  const overallPass = buildOk && hookReady && runtimeErrors.length === 0 && gateResult.pass;
+  const overallPass = buildOk && hookReady && runtimeErrors.length === 0 && gateResult.pass && !isOperationalError;
+  const status = isOperationalError ? 'error' : (overallPass ? 'passed' : 'failed');
 
   const report = createVerificationReport({
     target: targetName,
@@ -314,7 +417,8 @@ export async function verifyDemo(projectDir, options = {}) {
       info: gateResult.info || [],
       metrics: gateResult.metrics || { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } },
     },
-    status: overallPass ? 'passed' : 'failed',
+    status,
+    benchmark: benchmarkContext,
   });
 
   writeVerificationReport(reportPath, report);
@@ -325,6 +429,7 @@ export async function verifyDemo(projectDir, options = {}) {
     info: logInfo,
     report,
     reportPath,
+    status,
   };
 }
 
@@ -352,10 +457,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   verifyDemo(parsed.projectDir, {
     reportPath: parsed.reportPath,
     screenshotsDir: parsed.screenshotsDir,
+    // Test-only escape hatch (see verifyDemo above): never set outside regression tests.
+    _testSkipBuildExec: process.env.__VERIFY_DEMO_TEST_SKIP_BUILD === '1',
   })
     .then((result) => {
       console.log('\n' + '='.repeat(50));
-      if (result.pass) {
+      if (result.status === 'error') {
+        console.log(`VERIFICATION ERROR — ${result.failures.length} operational failure(s):`);
+        result.failures.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
+        process.exit(2);
+      } else if (result.pass && result.status === 'passed') {
         console.log('VERIFICATION PASSED');
         process.exit(0);
       } else {

@@ -25,8 +25,17 @@ function computeSha256(str) {
 
 const CONTROL_CHARS_REGEX = /[\x00-\x1F\x7F]/;
 
+const ALLOWED_REVIEW_CATEGORIES = Object.freeze([
+  'compositionReadability',
+  'materialCoherence',
+  'characterCraft',
+  'mechanicLegibility',
+  'creativeIdentity',
+  'scopeDiscipline',
+]);
+
 /**
- * Validate human review schema strictly.
+ * Validate human review submitted by user (must not contain visualAverage).
  */
 export function validateHumanReview(review) {
   const errors = [];
@@ -34,7 +43,11 @@ export function validateHumanReview(review) {
     return { valid: false, errors: ['Human review must be a plain object'] };
   }
 
-  const allowedTopKeys = new Set(['reviewer', 'scores', 'notes', 'visualAverage']);
+  if ('visualAverage' in review) {
+    return { valid: false, errors: ["Submitted review must not contain 'visualAverage'; it is derived."] };
+  }
+
+  const allowedTopKeys = new Set(['reviewer', 'scores', 'notes']);
   for (const k of Object.keys(review)) {
     if (!allowedTopKeys.has(k)) {
       errors.push(`Unknown property '${k}' in review`);
@@ -56,21 +69,13 @@ export function validateHumanReview(review) {
     return { valid: false, errors };
   }
 
-  const allowedCategories = [
-    'compositionReadability',
-    'materialCoherence',
-    'characterCraft',
-    'mechanicLegibility',
-    'creativeIdentity',
-    'scopeDiscipline',
-  ];
-
-  const scoreKeys = Object.keys(review.scores);
-  if (scoreKeys.length !== allowedCategories.length) {
-    errors.push(`scores must contain exact ${allowedCategories.length} categories`);
+  for (const k of Object.keys(review.scores)) {
+    if (!ALLOWED_REVIEW_CATEGORIES.includes(k)) {
+      errors.push(`Unknown score category '${k}'`);
+    }
   }
 
-  for (const cat of allowedCategories) {
+  for (const cat of ALLOWED_REVIEW_CATEGORIES) {
     if (!(cat in review.scores)) {
       errors.push(`Missing score category '${cat}'`);
       continue;
@@ -86,20 +91,74 @@ export function validateHumanReview(review) {
   return { valid: errors.length === 0, errors };
 }
 
+/**
+ * Validate stored human review in normalized benchmark result.
+ */
+export function validateStoredHumanReview(review) {
+  const errors = [];
+  if (!isPlainObject(review)) {
+    return { valid: false, errors: ['Stored human review must be a plain object'] };
+  }
+
+  const allowedTopKeys = new Set(['reviewer', 'scores', 'notes', 'visualAverage']);
+  for (const k of Object.keys(review)) {
+    if (!allowedTopKeys.has(k)) {
+      errors.push(`Unknown property '${k}' in stored review`);
+    }
+  }
+
+  if (typeof review.reviewer !== 'string' || review.reviewer.trim() === '') {
+    errors.push('reviewer must be a non-empty string');
+  } else if (review.reviewer.includes('\n') || review.reviewer.includes('\r') || CONTROL_CHARS_REGEX.test(review.reviewer)) {
+    errors.push('reviewer must be a single-line string without control characters');
+  }
+
+  if (review.notes !== undefined && review.notes !== null && typeof review.notes !== 'string') {
+    errors.push('notes must be a string if provided');
+  }
+
+  if (!isPlainObject(review.scores)) {
+    errors.push('scores must be a plain object');
+    return { valid: false, errors };
+  }
+
+  for (const k of Object.keys(review.scores)) {
+    if (!ALLOWED_REVIEW_CATEGORIES.includes(k)) {
+      errors.push(`Unknown score category '${k}'`);
+    }
+  }
+
+  for (const cat of ALLOWED_REVIEW_CATEGORIES) {
+    if (!(cat in review.scores)) {
+      errors.push(`Missing score category '${cat}'`);
+      continue;
+    }
+    const val = review.scores[cat];
+    if (typeof val !== 'number' || !Number.isInteger(val)) {
+      errors.push(`Score category '${cat}' must be an integer, got ${JSON.stringify(val)}`);
+    } else if (val < 1 || val > 5) {
+      errors.push(`Score category '${cat}' must be between 1 and 5, got ${val}`);
+    }
+  }
+
+  const expectedAvg = computeVisualAverage(review.scores);
+  if (typeof review.visualAverage !== 'number' || review.visualAverage !== expectedAvg) {
+    errors.push(`visualAverage (${review.visualAverage}) does not match computed visual average (${expectedAvg})`);
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
 export function computeVisualAverage(scores) {
-  const categories = [
-    'compositionReadability',
-    'materialCoherence',
-    'characterCraft',
-    'mechanicLegibility',
-    'creativeIdentity',
-    'scopeDiscipline',
-  ];
   let sum = 0;
-  for (const c of categories) {
+  for (const c of ALLOWED_REVIEW_CATEGORIES) {
     sum += scores[c];
   }
-  return Math.round((sum / categories.length) * 100) / 100;
+  return Math.round((sum / ALLOWED_REVIEW_CATEGORIES.length) * 100) / 100;
+}
+
+function containsLeak(s) {
+  return s.includes(repoRoot) || s.includes(process.env.HOME || '/nonexistent');
 }
 
 export function validateBenchmarkResult(res) {
@@ -112,6 +171,12 @@ export function validateBenchmarkResult(res) {
   for (const k of Object.keys(res)) {
     if (!allowedKeys.has(k)) errors.push(`Unknown top-level key '${k}' in benchmark result`);
   }
+
+  for (const reqKey of allowedKeys) {
+    if (!(reqKey in res)) errors.push(`Missing required top-level key '${reqKey}' in benchmark result`);
+  }
+
+  if (errors.length > 0) return { valid: false, errors };
 
   if (res.schemaVersion !== 1) errors.push(`schemaVersion must be 1, got ${JSON.stringify(res.schemaVersion)}`);
   if (typeof res.caseId !== 'string' || !BENCHMARK_CASES.some((c) => c.id === res.caseId)) {
@@ -134,22 +199,60 @@ export function validateBenchmarkResult(res) {
     for (const k of Object.keys(res.automated)) {
       if (!autoKeys.has(k)) errors.push(`Unknown key '${k}' in automated`);
     }
-    if (typeof res.automated.pass !== 'boolean') errors.push('automated.pass must be a boolean');
-    if (!Array.isArray(res.automated.hardGateFailures)) errors.push('automated.hardGateFailures must be an array');
+    for (const reqKey of autoKeys) {
+      if (!(reqKey in res.automated)) errors.push(`Missing required key '${reqKey}' in automated`);
+    }
+
+    if (!['passed', 'failed', 'error'].includes(res.automated.status)) {
+      errors.push(`automated.status must be 'passed', 'failed', or 'error', got '${res.automated.status}'`);
+    }
+    if (typeof res.automated.pass !== 'boolean') {
+      errors.push('automated.pass must be a boolean');
+    }
+    if (res.automated.pass !== (res.automated.status === 'passed')) {
+      errors.push(`Contradictory automated state: pass is ${res.automated.pass} but status is '${res.automated.status}'`);
+    }
+
+    if (!Array.isArray(res.automated.hardGateFailures) || res.automated.hardGateFailures.some((f) => typeof f !== 'string' || containsLeak(f))) {
+      errors.push('automated.hardGateFailures must be an array of safe string failure messages without path/credential leaks');
+    }
     if (typeof res.automated.hardGateFailureCount !== 'number' || res.automated.hardGateFailureCount !== (res.automated.hardGateFailures || []).length) {
       errors.push('automated.hardGateFailureCount must equal length of hardGateFailures array');
+    }
+
+    if (res.automated.pass === true) {
+      if (!isPlainObject(res.automated.metrics)) {
+        errors.push('Passed benchmark result must contain a non-null metrics object');
+      } else {
+        const m = res.automated.metrics;
+        const frames = m.frames;
+        if (!Array.isArray(frames) || frames.length !== 3) {
+          errors.push('Passed benchmark result must contain exactly 3 frame metric records');
+        } else {
+          const names = new Set(frames.map((f) => f.name));
+          if (names.size !== 3 || !names.has('idle') || !names.has('locomotion') || !names.has('mechanic')) {
+            errors.push('Passed benchmark result frames must contain exact unique poses idle, locomotion, mechanic');
+          }
+          for (const f of frames) {
+            if (typeof f.meanLuminance !== 'number' || !Number.isFinite(f.meanLuminance)) errors.push(`Frame '${f.name}' missing finite meanLuminance`);
+            if (typeof f.flatFrameRatio !== 'number' || !Number.isFinite(f.flatFrameRatio)) errors.push(`Frame '${f.name}' missing finite flatFrameRatio`);
+            if (typeof f.characterAreaFraction !== 'number' || !Number.isFinite(f.characterAreaFraction)) errors.push(`Frame '${f.name}' missing finite characterAreaFraction`);
+          }
+        }
+        if (typeof m.cameraNearestDepthM !== 'number' || !Number.isFinite(m.cameraNearestDepthM) || m.cameraNearestDepthM < 0) {
+          errors.push('Passed benchmark result missing finite non-negative cameraNearestDepthM');
+        }
+        if (!isPlainObject(m.frameStats) || typeof m.frameStats.medianMs !== 'number' || !Number.isFinite(m.frameStats.medianMs) || typeof m.frameStats.p99Ms !== 'number' || !Number.isFinite(m.frameStats.p99Ms) || typeof m.frameStats.samples !== 'number' || !Number.isInteger(m.frameStats.samples) || m.frameStats.samples < 1) {
+          errors.push('Passed benchmark result missing valid frameStats metrics');
+        }
+      }
     }
   }
 
   if (res.humanReview !== null && res.humanReview !== undefined) {
-    const valRev = validateHumanReview(res.humanReview);
+    const valRev = validateStoredHumanReview(res.humanReview);
     if (!valRev.valid) {
       errors.push(`Invalid humanReview: ${valRev.errors.join('; ')}`);
-    } else {
-      const computedAvg = computeVisualAverage(res.humanReview.scores);
-      if (res.humanReview.visualAverage !== computedAvg) {
-        errors.push(`humanReview.visualAverage (${res.humanReview.visualAverage}) does not match computed average (${computedAvg})`);
-      }
     }
   }
 
@@ -371,6 +474,18 @@ Usage:
 `);
 }
 
+function copyRecursive(src, dst) {
+  const stats = fs.statSync(src);
+  if (stats.isDirectory()) {
+    if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
+    for (const child of fs.readdirSync(src)) {
+      copyRecursive(path.join(src, child), path.join(dst, child));
+    }
+  } else {
+    fs.copyFileSync(src, dst);
+  }
+}
+
 export function prepareBenchmark(outDir, options = {}) {
   let targetCases = [];
   if (options.caseId) {
@@ -381,10 +496,10 @@ export function prepareBenchmark(outDir, options = {}) {
     throw new Error('Must specify caseId or suite');
   }
 
-  const targetCaseIds = new Set(targetCases.map((c) => c.id));
   const allCaseIds = new Set(BENCHMARK_CASES.map((c) => c.id));
+  const targetCaseIds = new Set(targetCases.map((c) => c.id));
 
-  // Preflight check: verify all cases build assembly specs cleanly before writing anything
+  // Preflight check: verify all cases build assembly specs cleanly
   const preparedBundles = [];
   for (const c of targetCases) {
     const spec = buildCaseAssemblySpec(c.id);
@@ -393,7 +508,6 @@ export function prepareBenchmark(outDir, options = {}) {
     preparedBundles.push({ caseDef: c, spec, brief, fileName, briefSha256 });
   }
 
-  // Preflight check verifier source files
   const verifierSources = ['README.md', 'gates.mjs', 'verify_demo.mjs', 'report.mjs'];
   for (const vFile of verifierSources) {
     const vPath = path.join(repoRoot, 'verify', vFile);
@@ -403,49 +517,51 @@ export function prepareBenchmark(outDir, options = {}) {
   }
 
   const destExists = fs.existsSync(outDir);
-  if (destExists) {
+  if (destExists && !options.force) {
     const contents = fs.readdirSync(outDir);
-    if (contents.length > 0 && !options.force) {
+    if (contents.length > 0) {
       throw new Error(`Destination directory '${outDir}' is not empty. Use --force to overwrite benchmark-owned files.`);
     }
   }
 
-  // If force mode, clean stale benchmark-owned case directories not in targetCaseIds
-  if (destExists && options.force) {
-    for (const child of fs.readdirSync(outDir)) {
-      const childPath = path.join(outDir, child);
-      if (fs.statSync(childPath).isDirectory() && allCaseIds.has(child) && !targetCaseIds.has(child)) {
-        // Clean benchmark files in this stale case dir
-        const caseFiles = fs.readdirSync(childPath);
-        const benchmarkFiles = new Set(['case.json', 'review-template.json', 'bundle']);
-        let hasUnrelated = false;
-        for (const cf of caseFiles) {
-          if (!benchmarkFiles.has(cf)) {
-            hasUnrelated = true;
-          }
-        }
-        if (!hasUnrelated) {
-          fs.rmSync(childPath, { recursive: true, force: true });
-        } else {
-          // Delete only benchmark files
-          for (const bf of benchmarkFiles) {
-            const p = path.join(childPath, bf);
-            if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
-          }
-        }
-      }
-    }
-  }
-
-  // Create staging directory
+  // Create staging directory in sibling location
+  const parentDir = path.dirname(outDir);
   const stagingDir = path.join(
-    path.dirname(outDir),
+    parentDir,
     `.tmp-prepare-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
   );
   fs.mkdirSync(stagingDir, { recursive: true });
 
+  let backupDir = null;
+
   try {
-    // Write BENCHMARK.md in staging
+    // 1. If outDir exists, copy UNRELATED files/directories into staging
+    const benchmarkOwnedNames = new Set(['BENCHMARK.md', 'case.json', 'review-template.json', 'bundle', ...allCaseIds]);
+
+    if (destExists) {
+      for (const child of fs.readdirSync(outDir)) {
+        if (!benchmarkOwnedNames.has(child)) {
+          copyRecursive(path.join(outDir, child), path.join(stagingDir, child));
+        } else {
+          // If child is a benchmark case directory, check if it contains unrelated files inside it
+          const childPath = path.join(outDir, child);
+          if (fs.statSync(childPath).isDirectory() && allCaseIds.has(child)) {
+            const innerFiles = fs.readdirSync(childPath);
+            const innerBenchmarkFiles = new Set(['case.json', 'review-template.json', 'bundle']);
+            for (const inf of innerFiles) {
+              if (!innerBenchmarkFiles.has(inf)) {
+                // Copy unrelated file/folder inside case directory into staging
+                const targetInnerDir = path.join(stagingDir, child);
+                if (!fs.existsSync(targetInnerDir)) fs.mkdirSync(targetInnerDir, { recursive: true });
+                copyRecursive(path.join(childPath, inf), path.join(targetInnerDir, inf));
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Write BENCHMARK.md in staging
     const benchmarkDocContent = `# Envizzle Benchmark Execution Guide
 
 This directory contains deterministic tech demo benchmark cases for evaluating AI coding agents.
@@ -470,9 +586,10 @@ This directory contains deterministic tech demo benchmark cases for evaluating A
 `;
     fs.writeFileSync(path.join(stagingDir, 'BENCHMARK.md'), benchmarkDocContent, 'utf8');
 
+    // 3. Write prepared benchmark cases in staging
     for (const b of preparedBundles) {
       const caseDir = path.join(stagingDir, b.caseDef.id);
-      fs.mkdirSync(caseDir, { recursive: true });
+      if (!fs.existsSync(caseDir)) fs.mkdirSync(caseDir, { recursive: true });
 
       const caseJsonData = {
         schemaVersion: 1,
@@ -515,25 +632,37 @@ Your project must satisfy all required paths, build cleanly, expose \`window.__d
       fs.writeFileSync(path.join(bundleDir, 'HANDOFF.md'), handoffContent, 'utf8');
     }
 
-    if (!fs.existsSync(outDir)) {
-      fs.mkdirSync(outDir, { recursive: true });
+    // 4. Perform atomic swap into place
+    if (destExists) {
+      backupDir = path.join(parentDir, `.tmp-bak-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`);
+      fs.renameSync(outDir, backupDir);
     }
 
-    function copyRecursive(src, dst) {
-      const stats = fs.statSync(src);
-      if (stats.isDirectory()) {
-        if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
-        for (const child of fs.readdirSync(src)) {
-          copyRecursive(path.join(src, child), path.join(dst, child));
-        }
-      } else {
-        fs.copyFileSync(src, dst);
+    // Allow hook to inject an artificial failure of the final swap in regression tests.
+    // Injected here (after the original was moved to backup, before staging is committed)
+    // so the catch block's restore-from-backup path is genuinely exercised.
+    if (options._testSwapFailure) {
+      throw new Error('Injected preparation swap failure');
+    }
+
+    fs.renameSync(stagingDir, outDir);
+
+    // Swap succeeded! Remove backup if created
+    if (backupDir && fs.existsSync(backupDir)) {
+      fs.rmSync(backupDir, { recursive: true, force: true });
+    }
+  } catch (err) {
+    // Rollback swap on failure!
+    if (backupDir && fs.existsSync(backupDir)) {
+      if (fs.existsSync(outDir)) {
+        try { fs.rmSync(outDir, { recursive: true, force: true }); } catch (_) {}
       }
+      fs.renameSync(backupDir, outDir);
     }
-
-    copyRecursive(stagingDir, outDir);
-  } finally {
-    fs.rmSync(stagingDir, { recursive: true, force: true });
+    if (fs.existsSync(stagingDir)) {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch (_) {}
+    }
+    throw err;
   }
 }
 
@@ -549,23 +678,35 @@ export function collectBenchmarkResult(projectDir, options = {}) {
   }
 
   const projAbs = path.resolve(projectDir);
-  const projName = path.basename(projAbs);
+  if (!fs.existsSync(projAbs)) {
+    throw new Error(`Project directory '${projAbs}' does not exist`);
+  }
 
-  // 1. Locate case.json in projectDir or parent or sibling
-  let caseMetaPath = path.join(projAbs, 'case.json');
-  if (!fs.existsSync(caseMetaPath)) {
-    caseMetaPath = path.join(path.dirname(projAbs), 'case.json');
+  const projReal = fs.realpathSync(projAbs);
+  const projName = path.basename(projReal);
+
+  // 1. Locate case.json
+  let candidateCasePaths = [
+    path.join(projReal, 'case.json'),
+    path.join(path.dirname(projReal), 'case.json'),
+    path.join(projReal, '..', 'case.json'),
+  ];
+  let locatedCasePath = candidateCasePaths.find((p) => fs.existsSync(p));
+  if (!locatedCasePath) {
+    throw new Error(`case.json metadata file not found in or near project directory '${projReal}'`);
   }
-  if (!fs.existsSync(caseMetaPath)) {
-    caseMetaPath = path.join(projAbs, '..', 'case.json');
-  }
-  if (!fs.existsSync(caseMetaPath)) {
-    throw new Error(`case.json metadata file not found in or near project directory '${projAbs}'`);
+
+  const caseMetaReal = fs.realpathSync(locatedCasePath);
+  const preparedCaseDir = path.dirname(caseMetaReal);
+
+  // Enforce path containment: project directory MUST remain inside prepared case directory!
+  if (!projReal.startsWith(preparedCaseDir) && !preparedCaseDir.startsWith(projReal)) {
+    throw new Error(`Path security violation: project directory '${projReal}' resolves outside prepared case directory '${preparedCaseDir}'`);
   }
 
   let caseMeta;
   try {
-    caseMeta = JSON.parse(fs.readFileSync(caseMetaPath, 'utf8'));
+    caseMeta = JSON.parse(fs.readFileSync(caseMetaReal, 'utf8'));
   } catch (err) {
     throw new Error(`Failed to parse case.json metadata: ${err.message}`);
   }
@@ -574,29 +715,35 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     throw new Error(`Case ID mismatch: expected '${caseDef.id}' but case.json metadata specified '${caseMeta.caseId}'`);
   }
 
-  // 2. Locate generated prompt brief file
+  // 2. Locate generated prompt file
   const candidatePromptPaths = [
-    path.join(projAbs, 'bundle', `${caseDef.id}_TECHDEMO_PROMPT.md`),
-    path.join(projAbs, `${caseDef.id}_TECHDEMO_PROMPT.md`),
-    path.join(path.dirname(projAbs), 'bundle', `${caseDef.id}_TECHDEMO_PROMPT.md`),
+    path.join(projReal, 'bundle', `${caseDef.id}_TECHDEMO_PROMPT.md`),
+    path.join(projReal, `${caseDef.id}_TECHDEMO_PROMPT.md`),
+    path.join(preparedCaseDir, 'bundle', `${caseDef.id}_TECHDEMO_PROMPT.md`),
+    path.join(preparedCaseDir, `${caseDef.id}_TECHDEMO_PROMPT.md`),
   ];
+
   let actualPromptPath = candidatePromptPaths.find((p) => fs.existsSync(p));
   if (!actualPromptPath) {
-    // Search for any *_TECHDEMO_PROMPT.md in projectDir or bundle/
-    const bundleDir = fs.existsSync(path.join(projAbs, 'bundle')) ? path.join(projAbs, 'bundle') : projAbs;
+    const bundleDir = fs.existsSync(path.join(projReal, 'bundle')) ? path.join(projReal, 'bundle') : projReal;
     if (fs.existsSync(bundleDir)) {
       const files = fs.readdirSync(bundleDir).filter((f) => f.endsWith('_TECHDEMO_PROMPT.md'));
-      if (files.length > 0) actualPromptPath = path.join(bundleDir, files[0]);
+      if (files.length === 1) actualPromptPath = path.join(bundleDir, files[0]);
     }
   }
 
   if (!actualPromptPath || !fs.existsSync(actualPromptPath)) {
-    throw new Error(`Generated techdemo prompt brief file not found for project '${projAbs}'`);
+    throw new Error(`Generated techdemo prompt brief file not found for project '${projReal}'`);
   }
 
-  // 3. Compute SHA-256 of actual prompt file
-  const actualPromptContent = fs.readFileSync(actualPromptPath, 'utf8');
-  const actualPromptSha256 = computeSha256(actualPromptContent);
+  const actualPromptReal = fs.realpathSync(actualPromptPath);
+  if (!actualPromptReal.startsWith(preparedCaseDir) && !preparedCaseDir.startsWith(projReal)) {
+    throw new Error(`Path security violation: prompt file '${actualPromptReal}' resolves outside prepared case directory '${preparedCaseDir}'`);
+  }
+
+  // 3. Compute prompt byte hash
+  const actualPromptBytes = fs.readFileSync(actualPromptReal);
+  const actualPromptSha256 = crypto.createHash('sha256').update(actualPromptBytes).digest('hex');
 
   // 4. Compute canonical expected SHA-256 for case
   const spec = buildCaseAssemblySpec(caseDef.id);
@@ -612,7 +759,7 @@ export function collectBenchmarkResult(projectDir, options = {}) {
   }
 
   // 5. Check verifier report
-  const reportPath = path.join(projAbs, 'verify-report.json');
+  const reportPath = path.join(projReal, 'verify-report.json');
   if (!fs.existsSync(reportPath)) {
     throw new Error(`Verification report file '${reportPath}' not found`);
   }
@@ -629,7 +776,28 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     throw new Error(`Invalid verification report: ${valReport.errors.join('; ')}`);
   }
 
-  // 6. Enforce report target binding
+  // Enforce report benchmark identity binding!
+  if (!rawReport.benchmark || typeof rawReport.benchmark !== 'object') {
+    throw new Error('Report benchmark identity is missing or null. Verification report must be generated for a benchmark run.');
+  }
+
+  if (rawReport.benchmark.caseId !== caseDef.id) {
+    throw new Error(`Report benchmark case ID mismatch: report specifies '${rawReport.benchmark.caseId}' but collect requested case '${caseDef.id}'`);
+  }
+
+  if (rawReport.benchmark.briefSha256 !== caseMeta.briefSha256) {
+    throw new Error(`Report benchmark hash mismatch: report specifies briefSha256 '${rawReport.benchmark.briefSha256}' but case.json specifies '${caseMeta.briefSha256}'`);
+  }
+
+  if (rawReport.benchmark.briefSha256 !== actualPromptSha256) {
+    throw new Error(`Report benchmark hash mismatch: report specifies briefSha256 '${rawReport.benchmark.briefSha256}' but prompt file hash was '${actualPromptSha256}'`);
+  }
+
+  if (rawReport.benchmark.briefSha256 !== canonicalSha256) {
+    throw new Error(`Report benchmark hash mismatch: report specifies briefSha256 '${rawReport.benchmark.briefSha256}' but canonical brief hash was '${canonicalSha256}'`);
+  }
+
+  // Enforce report target binding
   if (rawReport.target !== projName) {
     throw new Error(`Report target mismatch: verify-report.json target is '${rawReport.target}' but project directory basename is '${projName}'`);
   }
@@ -648,7 +816,7 @@ export function collectBenchmarkResult(projectDir, options = {}) {
 
     const valRev = validateHumanReview(rawReview);
     if (!valRev.valid) {
-      throw new Error(`Invalid human review: ${valRev.errors.join('; ')}`);
+      throw new Error(`Invalid submitted human review: ${valRev.errors.join('; ')}`);
     }
 
     const scores = {
@@ -729,7 +897,11 @@ export function summarizeBenchmarkResults(resultsDir, options = {}) {
   const outMdAbs = path.resolve(options.outPath);
   const outJsonAbs = options.jsonPath ? path.resolve(options.jsonPath) : null;
 
-  // Collision preflight check before processing or writing anything!
+  if (outJsonAbs && outMdAbs === outJsonAbs) {
+    throw new Error('Markdown and JSON destinations cannot resolve to the same file path');
+  }
+
+  // Collision preflight check
   if (fs.existsSync(outMdAbs) && !options.force) {
     throw new Error(`Summary Markdown destination file '${outMdAbs}' already exists. Use --force to overwrite.`);
   }
@@ -863,7 +1035,7 @@ export function summarizeBenchmarkResults(resultsDir, options = {}) {
       }
     : null;
 
-  // Transactional staging write for both outputs
+  // Transactional staging write & atomic commit with rollback safety
   const outDir = path.dirname(outMdAbs);
   if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
@@ -874,6 +1046,12 @@ export function summarizeBenchmarkResults(resultsDir, options = {}) {
     ? path.join(path.dirname(outJsonAbs), `.tmp-summary-json-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.json`)
     : null;
 
+  const mdBak = outMdAbs + `.bak-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+  const jsonBak = outJsonAbs ? outJsonAbs + `.bak-${Date.now()}-${Math.random().toString(36).substring(2, 6)}` : null;
+
+  let mdCommitted = false;
+  let jsonCommitted = false;
+
   try {
     fs.writeFileSync(tmpMdPath, md, 'utf8');
     if (outJsonAbs && tmpJsonPath && summaryJsonData) {
@@ -882,18 +1060,55 @@ export function summarizeBenchmarkResults(resultsDir, options = {}) {
       fs.writeFileSync(tmpJsonPath, JSON.stringify(summaryJsonData, null, 2) + '\n', 'utf8');
     }
 
-    // Atomic rename both
+    // Create backups if force overwriting
+    if (fs.existsSync(outMdAbs)) {
+      fs.copyFileSync(outMdAbs, mdBak);
+    }
+    if (outJsonAbs && fs.existsSync(outJsonAbs)) {
+      fs.copyFileSync(outJsonAbs, jsonBak);
+    }
+
+    // Commit 1: rename Markdown
     fs.renameSync(tmpMdPath, outMdAbs);
+    mdCommitted = true;
+
+    // Hook for regression test: inject second rename failure
+    if (options._testSecondRenameFailure) {
+      throw new Error('Injected second rename failure');
+    }
+
+    // Commit 2: rename JSON (if requested)
     if (outJsonAbs && tmpJsonPath) {
       fs.renameSync(tmpJsonPath, outJsonAbs);
+      jsonCommitted = true;
     }
+
+    // Success! Remove backups
+    if (fs.existsSync(mdBak)) fs.unlinkSync(mdBak);
+    if (jsonBak && fs.existsSync(jsonBak)) fs.unlinkSync(jsonBak);
   } catch (err) {
-    if (fs.existsSync(tmpMdPath)) {
-      try { fs.unlinkSync(tmpMdPath); } catch (_) {}
+    // Transaction failed! Rollback all committed files
+    if (mdCommitted) {
+      if (fs.existsSync(mdBak)) {
+        fs.renameSync(mdBak, outMdAbs);
+      } else {
+        try { fs.unlinkSync(outMdAbs); } catch (_) {}
+      }
     }
-    if (tmpJsonPath && fs.existsSync(tmpJsonPath)) {
-      try { fs.unlinkSync(tmpJsonPath); } catch (_) {}
+    if (jsonCommitted && jsonBak) {
+      if (fs.existsSync(jsonBak)) {
+        fs.renameSync(jsonBak, outJsonAbs);
+      } else {
+        try { fs.unlinkSync(outJsonAbs); } catch (_) {}
+      }
     }
+
+    // Clean temp and backup files
+    if (fs.existsSync(tmpMdPath)) try { fs.unlinkSync(tmpMdPath); } catch (_) {}
+    if (tmpJsonPath && fs.existsSync(tmpJsonPath)) try { fs.unlinkSync(tmpJsonPath); } catch (_) {}
+    if (fs.existsSync(mdBak)) try { fs.unlinkSync(mdBak); } catch (_) {}
+    if (jsonBak && fs.existsSync(jsonBak)) try { fs.unlinkSync(jsonBak); } catch (_) {}
+
     throw err;
   }
 

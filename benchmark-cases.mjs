@@ -23,6 +23,10 @@ export function deepFreeze(obj) {
   return obj;
 }
 
+const VALID_AXES = Object.freeze(['biome', 'archetype', 'mechanic', 'camera', 'renderingProfile', 'ambition']);
+const VALID_CAMERAS = Object.freeze(['Third Person', 'Cinematic', 'First Person', 'XR']);
+const VALID_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
+
 export function validateCaseDefinition(c) {
   const errors = [];
   if (!c || typeof c !== 'object' || Array.isArray(c)) {
@@ -97,8 +101,36 @@ export function validateCaseDefinition(c) {
     if (typeof c.creativeSpark !== 'string' || c.creativeSpark.trim() === '') errors.push('Experimental mode requires non-empty creativeSpark');
   }
 
-  if (c.changedAxes !== undefined && !Array.isArray(c.changedAxes)) {
-    errors.push('changedAxes must be an array');
+  if (c.changedAxes !== undefined && c.changedAxes !== null) {
+    if (!Array.isArray(c.changedAxes)) {
+      errors.push('changedAxes must be an array');
+    } else {
+      const seen = new Set();
+      for (const a of c.changedAxes) {
+        if (!VALID_AXES.includes(a)) errors.push(`Invalid changedAxis '${a}'`);
+        if (seen.has(a)) errors.push(`Duplicate changedAxis '${a}'`);
+        seen.add(a);
+      }
+    }
+  }
+
+  if (c.camera !== undefined && c.camera !== null) {
+    if (!VALID_CAMERAS.includes(c.camera)) {
+      errors.push(`Invalid camera '${c.camera}'`);
+    }
+  }
+
+  if (c.cameraAdjustments !== undefined && c.cameraAdjustments !== null) {
+    if (!Array.isArray(c.cameraAdjustments)) {
+      errors.push('cameraAdjustments must be an array');
+    } else {
+      const seen = new Set();
+      for (const ca of c.cameraAdjustments) {
+        if (typeof ca !== 'string' || ca.trim() === '') errors.push('cameraAdjustment must be a non-empty string');
+        if (seen.has(ca)) errors.push(`Duplicate cameraAdjustment '${ca}'`);
+        seen.add(ca);
+      }
+    }
   }
 
   if (c.signatureMoment !== undefined && c.signatureMoment !== null) {
@@ -108,6 +140,17 @@ export function validateCaseDefinition(c) {
       const sigKeys = new Set(['enabled', 'text', 'reusedSystem', 'verificationPose']);
       for (const k of Object.keys(c.signatureMoment)) {
         if (!sigKeys.has(k)) errors.push(`Unknown field '${k}' in signatureMoment`);
+      }
+      for (const k of sigKeys) {
+        if (!(k in c.signatureMoment)) errors.push(`Missing required field '${k}' in signatureMoment`);
+      }
+      if (typeof c.signatureMoment.enabled !== 'boolean') errors.push('signatureMoment.enabled must be boolean');
+      if (typeof c.signatureMoment.text !== 'string') errors.push('signatureMoment.text must be string');
+      if (typeof c.signatureMoment.reusedSystem !== 'string') errors.push('signatureMoment.reusedSystem must be string');
+      if (!VALID_POSES.includes(c.signatureMoment.verificationPose)) errors.push(`signatureMoment.verificationPose must be one of: ${VALID_POSES.join(', ')}`);
+
+      if (c.creativeMode === 'proven' && c.signatureMoment.enabled !== false) {
+        errors.push('Proven mode signatureMoment.enabled must be false');
       }
     }
   }
@@ -268,4 +311,13 @@ export function buildCaseAssemblySpec(caseId) {
   }
 
   return spec;
+}
+
+// Derive and validate all cases before export completes
+for (const caseDef of BENCHMARK_CASES) {
+  try {
+    buildCaseAssemblySpec(caseDef.id);
+  } catch (err) {
+    throw new Error(`Benchmark case '${caseDef.id}' failed derivation: ${err.message}`);
+  }
 }

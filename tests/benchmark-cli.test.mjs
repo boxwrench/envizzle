@@ -121,9 +121,14 @@ test('benchmark CLI collect command exits 0 on passed report and 1 on failed rep
     const reportPath = path.join(projDir, 'verify-report.json');
     const outJson = path.join(tmpDir, 'res.json');
 
+    // Bind reports to the actual prepared case brief hash.
+    const caseMeta = JSON.parse(fs.readFileSync(path.join(tmpDir, 'alpine-signature', 'case.json'), 'utf8'));
+    const benchmarkIdentity = { caseId: 'alpine-signature', briefSha256: caseMeta.briefSha256 };
+
     // Passed report
     const passReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
     passReport.target = 'bundle';
+    passReport.benchmark = { ...benchmarkIdentity };
     fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
     const outPass = execSync(`node benchmark.mjs collect "${projDir}" --case alpine-signature --model test-agent --attempt 1 --out "${outJson}"`, { cwd: repoRoot, stdio: 'pipe' }).toString();
@@ -134,6 +139,7 @@ test('benchmark CLI collect command exits 0 on passed report and 1 on failed rep
     // Failed report -> exit 1
     const failReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-report.json'), 'utf8'));
     failReport.target = 'bundle';
+    failReport.benchmark = { ...benchmarkIdentity };
     fs.writeFileSync(reportPath, JSON.stringify(failReport, null, 2), 'utf8');
 
     try {

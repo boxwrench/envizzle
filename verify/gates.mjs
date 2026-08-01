@@ -67,8 +67,13 @@ function isValidImage(img) {
   if (typeof width !== 'number' || !Number.isInteger(width) || width <= 0) return false;
   if (typeof height !== 'number' || !Number.isInteger(height) || height <= 0) return false;
   if (!data) return false;
-  const len = typeof data.length === 'number' ? data.length : data.byteLength;
-  if (typeof len !== 'number' || len !== width * height * 4) return false;
+  if (Array.isArray(data)) return false;
+  const isTypedOrBuffer =
+    (typeof Buffer !== 'undefined' && Buffer.isBuffer(data)) ||
+    data instanceof Uint8Array ||
+    data instanceof Uint8ClampedArray;
+  if (!isTypedOrBuffer) return false;
+  if (data.length !== width * height * 4) return false;
   return true;
 }
 

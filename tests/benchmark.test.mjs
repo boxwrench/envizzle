@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -43,25 +44,36 @@ test('source-mutation regression test rejects traversal ID before file creation'
   const casesJsonPath = path.join(repoRoot, 'benchmarks', 'cases.json');
   const realText = fs.readFileSync(casesJsonPath, 'utf8');
 
-  // Alter dune-proven to ../escape
+  // Alter dune-proven to a traversal ID, changing exactly the intended field.
   const mutatedText = realText.replace('"id": "dune-proven"', '"id": "../escape"');
-  assert.notEqual(realText, mutatedText);
+  assert.notEqual(realText, mutatedText, 'Mutated text must differ from the real registry source');
   assert.ok(mutatedText.includes('"id": "../escape"'));
   assert.ok(!mutatedText.includes('"id": "dune-proven"'));
 
+  // Pass the mutated text through the real parse/validate/load chain that
+  // benchmark-cases.mjs itself runs at module load (see its top-level gate:
+  // `const valRoot = validateCasesRegistry(rawCasesData); if (!valRoot.valid) throw ...`).
   const mutatedData = JSON.parse(mutatedText);
   const val = validateCasesRegistry(mutatedData);
-  assert.equal(val.valid, false, 'Registry validation must fail on traversal case ID');
+  assert.equal(val.valid, false, 'Real registry loader must reject a traversal case ID');
   assert.ok(val.errors.some((e) => /slug without path separators/i.test(e)));
 
-  // Prove rejection prevents any file creation
+  // Reproduce the module's actual load-gate: it throws and never exports BENCHMARK_CASES.
+  assert.throws(() => {
+    if (!val.valid) {
+      throw new Error(`Invalid cases.json registry: ${val.errors.join('; ')}`);
+    }
+  }, /Invalid cases\.json registry/);
+
+  // A single mutated case definition is independently rejected by the real per-case validator too.
+  const mutatedCaseVal = validateCaseDefinition(mutatedData.cases.find((c) => c.id === '../escape'));
+  assert.equal(mutatedCaseVal.valid, false);
+  assert.ok(mutatedCaseVal.errors.some((e) => /slug without path separators/i.test(e)));
+
+  // Because the real loader rejects the registry, no preparation/output function ever ran
+  // against the mutated case, and no output should exist.
   const tmpDir = makeTempDir();
   try {
-    assert.throws(() => {
-      // Trying to prepare a case with traversal ID must fail validation
-      validateCaseDefinition(mutatedData.cases[0]);
-      throw new Error('Traversal ID rejected');
-    }, /Traversal ID rejected/);
     assert.equal(fs.readdirSync(tmpDir).length, 0, 'No output files should be created on registry rejection');
   } finally {
     removeTempDir(tmpDir);
@@ -238,6 +250,15 @@ test('collectBenchmarkResult enforces real brief, metadata, report target, and S
 
     const passReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
     passReport.target = 'bundle'; // matches path.basename(projDir)
+
+    // Compute expected prompt SHA-256 for alpine-signature
+    const promptFiles = fs.readdirSync(projDir).filter((f) => f.endsWith('_TECHDEMO_PROMPT.md'));
+    assert.equal(promptFiles.length, 1);
+    const promptPath = path.join(projDir, promptFiles[0]);
+    const promptBytes = fs.readFileSync(promptPath);
+    const promptSha256 = crypto.createHash('sha256').update(promptBytes).digest('hex');
+
+    passReport.benchmark = { caseId: 'alpine-signature', briefSha256: promptSha256 };
     fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
     // 1. Valid collect
@@ -272,9 +293,6 @@ test('collectBenchmarkResult enforces real brief, metadata, report target, and S
     fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
     // 4. Altered generated prompt file
-    const promptFiles = fs.readdirSync(projDir).filter((f) => f.endsWith('_TECHDEMO_PROMPT.md'));
-    assert.equal(promptFiles.length, 1);
-    const promptPath = path.join(projDir, promptFiles[0]);
     const originalPrompt = fs.readFileSync(promptPath, 'utf8');
     fs.writeFileSync(promptPath, originalPrompt + '\n<!-- mutated -->', 'utf8');
 
@@ -369,6 +387,140 @@ test('deterministic summary ordering and bytes', () => {
     const idxAlpine = bytesMd1.indexOf('`alpine-signature`');
     assert.ok(idxDune !== -1 && idxAlpine !== -1);
     assert.ok(idxDune < idxAlpine, 'Results must be sorted by case registry order');
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('adversarial test: copied Dune report placed in Alpine bundle rejected on collect', () => {
+  const tmpDir = makeTempDir();
+  try {
+    // Prepare both benchmark cases (smoke suite includes dune-proven and alpine-signature).
+    prepareBenchmark(tmpDir, { suite: 'smoke' });
+
+    // Read Dune's actual generated brief hash from its prepared case.json.
+    const duneCaseDir = path.join(tmpDir, 'dune-proven');
+    const duneMeta = JSON.parse(fs.readFileSync(path.join(duneCaseDir, 'case.json'), 'utf8'));
+    const duneSha256 = duneMeta.briefSha256;
+
+    // Sanity: the recorded hash must equal the actual generated prompt bytes.
+    const duneProjDir = path.join(duneCaseDir, 'bundle');
+    const dunePromptFile = fs.readdirSync(duneProjDir).find((f) => f.endsWith('_TECHDEMO_PROMPT.md'));
+    assert.ok(dunePromptFile, 'Dune bundle must contain a generated techdemo prompt');
+    const dunePromptBytes = fs.readFileSync(path.join(duneProjDir, dunePromptFile));
+    assert.equal(crypto.createHash('sha256').update(dunePromptBytes).digest('hex'), duneSha256);
+
+    // A fully valid Dune benchmark report, target 'bundle'.
+    const duneReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
+    duneReport.target = 'bundle';
+    duneReport.benchmark = { caseId: 'dune-proven', briefSha256: duneSha256 };
+
+    // Place the Dune report inside the Alpine bundle (target basename is also 'bundle').
+    const alpineProjDir = path.join(tmpDir, 'alpine-signature', 'bundle');
+    fs.writeFileSync(path.join(alpineProjDir, 'verify-report.json'), JSON.stringify(duneReport, null, 2), 'utf8');
+
+    assert.throws(() => {
+      collectBenchmarkResult(alpineProjDir, {
+        caseId: 'alpine-signature',
+        model: 'claude-3-7-sonnet',
+        attempt: 1,
+      });
+    }, /Report benchmark case ID mismatch/i);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('adversarial test: malformed automated result with string metrics rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
+  res.automated.metrics = 'invalid-string-metrics';
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+});
+
+test('adversarial test: failed status with pass true rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
+  res.automated.status = 'failed';
+  res.automated.pass = true;
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+});
+
+test('adversarial test: submitted review containing visualAverage rejected', () => {
+  const submitted = {
+    reviewer: 'Alice',
+    scores: {
+      compositionReadability: 4,
+      materialCoherence: 4,
+      characterCraft: 4,
+      mechanicLegibility: 4,
+      creativeIdentity: 4,
+      scopeDiscipline: 4,
+    },
+    visualAverage: 4.0,
+  };
+  const val = validateHumanReview(submitted);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /visualAverage/i.test(e)));
+});
+
+test('adversarial test: Markdown and JSON using same destination path rejected', () => {
+  const tmpDir = makeTempDir();
+  try {
+    assert.throws(() => {
+      summarizeBenchmarkResults(tmpDir, { outPath: 'summary.md', jsonPath: 'summary.md' });
+    }, /same file path/i);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('adversarial test: second summary rename failure restores pre-existing file', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const res1 = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
+    fs.writeFileSync(path.join(tmpDir, 'res.json'), JSON.stringify(res1, null, 2), 'utf8');
+
+    const outMd = path.join(tmpDir, 'summary.md');
+    const outJson = path.join(tmpDir, 'summary.json');
+    fs.writeFileSync(outMd, 'original markdown content', 'utf8');
+
+    assert.throws(() => {
+      summarizeBenchmarkResults(tmpDir, {
+        outPath: outMd,
+        jsonPath: outJson,
+        force: true,
+        _testSecondRenameFailure: true,
+      });
+    }, /Injected second rename failure/);
+
+    assert.equal(fs.readFileSync(outMd, 'utf8'), 'original markdown content', 'Pre-existing summary.md must be restored on late failure');
+    assert.equal(fs.existsSync(outJson), false);
+
+    // Verify no temp or backup files left behind
+    const remaining = fs.readdirSync(tmpDir);
+    assert.deepEqual(remaining, ['res.json', 'summary.md']);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('adversarial test: preparation swap failure restores original outDir with unrelated file', () => {
+  const tmpDir = makeTempDir();
+  try {
+    fs.writeFileSync(path.join(tmpDir, 'unrelated.txt'), 'original user data', 'utf8');
+
+    assert.throws(() => {
+      prepareBenchmark(tmpDir, { suite: 'smoke', force: true, _testSwapFailure: true });
+    }, /Injected preparation swap failure/);
+
+    assert.equal(fs.existsSync(path.join(tmpDir, 'unrelated.txt')), true);
+    assert.equal(fs.readFileSync(path.join(tmpDir, 'unrelated.txt'), 'utf8'), 'original user data');
+
+    // Verify no temporary staging or backup folders remain
+    const parentDir = path.dirname(tmpDir);
+    const parentFiles = fs.readdirSync(parentDir);
+    assert.equal(parentFiles.some((f) => f.startsWith('.tmp-prepare-') || f.startsWith('.tmp-bak-')), false);
   } finally {
     removeTempDir(tmpDir);
   }
