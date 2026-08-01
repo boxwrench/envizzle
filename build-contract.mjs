@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {
   ARCHETYPES,
   BIOME_CHANNELS,
@@ -36,6 +37,12 @@ export const REQUIRED_CAPTURE_FILENAMES = Object.freeze([
   'milestone_locomotion.png',
   'milestone_mechanic.png',
 ]);
+
+const POSE_FILENAME_MAP = Object.freeze({
+  idle: 'milestone_idle.png',
+  locomotion: 'milestone_locomotion.png',
+  mechanic: 'milestone_mechanic.png',
+});
 
 const REQUIRED_PROJECT_PATHS = Object.freeze([
   'index.html',
@@ -189,7 +196,7 @@ const MILESTONE_DEFINITIONS = Object.freeze([
 ]);
 
 const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'creative', 'acceptance', 'milestones'];
-const PROJECT_KEYS = ['name', 'briefFilename', 'renderingProfile', 'engine', 'shaderLanguage', 'shaderLanguageExtension', 'materialApi', 'renderingParadigm', 'assetStrategy', 'assetStrategyText', 'targetHardware', 'coreInteractionSentence'];
+const PROJECT_KEYS = ['name', 'briefFilename', 'briefSha256', 'renderingProfile', 'engine', 'shaderLanguage', 'shaderLanguageExtension', 'materialApi', 'renderingParadigm', 'assetStrategy', 'assetStrategyText', 'targetHardware', 'coreInteractionSentence'];
 const SELECTION_KEYS = ['creativeMode', 'path', 'baseShowcase', 'ambition', 'includedSections', 'omittedOptionalSections', 'extraSections', 'biome', 'archetype', 'mechanic', 'camera', 'renderingProfile', 'cameraAdjustments', 'changedAxes'];
 const STATE_CHANNEL_KEYS = ['enabled', 'omittedBehavior', 'channels'];
 const STATE_ENTRY_KEYS = ['channel', 'nativeMeaning', 'owningSystem', 'writers', 'readers', 'visibleEffect', 'baselineOrReset'];
@@ -314,6 +321,7 @@ function canonicalStateChannels({ selection, biome }) {
 export function createCanonicalAssemblyModel({
   projectName,
   fileName,
+  briefSha256 = null,
   selection,
   profile,
   effectiveCoherence,
@@ -331,6 +339,7 @@ export function createCanonicalAssemblyModel({
     project: {
       name: projectName,
       briefFilename: fileName,
+      ...(briefSha256 ? { briefSha256 } : {}),
       renderingProfile: profile.id,
       engine: profile.engine,
       shaderLanguage: profile.shaderLang,
@@ -405,6 +414,7 @@ function validateProject(project, errors) {
   if (!exactKeys(project, PROJECT_KEYS, 'project', errors)) return;
   if (!nonEmptyString(project.name) || !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(project.name)) errors.push('project.name must be a safe upper-case hyphenated name');
   if (!isSafeRelativePath(project.briefFilename) || project.briefFilename !== `${project.name.replace(/-/g, '_')}_TECHDEMO_PROMPT.md`) errors.push('project.briefFilename must be the deterministic project brief filename');
+  if (typeof project.briefSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(project.briefSha256)) errors.push('project.briefSha256 must be exactly 64 lowercase hexadecimal characters');
   const profile = RENDERING_PROFILES[project.renderingProfile];
   if (!profile) {
     errors.push(`project.renderingProfile must be one of: ${Object.keys(RENDERING_PROFILES).join(', ')}`);
@@ -549,13 +559,50 @@ function validateEvidenceMilestone(milestone, index, errors) {
   }
   if (exactKeys(milestone.visualSelfReview, ['reviewed', 'weaknesses', 'corrections'], `${label}.visualSelfReview`, errors)) {
     if (typeof milestone.visualSelfReview.reviewed !== 'boolean') errors.push(`${label}.visualSelfReview.reviewed must be boolean`);
-    for (const field of ['weaknesses', 'corrections']) if (!Array.isArray(milestone.visualSelfReview[field]) || milestone.visualSelfReview[field].some((value) => !nonEmptyString(value))) errors.push(`${label}.visualSelfReview.${field} must be an array of non-empty strings`);
+    for (const field of ['weaknesses', 'corrections']) if (!Array.isArray(milestone.visualSelfReview[field]) || milestone.visualSelfReview[field].some((value) => typeof value !== 'string')) errors.push(`${label}.visualSelfReview.${field} must be an array of strings`);
   }
   if (milestone.status === COMPLETE_STATUS) {
-    if (!Array.isArray(milestone.screenshots) || milestone.screenshots.length === 0) errors.push(`${label} cannot be complete without screenshots`);
-    if (!isPlainObject(milestone.console) || !Array.isArray(milestone.console.errors) || milestone.console.errors.length > 0) errors.push(`${label} cannot be complete with console errors`);
-    if (!isPlainObject(milestone.performance) || milestone.performance.fps === null || milestone.performance.frameTimeMs === null) errors.push(`${label} cannot be complete without performance evidence`);
-    if (!isPlainObject(milestone.visualSelfReview) || milestone.visualSelfReview.reviewed !== true) errors.push(`${label} cannot be complete without visual self-review`);
+    const def = MILESTONE_DEFINITIONS.find((d) => d.id === milestone.id);
+    if (!def) {
+      errors.push(`${label} cannot be complete without valid milestone definition`);
+      return;
+    }
+    if (!Array.isArray(milestone.screenshots)) {
+      errors.push(`${label} cannot be complete without screenshots array`);
+    } else {
+      const uniqueScreenshots = new Set(milestone.screenshots);
+      if (uniqueScreenshots.size !== milestone.screenshots.length) {
+        errors.push(`${label} cannot contain duplicate screenshot filenames`);
+      }
+      const minCount = def.requiredScreenshotEvidence.minimumScreenshots;
+      if (milestone.screenshots.length < minCount) {
+        errors.push(`${label} requires at least ${minCount} screenshot(s) when complete`);
+      }
+      for (const pose of def.requiredScreenshotEvidence.requiredPoses) {
+        const expectedFilename = POSE_FILENAME_MAP[pose];
+        if (expectedFilename && !milestone.screenshots.includes(expectedFilename)) {
+          errors.push(`${label} missing required pose screenshot '${expectedFilename}' for pose '${pose}'`);
+        }
+      }
+    }
+    if (!isPlainObject(milestone.console) || !Array.isArray(milestone.console.errors) || milestone.console.errors.length > 0) {
+      errors.push(`${label} cannot be complete with console errors`);
+    }
+    if (!isPlainObject(milestone.performance) ||
+        milestone.performance.fps === null || typeof milestone.performance.fps !== 'number' || !Number.isFinite(milestone.performance.fps) || milestone.performance.fps < 0 ||
+        milestone.performance.frameTimeMs === null || typeof milestone.performance.frameTimeMs !== 'number' || !Number.isFinite(milestone.performance.frameTimeMs) || milestone.performance.frameTimeMs < 0) {
+      errors.push(`${label} cannot be complete without non-null non-negative finite performance evidence`);
+    }
+    if (!isPlainObject(milestone.visualSelfReview) || milestone.visualSelfReview.reviewed !== true) {
+      errors.push(`${label} cannot be complete without visual self-review`);
+    } else {
+      if (!Array.isArray(milestone.visualSelfReview.weaknesses) || milestone.visualSelfReview.weaknesses.length === 0 || milestone.visualSelfReview.weaknesses.some((w) => typeof w !== 'string' || w.trim() === '')) {
+        errors.push(`${label} cannot be complete with empty weaknesses`);
+      }
+      if (!Array.isArray(milestone.visualSelfReview.corrections) || milestone.visualSelfReview.corrections.length === 0 || milestone.visualSelfReview.corrections.some((c) => typeof c !== 'string' || c.trim() === '')) {
+        errors.push(`${label} cannot be complete with empty corrections`);
+      }
+    }
   }
 }
 
@@ -644,16 +691,37 @@ export function renderHandoff({ fileName, builderAgent, contract }) {
 
 export function validateAssemblyArtifacts({ model, contract, brief }) {
   const errors = [];
-  const expectedContract = createBuildContract(model);
-  const contractValidation = validateBuildContract(contract);
-  errors.push(...contractValidation.errors.map((error) => `contract: ${error}`));
-  if (JSON.stringify(contract) !== JSON.stringify(expectedContract)) errors.push('contract does not match the canonical validated assembly model');
   if (typeof brief !== 'string') {
     errors.push('brief must be a string');
-  } else {
-    if (!brief.includes(renderContractSummary(contract))) errors.push('brief does not contain the canonical build-contract summary');
-    if (!brief.includes(renderMilestoneInstructions(contract))) errors.push('brief does not contain the canonical milestone instructions');
+    return { valid: false, errors };
   }
+
+  const computedHash = crypto.createHash('sha256').update(brief, 'utf8').digest('hex');
+
+  if (!isPlainObject(contract) || !isPlainObject(contract.project) || contract.project.briefSha256 !== computedHash) {
+    errors.push(`contract briefSha256 (${contract?.project?.briefSha256}) does not match computed brief hash (${computedHash})`);
+  }
+
+  const expectedModel = clone(model);
+  if (isPlainObject(expectedModel) && isPlainObject(expectedModel.project)) {
+    expectedModel.project.briefSha256 = computedHash;
+  }
+  const expectedContract = createBuildContract(expectedModel);
+
+  const contractValidation = validateBuildContract(contract);
+  errors.push(...contractValidation.errors.map((error) => `contract: ${error}`));
+
+  if (JSON.stringify(contract) !== JSON.stringify(expectedContract)) {
+    errors.push('contract does not match the canonical validated assembly model');
+  }
+
+  if (!brief.includes(renderContractSummary(contract))) {
+    errors.push('brief does not contain the canonical build-contract summary');
+  }
+  if (!brief.includes(renderMilestoneInstructions(contract))) {
+    errors.push('brief does not contain the canonical milestone instructions');
+  }
+
   return { valid: errors.length === 0, errors };
 }
 

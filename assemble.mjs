@@ -4,6 +4,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   validateSelection,
@@ -707,11 +708,7 @@ export function assembleBrief(spec, options = {}) {
     biome,
     coherenceOverrides: spec.coherenceOverrides || [],
   });
-  const buildContract = createBuildContract(canonicalModel);
-  const contractValidation = validateBuildContract(buildContract);
-  if (!contractValidation.valid) {
-    throw new Error(`Generated build contract failed validation: ${contractValidation.errors.join(' | ')}`);
-  }
+
 
   // Map 38 Tokens
   const tokenMap = {
@@ -899,7 +896,7 @@ export function assembleBrief(spec, options = {}) {
 
   result += assemblyDecisionsText + '\n';
 
-  result += `\n\n${renderContractSummary(buildContract)}\n${renderMilestoneInstructions(buildContract)}\n`;
+  result += `\n\n${renderContractSummary(canonicalModel)}\n${renderMilestoneInstructions(canonicalModel)}\n`;
 
   // Final Validation
   const briefVal = validateBrief(result);
@@ -909,6 +906,15 @@ export function assembleBrief(spec, options = {}) {
 
   if (/references\/[a-z0-9_-]+\.md|TEMPLATE\.md|selection\.mjs|check\.mjs/.test(result)) {
     throw new Error('Assembled brief contains active reference file dependencies');
+  }
+
+  const briefSha256 = crypto.createHash('sha256').update(result, 'utf8').digest('hex');
+  canonicalModel.project.briefSha256 = briefSha256;
+  const buildContract = createBuildContract(canonicalModel);
+
+  const contractValidation = validateBuildContract(buildContract);
+  if (!contractValidation.valid) {
+    throw new Error(`Generated build contract failed validation: ${contractValidation.errors.join(' | ')}`);
   }
 
   const artifactAgreement = validateAssemblyArtifacts({
@@ -939,7 +945,7 @@ export function writeBundle(spec, outDir, options = {}) {
   const verifySrc = path.join(rootDir, 'verify');
 
   // Preflight 1: Read all verifier files into memory before creating/modifying targets
-  const verifierFiles = ['README.md', 'gates.mjs', 'verify_demo.mjs'];
+  const verifierFiles = ['README.md', 'gates.mjs', 'report.mjs', 'verify_demo.mjs'];
   const cachedVerifierFiles = {};
   for (const vf of verifierFiles) {
     const srcPath = path.join(verifySrc, vf);
@@ -986,6 +992,7 @@ export function writeBundle(spec, outDir, options = {}) {
     path.join(targetDir, HANDOFF_FILENAME),
     path.join(targetDir, 'verify', 'README.md'),
     path.join(targetDir, 'verify', 'gates.mjs'),
+    path.join(targetDir, 'verify', 'report.mjs'),
     path.join(targetDir, 'verify', 'verify_demo.mjs'),
   ];
 

@@ -520,7 +520,7 @@ test('writeBundle preflight: missing verifier source leaves destination untouche
   }
 });
 
-test('writeBundle collision matrix covering all seven target paths and unrelated sentinel file', () => {
+test('writeBundle collision matrix covering all eight target paths and unrelated sentinel file', () => {
   const tmpDir = makeTempDir();
   const specPath = path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'signature-alpine.json');
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
@@ -540,6 +540,7 @@ test('writeBundle collision matrix covering all seven target paths and unrelated
       path.join(tmpDir, 'HANDOFF.md'),
       path.join(tmpDir, 'verify', 'README.md'),
       path.join(tmpDir, 'verify', 'gates.mjs'),
+      path.join(tmpDir, 'verify', 'report.mjs'),
       path.join(tmpDir, 'verify', 'verify_demo.mjs'),
     ];
 

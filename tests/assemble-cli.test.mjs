@@ -48,6 +48,7 @@ test('assemble CLI --out creates output bundle and exits 0', () => {
     assert.ok(fs.existsSync(path.join(tmpDir, 'HANDOFF.md')));
     assert.ok(fs.existsSync(path.join(tmpDir, 'verify', 'README.md')));
     assert.ok(fs.existsSync(path.join(tmpDir, 'verify', 'gates.mjs')));
+    assert.ok(fs.existsSync(path.join(tmpDir, 'verify', 'report.mjs')));
     assert.ok(fs.existsSync(path.join(tmpDir, 'verify', 'verify_demo.mjs')));
 
     const handoff = fs.readFileSync(path.join(tmpDir, 'HANDOFF.md'), 'utf8');

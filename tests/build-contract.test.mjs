@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   assembleBrief,
   writeBundle,
@@ -18,6 +19,7 @@ import {
   validateBuildContract,
   validateMilestoneEvidence,
 } from '../build-contract.mjs';
+import { prepareBenchmark } from '../benchmark.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -277,7 +279,7 @@ test('adversarial evidence mutation: missing screenshot capability cannot silent
   const validation = validateMilestoneEvidence(evidence);
   assert.equal(JSON.stringify(evidence), before);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /screenshots/i);
+  assert.match(validation.errors.join('; '), /screenshot/i);
 });
 
 test('brief and generated JSON contract cross-validation rejects valid-shaped disagreement', () => {
@@ -366,6 +368,287 @@ test('output collision leaves every existing bundle file byte-identical', () => 
     collectAfter(tmpDir);
     assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort());
     for (const [relative, contents] of before) assert.deepEqual(after.get(relative), contents, relative);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('generated bundle contains all four verifier files', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const spec = validSignature();
+    const result = writeBundle(spec, tmpDir, { rootDir: repoRoot });
+    const expectedFiles = [
+      'README.md',
+      'gates.mjs',
+      'report.mjs',
+      'verify_demo.mjs',
+    ];
+    for (const file of expectedFiles) {
+      const fullPath = path.join(tmpDir, 'verify', file);
+      assert.equal(fs.existsSync(fullPath), true, `Missing verifier file verify/${file}`);
+    }
+    const verifierTargetPaths = expectedFiles.map((f) => path.join(tmpDir, 'verify', f));
+    for (const vf of verifierTargetPaths) {
+      assert.equal(result.writtenFiles.includes(vf), true, `writtenFiles missing ${vf}`);
+    }
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('copied verify/verify_demo.mjs imports silently from generated bundle', async () => {
+  const tmpDir = makeTempDir();
+  try {
+    const spec = validSignature();
+    writeBundle(spec, tmpDir, { rootDir: repoRoot });
+    const verifierPath = path.join(tmpDir, 'verify', 'verify_demo.mjs');
+    const verifierModule = await import(pathToFileURL(verifierPath).href);
+    assert.equal(typeof verifierModule.parseVerifyCliArgs, 'function');
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('deleting or making source verify/report.mjs unreadable causes preflight rejection before any bundle file is written', () => {
+  const tmpDir = makeTempDir();
+  const originalReadFileSync = fs.readFileSync;
+  try {
+    const sentinel = path.join(tmpDir, 'sentinel.txt');
+    fs.writeFileSync(sentinel, 'preserve me', 'utf8');
+    const reportPath = path.join(repoRoot, 'verify', 'report.mjs');
+    fs.readFileSync = function patchedReadFileSync(filePath, ...args) {
+      if (path.resolve(String(filePath)) === reportPath) {
+        throw new Error('forced report.mjs read failure');
+      }
+      return originalReadFileSync.call(this, filePath, ...args);
+    };
+    assert.throws(() => writeBundle(validSignature(), tmpDir, { rootDir: repoRoot, force: true }), /Missing or unreadable verifier source file/);
+    assert.deepEqual(fs.readdirSync(tmpDir), ['sentinel.txt']);
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'preserve me');
+  } finally {
+    fs.readFileSync = originalReadFileSync;
+    removeTempDir(tmpDir);
+  }
+});
+
+test('smoke benchmark preparation produces three bundles whose copied verifiers import successfully', async () => {
+  const tmpDir = makeTempDir();
+  try {
+    prepareBenchmark(tmpDir, { suite: 'smoke' });
+    const smokeCaseIds = ['dune-proven', 'alpine-signature', 'alpine-experimental-camera'];
+    for (const caseId of smokeCaseIds) {
+      const verifierPath = path.join(tmpDir, caseId, 'bundle', 'verify', 'verify_demo.mjs');
+      assert.equal(fs.existsSync(verifierPath), true, `Missing verifier in ${caseId}`);
+      const verifierModule = await import(pathToFileURL(verifierPath).href);
+      assert.equal(typeof verifierModule.parseVerifyCliArgs, 'function');
+    }
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+const createValidCompletedEvidence = () => ({
+  schemaVersion: 1,
+  status: 'complete',
+  milestones: [
+    {
+      id: 'first-runnable-scene',
+      status: 'complete',
+      screenshots: ['milestone_idle.png'],
+      console: { errors: [], warnings: [] },
+      performance: { fps: 60, frameTimeMs: 16.67 },
+      visualSelfReview: { reviewed: true, weaknesses: ['No visible weakness observed.'], corrections: ['No correction required.'] },
+    },
+    {
+      id: 'systems-complete',
+      status: 'complete',
+      screenshots: ['milestone_locomotion.png', 'milestone_mechanic.png'],
+      console: { errors: [], warnings: [] },
+      performance: { fps: 60, frameTimeMs: 16.67 },
+      visualSelfReview: { reviewed: true, weaknesses: ['Slight particle clipping.'], corrections: ['Adjusted depth offset.'] },
+    },
+    {
+      id: 'final-polish',
+      status: 'complete',
+      screenshots: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+      console: { errors: [], warnings: [] },
+      performance: { fps: 60, frameTimeMs: 16.67 },
+      visualSelfReview: { reviewed: true, weaknesses: ['Contrast could be higher.'], corrections: ['Adjusted contrast.'] },
+    },
+  ],
+});
+
+test('fully populated three-milestone completed evidence record validates', () => {
+  const ev = createValidCompletedEvidence();
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, true, `Evidence validation failed: ${validation.errors.join('; ')}`);
+});
+
+test('adversarial evidence mutation: first-runnable complete with only unrelated.png is rejected', () => {
+  const ev = createValidCompletedEvidence();
+  const before = JSON.stringify(ev.milestones[0].screenshots);
+  ev.milestones[0].screenshots = ['unrelated.png'];
+  assert.notEqual(JSON.stringify(ev.milestones[0].screenshots), before, 'screenshots field must be changed before testing');
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /milestone_idle\.png|pose/i);
+});
+
+test('adversarial evidence mutation: systems-complete with only milestone_locomotion.png is rejected', () => {
+  const ev = createValidCompletedEvidence();
+  const before = JSON.stringify(ev.milestones[1].screenshots);
+  ev.milestones[1].screenshots = ['milestone_locomotion.png'];
+  assert.notEqual(JSON.stringify(ev.milestones[1].screenshots), before, 'screenshots field must be changed before testing');
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /requires at least 2 screenshot|milestone_mechanic\.png/i);
+});
+
+test('adversarial evidence mutation: final-polish with only one screenshot is rejected', () => {
+  const ev = createValidCompletedEvidence();
+  const before = JSON.stringify(ev.milestones[2].screenshots);
+  ev.milestones[2].screenshots = ['milestone_idle.png'];
+  assert.notEqual(JSON.stringify(ev.milestones[2].screenshots), before, 'screenshots field must be changed before testing');
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /requires at least 3 screenshot|pose/i);
+});
+
+test('adversarial evidence mutation: duplicate screenshot filenames in completed milestone is rejected', () => {
+  const ev = createValidCompletedEvidence();
+  const before = JSON.stringify(ev.milestones[1].screenshots);
+  ev.milestones[1].screenshots = ['milestone_locomotion.png', 'milestone_locomotion.png'];
+  assert.notEqual(JSON.stringify(ev.milestones[1].screenshots), before, 'screenshots field must be changed before testing');
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /duplicate screenshot/i);
+});
+
+test('adversarial evidence mutation: completed milestone with empty weaknesses is rejected', () => {
+  const ev = createValidCompletedEvidence();
+  const before = JSON.stringify(ev.milestones[0].visualSelfReview.weaknesses);
+  ev.milestones[0].visualSelfReview.weaknesses = [];
+  assert.notEqual(JSON.stringify(ev.milestones[0].visualSelfReview.weaknesses), before, 'weaknesses field must be changed before testing');
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /empty weaknesses/i);
+});
+
+test('adversarial evidence mutation: completed milestone with empty corrections is rejected', () => {
+  const ev = createValidCompletedEvidence();
+  const before = JSON.stringify(ev.milestones[0].visualSelfReview.corrections);
+  ev.milestones[0].visualSelfReview.corrections = [];
+  assert.notEqual(JSON.stringify(ev.milestones[0].visualSelfReview.corrections), before, 'corrections field must be changed before testing');
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /empty corrections/i);
+});
+
+test('adversarial evidence mutation: top-level complete status when one milestone remains incomplete is rejected', () => {
+  const ev = createValidCompletedEvidence();
+  const before = ev.milestones[0].status;
+  ev.milestones[0].status = 'incomplete verification';
+  assert.notEqual(ev.milestones[0].status, before, 'milestone status field must be changed before testing');
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /evidence\.status complete requires every milestone to be complete/i);
+});
+
+test('strict contract validation requires project.briefSha256 to be 64 lowercase hex characters', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const contract = clone(assembled.buildContract);
+
+  assert.equal(typeof contract.project.briefSha256, 'string');
+  assert.equal(/^[0-9a-f]{64}$/.test(contract.project.briefSha256), true);
+
+  const missingSha = clone(contract);
+  delete missingSha.project.briefSha256;
+  assert.equal(validateBuildContract(missingSha).valid, false);
+
+  const upperSha = clone(contract);
+  upperSha.project.briefSha256 = contract.project.briefSha256.toUpperCase();
+  assert.equal(validateBuildContract(upperSha).valid, false);
+
+  const invalidLenSha = clone(contract);
+  invalidLenSha.project.briefSha256 = contract.project.briefSha256.slice(0, 63);
+  assert.equal(validateBuildContract(invalidLenSha).valid, false);
+});
+
+test('adversarial brief mutation: camera-only Markdown mutation in main brief body is rejected', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const originalBrief = assembled.brief;
+  const originalContractJson = JSON.stringify(assembled.buildContract);
+  const originalModelJson = JSON.stringify(assembled.assemblyModel);
+
+  const mutatedBrief = originalBrief.replace('Over-shoulder action-MMO framing', 'Over-shoulder cinematic framing');
+  assert.notEqual(mutatedBrief, originalBrief, 'Markdown brief bytes must change');
+  assert.equal(JSON.stringify(assembled.buildContract), originalContractJson, 'Contract must remain untouched');
+  assert.equal(JSON.stringify(assembled.assemblyModel), originalModelJson, 'Model must remain untouched');
+
+  const agreement = validateAssemblyArtifacts({
+    model: assembled.assemblyModel,
+    contract: assembled.buildContract,
+    brief: mutatedBrief,
+  });
+  assert.equal(agreement.valid, false);
+  assert.match(agreement.errors.join('; '), /briefSha256|computed brief hash/i);
+});
+
+test('adversarial brief mutation: state-channel-only Markdown mutation in main brief body is rejected', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const originalBrief = assembled.brief;
+  const originalContractJson = JSON.stringify(assembled.buildContract);
+  const originalModelJson = JSON.stringify(assembled.assemblyModel);
+
+  const mutatedBrief = originalBrief.replace('carve groove lowers snow depression depth', 'carve groove increases snow depression depth');
+  assert.notEqual(mutatedBrief, originalBrief, 'Markdown brief bytes must change');
+  assert.equal(JSON.stringify(assembled.buildContract), originalContractJson, 'Contract must remain untouched');
+  assert.equal(JSON.stringify(assembled.assemblyModel), originalModelJson, 'Model must remain untouched');
+
+  const agreement = validateAssemblyArtifacts({
+    model: assembled.assemblyModel,
+    contract: assembled.buildContract,
+    brief: mutatedBrief,
+  });
+  assert.equal(agreement.valid, false);
+  assert.match(agreement.errors.join('; '), /briefSha256|computed brief hash/i);
+});
+
+test('adversarial brief mutation: milestone-instruction-only Markdown mutation is rejected', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const originalBrief = assembled.brief;
+  const originalContractJson = JSON.stringify(assembled.buildContract);
+  const originalModelJson = JSON.stringify(assembled.assemblyModel);
+
+  const mutatedBrief = originalBrief.replace('Work through the three milestones in order.', 'Work through the milestones in any order.');
+  assert.notEqual(mutatedBrief, originalBrief, 'Markdown brief bytes must change');
+  assert.equal(JSON.stringify(assembled.buildContract), originalContractJson, 'Contract must remain untouched');
+  assert.equal(JSON.stringify(assembled.assemblyModel), originalModelJson, 'Model must remain untouched');
+
+  const agreement = validateAssemblyArtifacts({
+    model: assembled.assemblyModel,
+    contract: assembled.buildContract,
+    brief: mutatedBrief,
+  });
+  assert.equal(agreement.valid, false);
+  assert.match(agreement.errors.join('; '), /briefSha256|computed brief hash/i);
+});
+
+test('written prompt SHA-256 equals ENVIZZLE_BUILD.json project.briefSha256', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const spec = validSignature();
+    const { fileName } = assembleBrief(spec, { rootDir: repoRoot });
+    writeBundle(spec, tmpDir, { rootDir: repoRoot });
+
+    const promptPath = path.join(tmpDir, fileName);
+    const contractPath = path.join(tmpDir, BUILD_CONTRACT_FILENAME);
+    const promptText = fs.readFileSync(promptPath, 'utf8');
+    const contract = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
+
+    const computedHash = crypto.createHash('sha256').update(promptText, 'utf8').digest('hex');
+    assert.equal(contract.project.briefSha256, computedHash);
   } finally {
     removeTempDir(tmpDir);
   }
