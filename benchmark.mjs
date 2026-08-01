@@ -711,14 +711,6 @@ This directory contains deterministic tech demo benchmark cases for evaluating A
 
       const bundleDir = path.join(caseDir, 'bundle');
       writeBundle(b.spec, bundleDir, { rootDir: repoRoot, force: true });
-
-      const handoffContent = `# Handoff Instructions for ${b.caseDef.title}
-
-Implement the procedural tech demo specification described in \`${b.fileName}\`.
-
-Your project must satisfy all required paths, build cleanly, expose \`window.__demo\` verification hooks, and satisfy all automated image & camera gates.
-`;
-      fs.writeFileSync(path.join(bundleDir, 'HANDOFF.md'), handoffContent, 'utf8');
     }
 
     // 4. Perform atomic swap into place

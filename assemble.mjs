@@ -9,6 +9,7 @@ import {
   validateSelection,
   formatStateChannelContract,
   BIOME_CHANNELS,
+  MECHANIC_WRITES,
   SHOWCASES,
   CORE_SECTIONS,
   EXTRA_SECTIONS,
@@ -16,6 +17,19 @@ import {
 } from './selection.mjs';
 import { checkCoherence, validateBrief } from './check.mjs';
 import { loadReferenceCatalog } from './reference-loader.mjs';
+import {
+  BUILD_CONTRACT_FILENAME,
+  EVIDENCE_FILENAME,
+  HANDOFF_FILENAME,
+  createBuildContract,
+  createCanonicalAssemblyModel,
+  createEvidenceTemplate,
+  renderContractSummary,
+  renderHandoff,
+  renderMilestoneInstructions,
+  validateAssemblyArtifacts,
+  validateBuildContract,
+} from './build-contract.mjs';
 
 const conflict = (rule, severity, message, fix) => ({ rule, severity, message, fix });
 
@@ -679,20 +693,40 @@ export function assembleBrief(spec, options = {}) {
     formattedInput = 'Press ' + formattedInput.replace(/^press\s+/i, '');
   }
 
+  const canonicalModel = createCanonicalAssemblyModel({
+    projectName,
+    fileName,
+    selection,
+    profile,
+    effectiveCoherence,
+    renderingParadigm,
+    targetHardware,
+    coreInteractionSentence,
+    creativeSpark: creativeSparkVal,
+    signatureMomentInstruction: signatureMomentText,
+    biome,
+    coherenceOverrides: spec.coherenceOverrides || [],
+  });
+  const buildContract = createBuildContract(canonicalModel);
+  const contractValidation = validateBuildContract(buildContract);
+  if (!contractValidation.valid) {
+    throw new Error(`Generated build contract failed validation: ${contractValidation.errors.join(' | ')}`);
+  }
+
   // Map 38 Tokens
   const tokenMap = {
-    PROJECT_NAME: projectName,
-    CREATIVE_MODE: creativeModeTitle,
-    RENDERING_PARADIGM: renderingParadigm,
+    PROJECT_NAME: canonicalModel.project.name,
+    CREATIVE_MODE: canonicalModel.selection.creativeMode.charAt(0).toUpperCase() + canonicalModel.selection.creativeMode.slice(1),
+    RENDERING_PARADIGM: canonicalModel.project.renderingParadigm,
     PRIMARY_ENVIRONMENT: biome.tokens.PRIMARY_ENVIRONMENT,
-    CORE_INTERACTION_SENTENCE: coreInteractionSentence,
-    SIGNATURE_MOMENT: signatureMomentText,
-    ENGINE: profile.engine,
-    SHADER_LANG: profile.shaderLang,
-    SHADER_LANG_EXT: profile.shaderLangExt,
-    MATERIAL_API: profile.materialApi,
-    TARGET_BROWSER_AND_HARDWARE: targetHardware,
-    ASSET_STRATEGY: '100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)',
+    CORE_INTERACTION_SENTENCE: canonicalModel.project.coreInteractionSentence,
+    SIGNATURE_MOMENT: canonicalModel.creative.signatureMoment.instruction,
+    ENGINE: canonicalModel.project.engine,
+    SHADER_LANG: canonicalModel.project.shaderLanguage,
+    SHADER_LANG_EXT: canonicalModel.project.shaderLanguageExtension,
+    MATERIAL_API: canonicalModel.project.materialApi,
+    TARGET_BROWSER_AND_HARDWARE: canonicalModel.project.targetHardware,
+    ASSET_STRATEGY: canonicalModel.project.assetStrategyText,
     TERRAIN_PHILOSOPHY_SENTENCE: biome.tokens.TERRAIN_PHILOSOPHY_SENTENCE,
     TERRAIN_NOISE_LAYERS: biome.tokens.TERRAIN_NOISE_LAYERS,
     TERRAIN_LANDMARKS: biome.tokens.TERRAIN_LANDMARKS,
@@ -801,7 +835,8 @@ export function assembleBrief(spec, options = {}) {
   let stateChannelDecisionsText = 'none (state-buffer omitted)';
   if (hasStateBuffer && selection.stateChannelContract && Object.keys(selection.stateChannelContract).length > 0) {
     const biomeChanMap = BIOME_CHANNELS[selection.biome] || {};
-    const contractEntries = Object.entries(selection.stateChannelContract).map(([key, entry]) => {
+    const contractEntries = (MECHANIC_WRITES[selection.mechanic] || []).map((key) => {
+      const entry = selection.stateChannelContract[key];
       const channel = entry.channel;
       const meaning = biomeChanMap[channel] || '';
       return `${key} → ${channel} (${meaning}): ${entry.effect}`;
@@ -821,7 +856,9 @@ export function assembleBrief(spec, options = {}) {
   });
   const cohRawErrors = cohConflicts.filter((c) => c.severity === 'error');
   const cohWarnings = cohConflicts.filter((c) => c.severity === 'warn');
-  const overrides = spec.coherenceOverrides || [];
+  const overrides = Array.isArray(spec.coherenceOverrides)
+    ? [...spec.coherenceOverrides].sort((a, b) => String(a.rule).localeCompare(String(b.rule)))
+    : [];
 
   const rawErrorRules = new Set(cohRawErrors.map((c) => c.rule));
   const acceptedOverrides = overrides.filter((o) => rawErrorRules.has(o.rule));
@@ -840,12 +877,12 @@ export function assembleBrief(spec, options = {}) {
   let assemblyDecisionsText = `\n\n## Assembly Decisions\n\n` +
     `- **Creative Mode:** ${creativeModeTitle}\n` +
     `- **Path and Base Showcase:** ${selection.path}${selection.baseShowcase ? ` (${selection.baseShowcase})` : ''}\n` +
-    `- **Changed Major Axes:** ${Array.isArray(selection.changedAxes) && selection.changedAxes.length > 0 ? selection.changedAxes.join(', ') : 'none'}\n` +
+    `- **Changed Major Axes:** ${canonicalModel.selection.changedAxes.length > 0 ? canonicalModel.selection.changedAxes.join(', ') : 'none'}\n` +
     `- **Creative Spark:** ${creativeSparkVal}\n` +
     `- **Signature Moment:** ${selection.signatureMoment && selection.signatureMoment.enabled ? `${selection.signatureMoment.text} (Reused system: ${selection.signatureMoment.reusedSystem})` : 'disabled'}\n` +
     `- **Rendering Profile:** ${selection.renderingProfile}\n` +
-    `- **Included Sections:** ${selection.includedSections.length > 0 ? selection.includedSections.join(', ') : 'none'}\n` +
-    `- **Extra Sections:** ${selection.extraSections.length > 0 ? selection.extraSections.join(', ') : 'none'}\n` +
+    `- **Included Sections:** ${canonicalModel.selection.includedSections.length > 0 ? canonicalModel.selection.includedSections.join(', ') : 'none'}\n` +
+    `- **Extra Sections:** ${canonicalModel.selection.extraSections.length > 0 ? canonicalModel.selection.extraSections.join(', ') : 'none'}\n` +
     `- **State Channel Contract:** ${stateChannelDecisionsText}\n` +
     `- **Selection Validation:** clean (${selErrorsCount} errors, ${selWarningsCount} warnings)\n` +
     `- **Coherence Validation:** ${cohStatus} (${cohCountsText})`;
@@ -862,6 +899,8 @@ export function assembleBrief(spec, options = {}) {
 
   result += assemblyDecisionsText + '\n';
 
+  result += `\n\n${renderContractSummary(buildContract)}\n${renderMilestoneInstructions(buildContract)}\n`;
+
   // Final Validation
   const briefVal = validateBrief(result);
   if (!briefVal.ok) {
@@ -872,11 +911,23 @@ export function assembleBrief(spec, options = {}) {
     throw new Error('Assembled brief contains active reference file dependencies');
   }
 
+  const artifactAgreement = validateAssemblyArtifacts({
+    model: canonicalModel,
+    contract: buildContract,
+    brief: result,
+  });
+  if (!artifactAgreement.valid) {
+    throw new Error(`Brief/build-contract agreement failed: ${artifactAgreement.errors.join(' | ')}`);
+  }
+
   return {
     projectName,
     fileName,
     brief: result,
     warnings: cohWarnings,
+    assemblyModel: canonicalModel,
+    buildContract,
+    evidenceTemplate: createEvidenceTemplate(),
   };
 }
 
@@ -903,7 +954,14 @@ export function writeBundle(spec, outDir, options = {}) {
   }
 
   // Preflight 2: Assemble brief to determine output fileName
-  const { projectName, fileName, brief, warnings } = assembleBrief(spec, options);
+  const { projectName, fileName, brief, warnings, buildContract, evidenceTemplate } = assembleBrief(spec, options);
+  const buildContractText = JSON.stringify(buildContract, null, 2) + '\n';
+  const evidenceText = JSON.stringify(evidenceTemplate, null, 2) + '\n';
+  const handoffContent = renderHandoff({
+    fileName,
+    builderAgent: spec.builderAgent,
+    contract: buildContract,
+  });
   const targetDir = path.resolve(outDir);
 
   // Preflight 3: Output directory and verify directory path type checks
@@ -923,7 +981,9 @@ export function writeBundle(spec, outDir, options = {}) {
   // Preflight 4: Target file collisions and type checks
   const targetFiles = [
     path.join(targetDir, fileName),
-    path.join(targetDir, 'HANDOFF.md'),
+    path.join(targetDir, BUILD_CONTRACT_FILENAME),
+    path.join(targetDir, EVIDENCE_FILENAME),
+    path.join(targetDir, HANDOFF_FILENAME),
     path.join(targetDir, 'verify', 'README.md'),
     path.join(targetDir, 'verify', 'gates.mjs'),
     path.join(targetDir, 'verify', 'verify_demo.mjs'),
@@ -948,18 +1008,9 @@ export function writeBundle(spec, outDir, options = {}) {
   fs.mkdirSync(verifyTargetDir, { recursive: true });
 
   fs.writeFileSync(path.join(targetDir, fileName), brief, 'utf8');
-
-  const builderAgentLabel = spec.builderAgent || 'the coding agent named by the user';
-  const handoffContent = `# Handoff\n\n` +
-    `- **Brief:** \`${fileName}\` — give this file to the coding agent, whole. It needs nothing else.\n` +
-    `- **Agent:** ${builderAgentLabel}\n` +
-    `- **When the agent says it is done:** \`npm install -D playwright pngjs && node verify/verify_demo.mjs .\` \n` +
-    `- **On failure:** the verifier lists each problem. Hand the list back to the agent and have it fix and re-run. Do not accept the demo with failures outstanding.\n` +
-    `- **Frame times are reported, not gated** — a slow demo is a decision for you, not a build failure.\n` +
-    `- **Engine version pinning:** When installing the engine during a generated project build, pin the exact resolved engine version in \`package.json\` and the lockfile, record that version in \`DECISIONS.md\`, and avoid floating CDN imports.\n` +
-    `- **Mode decisions:** Record in \`DECISIONS.md\`: creative mode, base showcase or custom path, creative spark or surprise me, final Signature Moment, existing system reused by Signature Moment, any Experimental changed axis, compatibility checks performed, and permitted implementation deviations.\n`;
-
-  fs.writeFileSync(path.join(targetDir, 'HANDOFF.md'), handoffContent, 'utf8');
+  fs.writeFileSync(path.join(targetDir, BUILD_CONTRACT_FILENAME), buildContractText, 'utf8');
+  fs.writeFileSync(path.join(targetDir, EVIDENCE_FILENAME), evidenceText, 'utf8');
+  fs.writeFileSync(path.join(targetDir, HANDOFF_FILENAME), handoffContent, 'utf8');
 
   for (const vf of verifierFiles) {
     const dest = path.join(targetDir, 'verify', vf);

@@ -43,6 +43,8 @@ test('assemble CLI --out creates output bundle and exits 0', () => {
     const parsed = JSON.parse(out);
     assert.equal(parsed.ok, true);
     assert.ok(fs.existsSync(path.join(tmpDir, 'ALPINE_DAWN_TECHDEMO_PROMPT.md')));
+    assert.ok(fs.existsSync(path.join(tmpDir, 'ENVIZZLE_BUILD.json')));
+    assert.ok(fs.existsSync(path.join(tmpDir, 'ENVIZZLE_EVIDENCE.json')));
     assert.ok(fs.existsSync(path.join(tmpDir, 'HANDOFF.md')));
     assert.ok(fs.existsSync(path.join(tmpDir, 'verify', 'README.md')));
     assert.ok(fs.existsSync(path.join(tmpDir, 'verify', 'gates.mjs')));
@@ -50,6 +52,8 @@ test('assemble CLI --out creates output bundle and exits 0', () => {
 
     const handoff = fs.readFileSync(path.join(tmpDir, 'HANDOFF.md'), 'utf8');
     assert.ok(handoff.includes('ALPINE_DAWN_TECHDEMO_PROMPT.md'));
+    assert.ok(handoff.includes('ENVIZZLE_BUILD.json'));
+    assert.ok(handoff.includes('incomplete verification'));
     assert.ok(handoff.includes('Claude Code'));
   } finally {
     removeTempDir(tmpDir);

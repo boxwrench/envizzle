@@ -7,13 +7,15 @@ description: Use when the user wants a visually impressive real-time graphics te
 
 ## What this produces
 
-Three artefacts, written into the user's target project directory:
+Five artefacts, written into the user's target project directory:
 
 | Artefact | What it is |
 |---|---|
 | `<PROJECT>_TECHDEMO_PROMPT.md` | The brief. One self-contained Markdown file. **This is the product.** |
+| `ENVIZZLE_BUILD.json` | Versioned machine-readable build contract generated from the same validated assembly result as the brief. |
+| `ENVIZZLE_EVIDENCE.json` | Empty/incomplete milestone evidence template for screenshots, console findings, performance, weaknesses, and corrections. |
 | `verify/` | A copy of this skill's `verify/` directory (`verify_demo.mjs`, `gates.mjs`, `README.md`). |
-| `HANDOFF.md` | Five lines telling the user which agent gets the brief and how to verify the result. |
+| `HANDOFF.md` | Handoff, contract, evidence, and three-milestone visual self-review instructions. |
 
 The brief must be **self-contained**. The agent that builds from it may be any
 model in any tool, and it will see that one file and nothing else. It cannot open
@@ -34,11 +36,13 @@ these, and Step 4 runs it.
 - `references/showcases.md` — six canonical showcase configurations.
 - `references/character-recipe.md` — the numeric humanoid spec, inlined into every brief.
 - `references/assembly.md` — assembly specification schema, creative input fields, mechanically derived fields, CLI usage, exit codes, and safe overwrite behavior.
+- `references/build-contract.md` — deterministic build contract, milestone workflow, evidence shape, and incomplete verification semantics.
 - `references/benchmarking.md` — benchmark harness, 8-case registry, bundle preparation, automated verification, human visual rubric, result collection, and summary generation.
 - `TEMPLATE.md` — the brief skeleton: 38 `{{TOKEN}}` slots and three `<!--SECTION:name-->` blocks.
 - `selection.mjs` — `validateSelection` and `formatStateChannelContract` (CLI: `node selection.mjs`).
 - `check.mjs` — `validateBrief` and `checkCoherence` (CLI: `node check.mjs`).
 - `assemble.mjs` — deterministic brief assembler and safe output bundle writer (CLI: `node assemble.mjs`).
+- `build-contract.mjs` — versioned contract/evidence schema and Markdown/JSON agreement validation.
 - `benchmark.mjs` — benchmark case registry, bundle preparation, result collection, and comparative summary generation (CLI: `node benchmark.mjs`).
 - `verify/verify_demo.mjs` — the post-build visual verifier.
 
@@ -445,11 +449,13 @@ you are reproducing the failure this skill exists to prevent.
 | `references/showcases.md` | 6 canonical showcase configurations |
 | `references/character-recipe.md` | The humanoid spec, inlined verbatim at `{{CHARACTER_RECIPE}}` |
 | `references/assembly.md` | Assembly schema, creative vs mechanically derived fields, CLI exit codes, safe overwrite rules, strict integrity |
+| `references/build-contract.md` | Build contract schema, milestone workflow, evidence shape, and incomplete verification |
 | `references/benchmarking.md` | Benchmark harness, 8-case registry, bundle preparation, automated verification, human visual rubric, result collection, summary generation |
 | `TEMPLATE.md` | The skeleton: 38 tokens, 3 marked sections, the `window.__demo` hook in §6 |
 | `selection.mjs` | `validateSelection`, `formatStateChannelContract` (CLI: `node selection.mjs`) |
 | `check.mjs` | `validateBrief`, `checkCoherence` (CLI: `node check.mjs`) |
 | `assemble.mjs` | Deterministic brief assembler and safe bundle writer (CLI: `node assemble.mjs`) |
+| `build-contract.mjs` | Deterministic contract/evidence generation and Markdown/JSON agreement validation |
 | `benchmark.mjs` | Benchmark case registry, bundle preparation, result collection, comparative summary generation (CLI: `node benchmark.mjs`) |
 | `reference-loader.mjs` | Strict reference loader with duplicate/unknown entry detection and cross-checking |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |

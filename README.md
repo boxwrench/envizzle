@@ -122,7 +122,7 @@ Assemble a self-contained brief and safe project bundle:
 # Print assembled brief to stdout
 node assemble.mjs assembly.json --stdout
 
-# Emit safe project bundle (<PROJECT>_TECHDEMO_PROMPT.md, HANDOFF.md, verify/)
+# Emit safe project bundle (<PROJECT>_TECHDEMO_PROMPT.md, ENVIZZLE_BUILD.json, ENVIZZLE_EVIDENCE.json, HANDOFF.md, verify/)
 node assemble.mjs assembly.json --out path/to/project
 
 # Overwrite existing bundle target files safely
@@ -221,10 +221,12 @@ image gates cannot run, and the verifier says so instead of passing.
 | `references/showcases.md` | Canonical showcase configurations |
 | `references/character-recipe.md` | The numeric humanoid spec, inlined verbatim into every brief |
 | `references/assembly.md` | Assembly specification schema, input classification, CLI, and bundle rules |
+| `references/build-contract.md` | Deterministic `ENVIZZLE_BUILD.json`, milestone workflow, evidence shape, and incomplete verification |
 | `references/benchmarking.md` | Benchmark case registry, bundle preparation, visual rubric, result collection, summary generation |
 | `selection.mjs` | Selection validator (CLI: `node selection.mjs`) and central registries |
 | `check.mjs` | Brief validator (CLI) plus art-direction coherence rules (`node check.mjs coherence`) |
 | `reference-loader.mjs` | Strict reference loader and token extractor |
+| `build-contract.mjs` | Versioned build contract, milestone evidence, and brief/JSON agreement validator |
 | `assemble.mjs` | Deterministic brief assembler and safe output bundle writer |
 | `benchmark.mjs` | Benchmark CLI and evaluation harness (`node benchmark.mjs`) |
 | `verify/` | Playwright run with structured report generation and image gates |
@@ -235,7 +237,7 @@ image gates cannot run, and the verifier says so instead of passing.
 
 **Envizzle is in public alpha.** Progressive reference loading, central registries,
 operable selection CLI, coherence CLI, deterministic brief assembly, safe project-bundle output,
-machine-readable verification reports, 8-case benchmark registry, bundle preparation, result collection,
+machine-readable verification reports, deterministic build contracts and milestone evidence templates, 8-case benchmark registry, bundle preparation, result collection,
 deterministic Markdown/JSON comparative summaries, human visual rubric, test fixtures, cross-file contract verification,
 and strict assembly integrity are implemented, and all unit tests pass (`npm test`).
 See `references/benchmarking.md` for the benchmarking guide and `docs/2026-07-29-envizzle-skill-design.md` for architectural design rationale.

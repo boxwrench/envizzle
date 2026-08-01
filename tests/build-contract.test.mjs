@@ -1,0 +1,372 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  assembleBrief,
+  writeBundle,
+} from '../assemble.mjs';
+import { SHOWCASES } from '../selection.mjs';
+import {
+  BUILD_CONTRACT_FILENAME,
+  EVIDENCE_FILENAME,
+  HANDOFF_FILENAME,
+  BUILD_CONTRACT_MILESTONES,
+  createEvidenceTemplate,
+  validateAssemblyArtifacts,
+  validateBuildContract,
+  validateMilestoneEvidence,
+} from '../build-contract.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '..');
+
+const clone = (value) => JSON.parse(JSON.stringify(value));
+
+const makeTempDir = () => {
+  const tmp = path.join(repoRoot, 'tests', `tmp-contract-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`);
+  fs.mkdirSync(tmp, { recursive: true });
+  return tmp;
+};
+
+const removeTempDir = (dir) => {
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+};
+
+const allFalseNoveltyBudget = () => ({
+  addsEngine: false,
+  addsAssetCategory: false,
+  addsPersistentBuffer: false,
+  addsMajorRenderPass: false,
+  addsSimulationSubsystem: false,
+  addsInput: false,
+  increasesAmbition: false,
+});
+
+const canonicalShowcaseSpec = (name, creativeMode = 'signature') => {
+  const showcase = SHOWCASES[name];
+  const extraSectionMarkdown = Object.fromEntries(showcase.extraSections.map((section) => [section, `Canonical ${section} content for ${name}.`]));
+  return {
+    selection: {
+      creativeMode,
+      path: 'showcase',
+      baseShowcase: name,
+      changedAxes: [],
+      ambition: showcase.ambition,
+      biome: showcase.biome,
+      archetype: showcase.archetype,
+      mechanic: showcase.mechanic,
+      camera: showcase.camera,
+      renderingProfile: showcase.renderingProfile,
+      includedSections: showcase.includedSections,
+      extraSections: showcase.extraSections,
+      cameraAdjustments: showcase.cameraAdjustments,
+      stateChannelContract: showcase.stateChannelContract,
+      signatureMoment: creativeMode === 'proven'
+        ? { enabled: false, text: '', reusedSystem: '', verificationPose: 'mechanic' }
+        : { enabled: true, text: `A bounded Signature Moment for ${name}.`, reusedSystem: 'particles', verificationPose: 'mechanic' },
+      noveltyBudget: allFalseNoveltyBudget(),
+    },
+    builderAgent: 'Claude Code',
+    ...(Object.keys(extraSectionMarkdown).length > 0 ? { extraSectionMarkdown } : {}),
+  };
+};
+
+const validSignature = () => JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'signature-alpine.json'), 'utf8'));
+
+test('all six canonical showcases produce valid deterministic build contracts', () => {
+  for (const name of Object.keys(SHOWCASES)) {
+    const result = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
+    const repeated = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
+    const contractValidation = validateBuildContract(result.buildContract);
+    const evidenceValidation = validateMilestoneEvidence(result.evidenceTemplate);
+    assert.equal(contractValidation.valid, true, `${name}: ${contractValidation.errors.join('; ')}`);
+    assert.equal(evidenceValidation.valid, true, `${name}: ${evidenceValidation.errors.join('; ')}`);
+    assert.deepEqual(result.buildContract.milestones.map((milestone) => milestone.id), BUILD_CONTRACT_MILESTONES.map((milestone) => milestone.id));
+    assert.equal(result.brief, repeated.brief, `${name}: Markdown output is not deterministic`);
+    assert.equal(JSON.stringify(result.buildContract, null, 2), JSON.stringify(repeated.buildContract, null, 2), `${name}: JSON output is not deterministic`);
+    assert.equal(validateAssemblyArtifacts({ model: result.assemblyModel, contract: result.buildContract, brief: result.brief }).valid, true);
+  }
+});
+
+test('mode coverage preserves Proven, Signature, Experimental camera, and fully custom contracts', () => {
+  const proven = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'proven-dune.json'), 'utf8'));
+  const signature = validSignature();
+  const experimentalCamera = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'experimental-base-camera.json'), 'utf8'));
+  const fullyCustom = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'experimental-fully-custom.json'), 'utf8'));
+
+  const provenContract = assembleBrief(proven, { rootDir: repoRoot }).buildContract;
+  const signatureContract = assembleBrief(signature, { rootDir: repoRoot }).buildContract;
+  const cameraContract = assembleBrief(experimentalCamera, { rootDir: repoRoot }).buildContract;
+  const customContract = assembleBrief(fullyCustom, { rootDir: repoRoot }).buildContract;
+
+  assert.equal(provenContract.selection.creativeMode, 'proven');
+  assert.equal(provenContract.creative.signatureMoment.enabled, false);
+  assert.equal(signatureContract.selection.creativeMode, 'signature');
+  assert.equal(signatureContract.creative.signatureMoment.enabled, true);
+  assert.deepEqual(cameraContract.selection.changedAxes, ['camera']);
+  assert.equal(cameraContract.selection.path, 'base-showcase');
+  assert.equal(customContract.selection.path, 'fully-custom');
+  assert.equal(customContract.selection.baseShowcase, null);
+  for (const contract of [provenContract, signatureContract, cameraContract, customContract]) {
+    assert.equal(validateBuildContract(contract).valid, true);
+    assert.deepEqual(Object.values(contract.creative.noveltyBudget), [false, false, false, false, false, false, false]);
+  }
+});
+
+test('generated bundle contains deterministic contract and incomplete evidence template', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const spec = validSignature();
+    const assembled = assembleBrief(spec, { rootDir: repoRoot });
+    writeBundle(spec, tmpDir, { rootDir: repoRoot });
+    const contractPath = path.join(tmpDir, BUILD_CONTRACT_FILENAME);
+    const evidencePath = path.join(tmpDir, EVIDENCE_FILENAME);
+    const contractText = fs.readFileSync(contractPath, 'utf8');
+    const evidenceText = fs.readFileSync(evidencePath, 'utf8');
+    assert.equal(contractText.endsWith('\n'), true);
+    assert.equal(evidenceText.endsWith('\n'), true);
+    assert.equal(validateBuildContract(JSON.parse(contractText)).valid, true);
+    const evidence = JSON.parse(evidenceText);
+    assert.equal(evidence.status, 'incomplete verification');
+    assert.equal(validateMilestoneEvidence(evidence).valid, true);
+    assert.deepEqual(evidence.milestones.map((milestone) => milestone.id), ['first-runnable-scene', 'systems-complete', 'final-polish']);
+    const handoff = fs.readFileSync(path.join(tmpDir, HANDOFF_FILENAME), 'utf8');
+    const brief = fs.readFileSync(path.join(tmpDir, assembled.fileName), 'utf8');
+    assert.match(handoff, /first-runnable-scene.*systems-complete.*final-polish/s);
+    assert.match(handoff, /incomplete verification/);
+    assert.match(brief, /Implementation Milestones and Visual Self-Review/);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('repeated assembly produces byte-identical Markdown and JSON contract output', () => {
+  const first = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const second = assembleBrief(validSignature(), { rootDir: repoRoot });
+  assert.equal(first.brief, second.brief);
+  assert.equal(JSON.stringify(first.buildContract, null, 2) + '\n', JSON.stringify(second.buildContract, null, 2) + '\n');
+});
+
+const assertInvalidContractMutation = (label, mutate) => {
+  const result = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const mutated = clone(result.buildContract);
+  const before = JSON.stringify(mutated);
+  mutate(mutated);
+  assert.notEqual(JSON.stringify(mutated), before, `${label} mutation must change the generated contract`);
+  const validation = validateBuildContract(mutated);
+  assert.equal(validation.valid, false, `${label} must be rejected`);
+  return validation.errors.join('; ');
+};
+
+test('adversarial contract mutation: JSON Signature versus Proven brief is rejected', () => {
+  const errors = assertInvalidContractMutation('creative mode', (contract) => {
+    contract.selection.creativeMode = 'proven';
+  });
+  assert.match(errors, /Proven mode|signature/i);
+});
+
+test('adversarial contract mutation: different camera is rejected', () => {
+  const errors = assertInvalidContractMutation('camera', (contract) => {
+    contract.selection.camera = 'Cinematic';
+  });
+  assert.match(errors, /camera|selection contract/i);
+});
+
+test('adversarial contract mutation: omitted state channel is rejected', () => {
+  const errors = assertInvalidContractMutation('missing state channel', (contract) => {
+    delete contract.stateChannels.channels.depression;
+  });
+  assert.match(errors, /stateChannels|missing|required/i);
+});
+
+test('adversarial contract mutation: unknown state channel is rejected', () => {
+  const errors = assertInvalidContractMutation('unknown state channel', (contract) => {
+    contract.stateChannels.channels.unknown = clone(contract.stateChannels.channels.depression);
+  });
+  assert.match(errors, /stateChannels|exactly/i);
+});
+
+test('adversarial contract mutation: novelty budget expansion is rejected', () => {
+  const errors = assertInvalidContractMutation('novelty budget', (contract) => {
+    contract.creative.noveltyBudget.addsInput = true;
+  });
+  assert.match(errors, /noveltyBudget|false/i);
+});
+
+test('adversarial contract mutation: wrong base showcase is rejected', () => {
+  const errors = assertInvalidContractMutation('base showcase', (contract) => {
+    contract.selection.baseShowcase = 'Dune Sea';
+  });
+  assert.match(errors, /showcase|selection contract/i);
+});
+
+test('adversarial contract mutation: contradictory included and omitted sections is rejected', () => {
+  const errors = assertInvalidContractMutation('section omission', (contract) => {
+    contract.selection.omittedOptionalSections = [];
+  });
+  assert.match(errors, /omitted|contradict/i);
+});
+
+test('adversarial contract mutation: missing, duplicate, and reordered milestones are rejected', () => {
+  const missing = assertInvalidContractMutation('missing milestone', (contract) => {
+    contract.milestones.pop();
+  });
+  assert.match(missing, /milestones|exactly/i);
+
+  const duplicate = assertInvalidContractMutation('duplicate milestone', (contract) => {
+    contract.milestones[1] = clone(contract.milestones[0]);
+  });
+  assert.match(duplicate, /milestones|must equal/i);
+
+  const reordered = assertInvalidContractMutation('reordered milestones', (contract) => {
+    [contract.milestones[0], contract.milestones[1]] = [contract.milestones[1], contract.milestones[0]];
+  });
+  assert.match(reordered, /milestones|must equal/i);
+});
+
+test('adversarial contract mutation: milestone screenshot requirements cannot be removed', () => {
+  const errors = assertInvalidContractMutation('milestone screenshot requirement', (contract) => {
+    delete contract.milestones[0].requiredScreenshotEvidence;
+  });
+  assert.match(errors, /milestones|missing|required/i);
+});
+
+test('contract rejects unknown keys at every schema level', () => {
+  const paths = [
+    ['top level', (contract) => { contract.unexpected = true; }],
+    ['project', (contract) => { contract.project.unexpected = true; }],
+    ['selection', (contract) => { contract.selection.unexpected = true; }],
+    ['state channels', (contract) => { contract.stateChannels.unexpected = true; }],
+    ['state channel entry', (contract) => { contract.stateChannels.channels.depression.unexpected = true; }],
+    ['baseline', (contract) => { contract.stateChannels.channels.depression.baselineOrReset.unexpected = true; }],
+    ['creative', (contract) => { contract.creative.unexpected = true; }],
+    ['signature moment', (contract) => { contract.creative.signatureMoment.unexpected = true; }],
+    ['novelty budget', (contract) => { contract.creative.noveltyBudget.unexpected = true; }],
+    ['coherence override', (contract) => { contract.creative.coherenceOverrides.push({ rule: 'new-rule', reason: 'new reason', unexpected: true }); }],
+    ['acceptance', (contract) => { contract.acceptance.unexpected = true; }],
+    ['milestone', (contract) => { contract.milestones[0].unexpected = true; }],
+  ];
+  for (const [label, mutate] of paths) {
+    assertInvalidContractMutation(`unknown ${label} key`, mutate);
+  }
+});
+
+test('adversarial evidence mutation: false complete status without evidence is rejected', () => {
+  const evidence = createEvidenceTemplate();
+  evidence.status = 'complete';
+  const before = JSON.stringify(evidence);
+  assert.notEqual(evidence.status, 'incomplete verification');
+  const validation = validateMilestoneEvidence(evidence);
+  assert.equal(JSON.stringify(evidence), before);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /complete|milestone/i);
+});
+
+test('adversarial evidence mutation: missing screenshot capability cannot silently pass', () => {
+  const evidence = createEvidenceTemplate();
+  evidence.status = 'complete';
+  for (const milestone of evidence.milestones) {
+    milestone.status = 'complete';
+    milestone.performance = { fps: 60, frameTimeMs: 16.67 };
+    milestone.visualSelfReview.reviewed = true;
+  }
+  const before = JSON.stringify(evidence);
+  assert.equal(evidence.milestones.every((milestone) => milestone.screenshots.length === 0), true);
+  const validation = validateMilestoneEvidence(evidence);
+  assert.equal(JSON.stringify(evidence), before);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /screenshots/i);
+});
+
+test('brief and generated JSON contract cross-validation rejects valid-shaped disagreement', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const spec = validSignature();
+    const assembled = assembleBrief(spec, { rootDir: repoRoot });
+    writeBundle(spec, tmpDir, { rootDir: repoRoot });
+    const generatedContract = JSON.parse(fs.readFileSync(path.join(tmpDir, BUILD_CONTRACT_FILENAME), 'utf8'));
+    generatedContract.creative.creativeSpark = 'different but valid spark';
+    assert.notEqual(generatedContract.creative.creativeSpark, assembled.buildContract.creative.creativeSpark);
+    assert.equal(validateBuildContract(generatedContract).valid, true, 'The mutation remains schema-valid so agreement must catch it');
+    const jsonAgreement = validateAssemblyArtifacts({ model: assembled.assemblyModel, contract: generatedContract, brief: assembled.brief });
+    assert.equal(jsonAgreement.valid, false);
+
+    const mutatedModel = clone(assembled.assemblyModel);
+    mutatedModel.project.renderingParadigm = 'Ghibli-Style Painterly Anime';
+    assert.notEqual(mutatedModel.project.renderingParadigm, assembled.assemblyModel.project.renderingParadigm);
+    const modelAgreement = validateAssemblyArtifacts({ model: mutatedModel, contract: assembled.buildContract, brief: assembled.brief });
+    assert.equal(modelAgreement.valid, false);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('verifier source read failure leaves destination completely unchanged', () => {
+  const tmpDir = makeTempDir();
+  const originalReadFileSync = fs.readFileSync;
+  try {
+    const sentinel = path.join(tmpDir, 'sentinel.txt');
+    fs.writeFileSync(sentinel, 'preserve me', 'utf8');
+    const sourcePath = path.join(repoRoot, 'verify', 'gates.mjs');
+    fs.readFileSync = function patchedReadFileSync(filePath, ...args) {
+      if (path.resolve(String(filePath)) === sourcePath) throw new Error('forced verifier read failure');
+      return originalReadFileSync.call(this, filePath, ...args);
+    };
+    assert.throws(() => writeBundle(validSignature(), tmpDir, { rootDir: repoRoot, force: true }), /Missing or unreadable verifier source file/);
+    assert.deepEqual(fs.readdirSync(tmpDir), ['sentinel.txt']);
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'preserve me');
+  } finally {
+    fs.readFileSync = originalReadFileSync;
+    removeTempDir(tmpDir);
+  }
+});
+
+test('force output preserves unrelated sentinels while owning contract and evidence files', () => {
+  const tmpDir = makeTempDir();
+  try {
+    writeBundle(validSignature(), tmpDir, { rootDir: repoRoot });
+    const sentinel = path.join(tmpDir, 'UNRELATED.txt');
+    fs.writeFileSync(sentinel, 'sentinel', 'utf8');
+    const contractPath = path.join(tmpDir, BUILD_CONTRACT_FILENAME);
+    fs.writeFileSync(contractPath, 'changed', 'utf8');
+    writeBundle(validSignature(), tmpDir, { rootDir: repoRoot, force: true });
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'sentinel');
+    assert.equal(validateBuildContract(JSON.parse(fs.readFileSync(contractPath, 'utf8'))).valid, true);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('output collision leaves every existing bundle file byte-identical', () => {
+  const tmpDir = makeTempDir();
+  try {
+    writeBundle(validSignature(), tmpDir, { rootDir: repoRoot });
+    const before = new Map();
+    const collect = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const entryPath = path.join(dir, entry.name);
+        const relative = path.relative(tmpDir, entryPath);
+        if (entry.isDirectory()) collect(entryPath);
+        else before.set(relative, fs.readFileSync(entryPath));
+      }
+    };
+    collect(tmpDir);
+    assert.throws(() => writeBundle(validSignature(), tmpDir, { rootDir: repoRoot }), /Destination collision/);
+    const after = new Map();
+    const collectAfter = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const entryPath = path.join(dir, entry.name);
+        const relative = path.relative(tmpDir, entryPath);
+        if (entry.isDirectory()) collectAfter(entryPath);
+        else after.set(relative, fs.readFileSync(entryPath));
+      }
+    };
+    collectAfter(tmpDir);
+    assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort());
+    for (const [relative, contents] of before) assert.deepEqual(after.get(relative), contents, relative);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
