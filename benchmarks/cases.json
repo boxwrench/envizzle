@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "dune-proven",
+      "title": "Dune Sea (Proven Mode)",
+      "suites": ["smoke", "full"],
+      "baseShowcase": "Dune Sea",
+      "creativeMode": "proven",
+      "path": "showcase",
+      "changedAxes": [],
+      "creativeSpark": null,
+      "coverageNotes": "Proven mode baseline for Dune Sea with procedural sand ripples and board surf mechanic."
+    },
+    {
+      "id": "alpine-signature",
+      "title": "Alpine Dawn (Signature Mode)",
+      "suites": ["smoke", "full"],
+      "baseShowcase": "Alpine Dawn",
+      "creativeMode": "signature",
+      "path": "showcase",
+      "changedAxes": [],
+      "creativeSpark": "carve a crisp line through pristine powder",
+      "signatureMoment": {
+        "enabled": true,
+        "text": "A high-speed carving turn kicks up a glittering fan of snow particles across the ridge",
+        "reusedSystem": "particles",
+        "verificationPose": "mechanic"
+      },
+      "coverageNotes": "Canonical Signature showcase for Alpine Dawn photoreal snow carving."
+    },
+    {
+      "id": "hoshi-signature",
+      "title": "Hoshi-no-Tani (Signature Mode)",
+      "suites": ["full"],
+      "baseShowcase": "Hoshi-no-Tani",
+      "creativeMode": "signature",
+      "path": "showcase",
+      "changedAxes": [],
+      "creativeSpark": "drift under ghibli anime autumn foliage",
+      "signatureMoment": {
+        "enabled": true,
+        "text": "A sudden breeze sweeps crimson maple leaves into a swirling vortex following the traveller",
+        "reusedSystem": "foliage",
+        "verificationPose": "mechanic"
+      },
+      "coverageNotes": "Canonical Signature showcase for Hoshi-no-Tani painterly anime foliage and shrine architecture."
+    },
+    {
+      "id": "dune-signature",
+      "title": "Dune Sea (Signature Mode)",
+      "suites": ["full"],
+      "baseShowcase": "Dune Sea",
+      "creativeMode": "signature",
+      "path": "showcase",
+      "changedAxes": [],
+      "creativeSpark": "surf vast golden dunes under blazing sun",
+      "signatureMoment": {
+        "enabled": true,
+        "text": "A crest-hopping leap launches a spray of sand grains that glisten against the sun disc",
+        "reusedSystem": "particles",
+        "verificationPose": "mechanic"
+      },
+      "coverageNotes": "Canonical Signature showcase for Dune Sea sand dunes."
+    },
+    {
+      "id": "tidal-signature",
+      "title": "Tidal Shelf (Signature Mode)",
+      "suites": ["full"],
+      "baseShowcase": "Tidal Shelf",
+      "creativeMode": "signature",
+      "path": "showcase",
+      "changedAxes": [],
+      "creativeSpark": "glide over wet tidal flats reflecting twilight sky",
+      "signatureMoment": {
+        "enabled": true,
+        "text": "Footsteps leave glowing bioluminescent ripples across the wet sand mirror",
+        "reusedSystem": "ripples",
+        "verificationPose": "mechanic"
+      },
+      "coverageNotes": "Canonical Signature showcase for Tidal Shelf wet sand and tidal flats."
+    },
+    {
+      "id": "ember-signature",
+      "title": "Emberfall (Signature Mode)",
+      "suites": ["full"],
+      "baseShowcase": "Emberfall",
+      "creativeMode": "signature",
+      "path": "showcase",
+      "changedAxes": [],
+      "creativeSpark": "traverse obsidian basalt fields with volcanic embers",
+      "signatureMoment": {
+        "enabled": true,
+        "text": "A landing stomp shatters cooled crust to reveal glowing magma veins underneath",
+        "reusedSystem": "lava",
+        "verificationPose": "mechanic"
+      },
+      "coverageNotes": "Canonical Signature showcase for Emberfall volcanic basalt crust."
+    },
+    {
+      "id": "neon-signature",
+      "title": "Neon Monsoon (Signature Mode)",
+      "suites": ["full"],
+      "baseShowcase": "Neon Monsoon",
+      "creativeMode": "signature",
+      "path": "showcase",
+      "changedAxes": [],
+      "creativeSpark": "dash through rain-slick cyberpunk alleyways",
+      "signatureMoment": {
+        "enabled": true,
+        "text": "A sharp turn splashes neon-lit puddle water up reflecting holographic signs",
+        "reusedSystem": "water",
+        "verificationPose": "mechanic"
+      },
+      "coverageNotes": "Canonical Signature showcase for Neon Monsoon rain-slick neon streets."
+    },
+    {
+      "id": "alpine-experimental-camera",
+      "title": "Alpine Dawn (Experimental Camera Axis)",
+      "suites": ["smoke", "full"],
+      "baseShowcase": "Alpine Dawn",
+      "creativeMode": "experimental",
+      "path": "base-showcase",
+      "changedAxes": ["camera"],
+      "camera": "Cinematic",
+      "cameraAdjustments": ["verification-framing"],
+      "creativeSpark": "cinematic low-angle camera following high-speed mountain carve",
+      "signatureMoment": {
+        "enabled": true,
+        "text": "Camera sweeps low alongside the board as powder snow sprays past the lens",
+        "reusedSystem": "particles",
+        "verificationPose": "mechanic"
+      },
+      "coverageNotes": "Experimental mode changing exactly camera axis from Third Person to Cinematic."
+    }
+  ]
+}

@@ -61,11 +61,12 @@ export function changedAreaFraction(a, b, threshold = 0.02) {
 
 /**
  * Run every gate over a captured run.
- * @returns {{pass: boolean, failures: string[], info: string[]}}
+ * @returns {{pass: boolean, failures: string[], info: string[], metrics: object}}
  */
 export function evaluateGates({ frames, cameraDepthM, frameStats }) {
   const failures = [];
   const info = [];
+  const metricFrames = [];
 
   // Guard the inputs before gating on them. Every numeric comparison below is
   // false for NaN and undefined, so a hook that returns nothing would sail
@@ -91,34 +92,45 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
   }
 
   for (const { name, image, imageWithoutCharacter } of frames ?? []) {
-    const lum = meanLuminance(image);
-    info.push(`[${name}] mean luminance ${lum.toFixed(3)}`);
-    if (lum < THRESHOLDS.meanLuminanceMin || lum > THRESHOLDS.meanLuminanceMax) {
-      failures.push(
-        `[${name}] mean luminance ${lum.toFixed(3)} outside [${THRESHOLDS.meanLuminanceMin}, ${THRESHOLDS.meanLuminanceMax}] — frame is near-black or blown out.`,
-      );
-    }
+    const lum = image ? meanLuminance(image) : null;
+    const flat = image ? flatFrameRatio(image) : null;
+    let charFraction = null;
 
-    const flat = flatFrameRatio(image);
-    if (flat > THRESHOLDS.flatFrameMaxRatio) {
-      failures.push(
-        `[${name}] ${(flat * 100).toFixed(0)}% of pixels share one luminance bucket (cap ${THRESHOLDS.flatFrameMaxRatio * 100}%) — frame is effectively blank.`,
-      );
-    }
-
-    if (imageWithoutCharacter) {
-      const area = changedAreaFraction(image, imageWithoutCharacter);
-      info.push(`[${name}] character covers ${(area * 100).toFixed(1)}% of frame`);
-      if (area < THRESHOLDS.characterAreaMin) {
+    if (image) {
+      info.push(`[${name}] mean luminance ${lum.toFixed(3)}`);
+      if (lum < THRESHOLDS.meanLuminanceMin || lum > THRESHOLDS.meanLuminanceMax) {
         failures.push(
-          `[${name}] character covers ${(area * 100).toFixed(1)}% of frame (floor ${THRESHOLDS.characterAreaMin * 100}%) — character is missing, off-screen, or occluded.`,
+          `[${name}] mean luminance ${lum.toFixed(3)} outside [${THRESHOLDS.meanLuminanceMin}, ${THRESHOLDS.meanLuminanceMax}] — frame is near-black or blown out.`,
         );
-      } else if (area > THRESHOLDS.characterAreaMax) {
+      }
+
+      if (flat > THRESHOLDS.flatFrameMaxRatio) {
         failures.push(
-          `[${name}] character covers ${(area * 100).toFixed(1)}% of frame (cap ${THRESHOLDS.characterAreaMax * 100}%) — camera is too close to read the environment.`,
+          `[${name}] ${(flat * 100).toFixed(0)}% of pixels share one luminance bucket (cap ${THRESHOLDS.flatFrameMaxRatio * 100}%) — frame is effectively blank.`,
         );
       }
     }
+
+    if (image && imageWithoutCharacter) {
+      charFraction = changedAreaFraction(image, imageWithoutCharacter);
+      info.push(`[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame`);
+      if (charFraction < THRESHOLDS.characterAreaMin) {
+        failures.push(
+          `[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame (floor ${THRESHOLDS.characterAreaMin * 100}%) — character is missing, off-screen, or occluded.`,
+        );
+      } else if (charFraction > THRESHOLDS.characterAreaMax) {
+        failures.push(
+          `[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame (cap ${THRESHOLDS.characterAreaMax * 100}%) — camera is too close to read the environment.`,
+        );
+      }
+    }
+
+    metricFrames.push({
+      name: name ?? 'unknown',
+      meanLuminance: typeof lum === 'number' && Number.isFinite(lum) ? lum : null,
+      flatFrameRatio: typeof flat === 'number' && Number.isFinite(flat) ? flat : null,
+      characterAreaFraction: typeof charFraction === 'number' && Number.isFinite(charFraction) ? charFraction : null,
+    });
   }
 
   if (Number.isFinite(cameraDepthM) && cameraDepthM < THRESHOLDS.cameraMinDepthM) {
@@ -135,5 +147,15 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
     );
   }
 
-  return { pass: failures.length === 0, failures, info };
+  const metrics = {
+    frames: metricFrames,
+    cameraNearestDepthM: typeof cameraDepthM === 'number' && Number.isFinite(cameraDepthM) ? cameraDepthM : null,
+    frameStats: {
+      medianMs: typeof frameStats?.medianMs === 'number' && Number.isFinite(frameStats.medianMs) ? frameStats.medianMs : null,
+      p99Ms: typeof frameStats?.p99Ms === 'number' && Number.isFinite(frameStats.p99Ms) ? frameStats.p99Ms : null,
+      samples: typeof frameStats?.samples === 'number' && Number.isFinite(frameStats.samples) ? frameStats.samples : null,
+    },
+  };
+
+  return { pass: failures.length === 0, failures, info, metrics };
 }

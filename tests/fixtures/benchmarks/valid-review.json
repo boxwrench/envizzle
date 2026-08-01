@@ -1,0 +1,12 @@
+{
+  "reviewer": "Alice Reviewer",
+  "scores": {
+    "compositionReadability": 4,
+    "materialCoherence": 5,
+    "characterCraft": 4,
+    "mechanicLegibility": 4,
+    "creativeIdentity": 5,
+    "scopeDiscipline": 4
+  },
+  "notes": "Excellent atmosphere, strong material coherence and authored visual identity."
+}

@@ -6,7 +6,9 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "selection": "node selection.mjs",
-    "assemble": "node assemble.mjs"
+    "assemble": "node assemble.mjs",
+    "verify": "node verify/verify_demo.mjs",
+    "benchmark": "node benchmark.mjs"
   },
   "devDependencies": {
     "pngjs": "^7.0.0",

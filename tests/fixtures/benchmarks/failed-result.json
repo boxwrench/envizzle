@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "caseId": "dune-proven",
+  "modelLabel": "claude-3-7-sonnet",
+  "attempt": 1,
+  "briefSha256": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "automated": {
+    "status": "failed",
+    "pass": false,
+    "hardGateFailures": [
+      "build failed: Syntax error in src/main.js"
+    ],
+    "hardGateFailureCount": 1,
+    "metrics": {
+      "frames": [],
+      "cameraNearestDepthM": null,
+      "frameStats": {
+        "medianMs": null,
+        "p99Ms": null,
+        "samples": null
+      }
+    }
+  },
+  "humanReview": null,
+  "eligible": false
+}

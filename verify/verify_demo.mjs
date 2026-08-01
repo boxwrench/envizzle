@@ -1,54 +1,111 @@
 import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { evaluateGates } from './gates.mjs';
+import { createVerificationReport, writeVerificationReport } from './report.mjs';
 
-const targetDir = process.argv[2] ? path.resolve(process.argv[2]) : process.cwd();
-const failures = [];
-const fail = (m) => { failures.push(m); console.error(`FAIL: ${m}`); };
-const pass = (m) => console.log(`PASS: ${m}`);
+const REQUIRED_PATHS = Object.freeze([
+  'index.html',
+  'package.json',
+  'vite.config.js',
+  'DECISIONS.md',
+  'PERF.md',
+  'src/main.js',
+]);
 
-for (const rel of ['index.html', 'package.json', 'vite.config.js', 'DECISIONS.md', 'PERF.md', 'src/main.js']) {
-  if (fs.existsSync(path.join(targetDir, rel))) pass(`found ${rel}`);
-  else fail(`missing required path: ${rel}`);
+export function parseVerifyCliArgs(args) {
+  let projectDir = null;
+  let reportPath = null;
+  let screenshotsDir = null;
+  let help = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--help' || arg === '-h') {
+      help = true;
+    } else if (arg === '--report') {
+      if (i + 1 >= args.length || args[i + 1].startsWith('-')) {
+        throw new Error('Missing path for --report option');
+      }
+      reportPath = args[++i];
+    } else if (arg === '--screenshots') {
+      if (i + 1 >= args.length || args[i + 1].startsWith('-')) {
+        throw new Error('Missing directory for --screenshots option');
+      }
+      screenshotsDir = args[++i];
+    } else if (arg.startsWith('-')) {
+      throw new Error(`Unknown option '${arg}'`);
+    } else {
+      if (projectDir !== null) {
+        throw new Error(`Unexpected positional argument '${arg}'`);
+      }
+      projectDir = arg;
+    }
+  }
+
+  if (help) {
+    return { help: true };
+  }
+
+  const resolvedTarget = projectDir ? path.resolve(projectDir) : process.cwd();
+  const resolvedReport = reportPath
+    ? path.resolve(reportPath)
+    : path.join(resolvedTarget, 'verify-report.json');
+  const resolvedScreenshots = screenshotsDir
+    ? path.resolve(screenshotsDir)
+    : path.join(resolvedTarget, 'screenshots');
+
+  return {
+    help: false,
+    projectDir: resolvedTarget,
+    reportPath: resolvedReport,
+    screenshotsDir: resolvedScreenshots,
+  };
 }
 
-try {
-  execSync('npx vite build', { cwd: targetDir, stdio: 'pipe' });
-  pass('production build compiled with zero errors');
-} catch (err) {
-  fail(`build failed: ${err.stderr?.toString() ?? err.message}`);
+export function printVerifyHelp() {
+  console.log(`Envizzle Demo Verifier
+
+Usage:
+  node verify/verify_demo.mjs [project-directory] [options]
+
+Options:
+  --report <report.json>       Path to write machine-readable verification report (default: <project-directory>/verify-report.json)
+  --screenshots <directory>   Directory to save captured PNG screenshots (default: <project-directory>/screenshots/)
+  --help, -h                  Show this help menu
+
+Exit codes:
+  0  Verification passed
+  1  Verification failed
+  2  Usage or operational error
+`);
 }
 
-const toImage = (buf) => {
+function toImage(buf) {
   const png = PNG.sync.read(buf);
   return { width: png.width, height: png.height, data: png.data };
-};
+}
 
-/**
- * Kill a spawned server and everything it started.
- *
- * `spawn(..., {shell: true}).kill()` kills the shell, not the tree, so on
- * Windows vite and its esbuild child survive and keep holding the port. A
- * leaked server is not merely untidy: the next run can poll it and verify a
- * stale demo, reporting success for code that never ran.
- */
 function killTree(child) {
-  if (!child.pid) return;
+  if (!child || !child.pid) return;
   try {
     if (process.platform === 'win32') {
       execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
     } else {
-      process.kill(-child.pid, 'SIGKILL');   // negative pid = process group
+      process.kill(-child.pid, 'SIGKILL');
     }
   } catch {
-    // Already dead, or never started. Fall through to the direct kill.
+    // Already dead
   }
-  try { child.kill(); } catch { /* nothing left to kill */ }
+  try {
+    child.kill();
+  } catch {
+    // Already killed
+  }
 }
 
-/** Poll until the dev server answers, or throw after timeoutMs. */
 async function waitForServer(url, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let lastErr;
@@ -66,107 +123,227 @@ async function waitForServer(url, timeoutMs) {
   );
 }
 
-async function run() {
-  const playwright = await import('playwright');
+export async function verifyDemo(projectDir, options = {}) {
+  const startedAt = new Date().toISOString();
+  const startTime = Date.now();
+  const targetDir = path.resolve(projectDir);
+  const targetName = path.basename(targetDir);
+  const reportPath = options.reportPath
+    ? path.resolve(options.reportPath)
+    : path.join(targetDir, 'verify-report.json');
+  const shotDir = options.screenshotsDir
+    ? path.resolve(options.screenshotsDir)
+    : path.join(targetDir, 'screenshots');
 
-  // A random high port, not the well-known 5173. If a previous run leaked a
-  // vite process, binding 5173 again would make the readiness poll succeed
-  // against THAT server and verify the previous demo. --strictPort turns a
-  // collision into a loud failure instead of vite silently sliding to the
-  // next free port while we poll the wrong one.
-  const port = 5300 + Math.floor(Math.random() * 600);
-  const origin = `http://localhost:${port}`;
-  const server = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
-    cwd: targetDir,
-    shell: true,
-    detached: process.platform !== 'win32',
-  });
+  const failures = [];
+  const logInfo = [];
+  const fail = (m) => {
+    failures.push(m);
+    if (!options.silent) console.error(`FAIL: ${m}`);
+  };
+  const pass = (m) => {
+    if (!options.silent) console.log(`PASS: ${m}`);
+  };
 
-  // Wait for the dev server to actually accept connections. Without this, a
-  // slow vite boot yields ERR_CONNECTION_REFUSED, which surfaces as
-  // "verification crashed" and reads like a defect in the demo.
-  //
-  // The kill-on-throw matters more than it looks: this happens BEFORE the
-  // try/finally below, so without it a timeout orphans the server process,
-  // and the next run could poll a stale one. Same vacuous-pass class this
-  // whole module exists to eliminate.
-  try {
-    await waitForServer(origin, 30000);
-  } catch (err) {
-    killTree(server);
-    throw err;
+  // Check required paths
+  const missingPaths = [];
+  for (const rel of REQUIRED_PATHS) {
+    if (fs.existsSync(path.join(targetDir, rel))) {
+      pass(`found ${rel}`);
+    } else {
+      missingPaths.push(rel);
+      fail(`missing required path: ${rel}`);
+    }
   }
 
-  const browser = await playwright.chromium.launch({
-    headless: true,
-    args: ['--enable-unsafe-webgpu', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
-  });
+  let buildOk = missingPaths.length === 0;
+  let buildError = missingPaths.length > 0 ? `Missing required paths: ${missingPaths.join(', ')}` : null;
 
-  try {
-    const page = await browser.newPage({ viewport: { width: 2560, height: 1440 } });
-    const pageErrors = [];
-    page.on('pageerror', (e) => pageErrors.push(e.message));
-    page.on('console', (m) => { if (m.type() === 'error') pageErrors.push(m.text()); });
-
-    await page.goto(origin, { waitUntil: 'networkidle' });
-
-    // Without the hook nothing below is checkable.
+  if (buildOk) {
     try {
-      await page.waitForFunction('window.__demo && window.__demo.ready === true', { timeout: 30000 });
-      pass('window.__demo hook present and ready');
-    } catch {
-      fail('window.__demo hook missing or never became ready — see the brief\'s verification-hook section. Cannot verify.');
-      return;
+      execSync('npx vite build', { cwd: targetDir, stdio: 'pipe' });
+      pass('production build compiled with zero errors');
+    } catch (err) {
+      buildOk = false;
+      buildError = `build failed: ${err.stderr?.toString() ?? err.message}`;
+      fail(buildError);
     }
-
-    if (pageErrors.length === 0) pass('zero console/runtime errors');
-    else fail(`runtime errors: ${pageErrors.join(' | ')}`);
-
-    const frames = [];
-    const shotDir = path.join(targetDir, 'screenshots');
-    fs.mkdirSync(shotDir, { recursive: true });
-
-    for (const pose of ['idle', 'locomotion', 'mechanic']) {
-      await page.evaluate((p) => window.__demo.setPose(p), pose);
-      await page.waitForTimeout(1200);
-
-      const withCharBuf = await page.screenshot();
-      await page.evaluate(() => window.__demo.setCharacterVisible(false));
-      await page.waitForTimeout(300);
-      const withoutCharBuf = await page.screenshot();
-      await page.evaluate(() => window.__demo.setCharacterVisible(true));
-
-      frames.push({
-        name: pose,
-        image: toImage(withCharBuf),
-        imageWithoutCharacter: toImage(withoutCharBuf),
-      });
-      fs.writeFileSync(path.join(shotDir, `milestone_${pose}.png`), withCharBuf);
-    }
-
-    const cameraDepthM = await page.evaluate(() => window.__demo.cameraNearestDepth());
-    const frameStats = await page.evaluate(() => window.__demo.frameStats());
-    const result = evaluateGates({ frames, cameraDepthM, frameStats });
-
-    result.info.forEach((i) => console.log(`INFO: ${i}`));
-    if (result.pass) pass('all image gates passed');
-    else result.failures.forEach(fail);
-  } finally {
-    await browser.close();
-    killTree(server);
   }
+
+  let hookReady = false;
+  const runtimeErrors = [];
+  let gateResult = {
+    pass: false,
+    failures: buildOk ? ['Runtime check failed'] : [buildError],
+    info: [],
+    metrics: {
+      frames: [],
+      cameraNearestDepthM: null,
+      frameStats: { medianMs: null, p99Ms: null, samples: null },
+    },
+  };
+
+  if (buildOk && !options.skipBrowser) {
+    let server = null;
+    let browser = null;
+    try {
+      const playwright = options.playwright || (await import('playwright'));
+
+      const port = 5300 + Math.floor(Math.random() * 600);
+      const origin = `http://localhost:${port}`;
+      server = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
+        cwd: targetDir,
+        shell: true,
+        detached: process.platform !== 'win32',
+      });
+
+      await waitForServer(origin, 30000);
+
+      browser = await playwright.chromium.launch({
+        headless: true,
+        args: ['--enable-unsafe-webgpu', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
+      });
+
+      const page = await browser.newPage({ viewport: { width: 2560, height: 1440 } });
+      page.on('pageerror', (e) => runtimeErrors.push(e.message));
+      page.on('console', (m) => {
+        if (m.type() === 'error') runtimeErrors.push(m.text());
+      });
+
+      await page.goto(origin, { waitUntil: 'networkidle' });
+
+      try {
+        await page.waitForFunction('window.__demo && window.__demo.ready === true', { timeout: 30000 });
+        hookReady = true;
+        pass('window.__demo hook present and ready');
+      } catch {
+        hookReady = false;
+        fail('window.__demo hook missing or never became ready — see the brief\'s verification-hook section. Cannot verify.');
+      }
+
+      if (hookReady) {
+        if (runtimeErrors.length === 0) pass('zero console/runtime errors');
+        else fail(`runtime errors: ${runtimeErrors.join(' | ')}`);
+
+        const frames = [];
+        fs.mkdirSync(shotDir, { recursive: true });
+
+        for (const pose of ['idle', 'locomotion', 'mechanic']) {
+          await page.evaluate((p) => window.__demo.setPose(p), pose);
+          await page.waitForTimeout(1200);
+
+          const withCharBuf = await page.screenshot();
+          await page.evaluate(() => window.__demo.setCharacterVisible(false));
+          await page.waitForTimeout(300);
+          const withoutCharBuf = await page.screenshot();
+          await page.evaluate(() => window.__demo.setCharacterVisible(true));
+
+          frames.push({
+            name: pose,
+            image: toImage(withCharBuf),
+            imageWithoutCharacter: toImage(withoutCharBuf),
+          });
+          fs.writeFileSync(path.join(shotDir, `milestone_${pose}.png`), withCharBuf);
+        }
+
+        const cameraDepthM = await page.evaluate(() => window.__demo.cameraNearestDepth());
+        const frameStats = await page.evaluate(() => window.__demo.frameStats());
+        gateResult = evaluateGates({ frames, cameraDepthM, frameStats });
+
+        gateResult.info.forEach((i) => {
+          logInfo.push(i);
+          if (!options.silent) console.log(`INFO: ${i}`);
+        });
+
+        if (gateResult.pass) pass('all image gates passed');
+        else gateResult.failures.forEach(fail);
+      }
+    } catch (err) {
+      fail(`verification crashed: ${err.message}`);
+    } finally {
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (_) {}
+      }
+      if (server) {
+        killTree(server);
+      }
+    }
+  }
+
+  const finishedAt = new Date().toISOString();
+  const durationMs = Date.now() - startTime;
+  const overallPass = buildOk && hookReady && runtimeErrors.length === 0 && gateResult.pass;
+
+  const report = createVerificationReport({
+    target: targetName,
+    startedAt,
+    finishedAt,
+    durationMs,
+    requiredPaths: REQUIRED_PATHS.slice(),
+    build: { ok: buildOk, error: buildError },
+    runtime: { hookReady, errors: runtimeErrors },
+    captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+    gates: {
+      pass: gateResult.pass,
+      failures: gateResult.failures || [],
+      info: gateResult.info || [],
+      metrics: gateResult.metrics || { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } },
+    },
+    status: overallPass ? 'passed' : 'failed',
+  });
+
+  writeVerificationReport(reportPath, report);
+
+  return {
+    pass: overallPass,
+    failures,
+    info: logInfo,
+    report,
+    reportPath,
+  };
 }
 
-run()
-  .catch((e) => fail(`verification crashed: ${e.message}`))
-  .finally(() => {
-    console.log('\n' + '='.repeat(50));
-    if (failures.length === 0) {
-      console.log('VERIFICATION PASSED');
-      process.exit(0);
-    }
-    console.log(`VERIFICATION FAILED — ${failures.length} problem(s):`);
-    failures.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
-    console.log('\nFix these and re-run. Do not proceed with failures outstanding.');
-    process.exit(1);
-  });
+// Executable entry point when invoked via CLI
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  let parsed;
+  try {
+    parsed = parseVerifyCliArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(`ERROR: ${err.message}`);
+    printVerifyHelp();
+    process.exit(2);
+  }
+
+  if (parsed.help) {
+    printVerifyHelp();
+    process.exit(0);
+  }
+
+  if (!fs.existsSync(parsed.projectDir)) {
+    console.error(`ERROR: Project directory '${parsed.projectDir}' does not exist.`);
+    process.exit(2);
+  }
+
+  verifyDemo(parsed.projectDir, {
+    reportPath: parsed.reportPath,
+    screenshotsDir: parsed.screenshotsDir,
+  })
+    .then((result) => {
+      console.log('\n' + '='.repeat(50));
+      if (result.pass) {
+        console.log('VERIFICATION PASSED');
+        process.exit(0);
+      } else {
+        console.log(`VERIFICATION FAILED — ${result.failures.length} problem(s):`);
+        result.failures.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
+        console.log('\nFix these and re-run. Do not proceed with failures outstanding.');
+        process.exit(1);
+      }
+    })
+    .catch((err) => {
+      console.error(`VERIFICATION ERROR: ${err.message}`);
+      process.exit(2);
+    });
+}

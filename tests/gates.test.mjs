@@ -155,3 +155,44 @@ test('malformed frameStats is diagnosed, not thrown', () => {
   // Must not crash on toFixed of undefined.
   assert.ok(Array.isArray(result.info));
 });
+
+test('evaluateGates returns structured metrics matching image measurements', () => {
+  const base = gradient(200, 200);
+  const imgWithChar = withBlob(base, 0.08);
+  const result = evaluateGates({
+    frames: [
+      { name: 'idle', image: imgWithChar, imageWithoutCharacter: base },
+      { name: 'locomotion', image: base },
+    ],
+    cameraDepthM: 1.5,
+    frameStats: { medianMs: 12, p99Ms: 18, samples: 600 },
+  });
+
+  assert.ok(result.metrics, 'metrics must be present');
+  assert.equal(result.metrics.cameraNearestDepthM, 1.5);
+  assert.deepEqual(result.metrics.frameStats, { medianMs: 12, p99Ms: 18, samples: 600 });
+  assert.equal(result.metrics.frames.length, 2);
+
+  const idleMetric = result.metrics.frames[0];
+  assert.equal(idleMetric.name, 'idle');
+  assert.ok(Math.abs(idleMetric.meanLuminance - meanLuminance(imgWithChar)) < 1e-6);
+  assert.ok(Math.abs(idleMetric.flatFrameRatio - flatFrameRatio(imgWithChar)) < 1e-6);
+  assert.ok(Math.abs(idleMetric.characterAreaFraction - changedAreaFraction(imgWithChar, base)) < 1e-6);
+
+  const locoMetric = result.metrics.frames[1];
+  assert.equal(locoMetric.name, 'locomotion');
+  assert.equal(locoMetric.characterAreaFraction, null);
+});
+
+test('evaluateGates metrics replaces non-finite values with null', () => {
+  const result = evaluateGates({
+    frames: [{ name: 'idle', image: gradient(64, 64) }],
+    cameraDepthM: NaN,
+    frameStats: { medianMs: Infinity, p99Ms: undefined, samples: 100 },
+  });
+
+  assert.equal(result.metrics.cameraNearestDepthM, null);
+  assert.equal(result.metrics.frameStats.medianMs, null);
+  assert.equal(result.metrics.frameStats.p99Ms, null);
+  assert.equal(result.metrics.frameStats.samples, 100);
+});

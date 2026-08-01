@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "caseId": "alpine-signature",
+  "modelLabel": "claude-3-7-sonnet",
+  "attempt": 1,
+  "briefSha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+  "automated": {
+    "status": "passed",
+    "pass": true,
+    "hardGateFailures": [],
+    "hardGateFailureCount": 0,
+    "metrics": {
+      "frames": [
+        {
+          "name": "idle",
+          "meanLuminance": 0.42,
+          "flatFrameRatio": 0.18,
+          "characterAreaFraction": 0.08
+        }
+      ],
+      "cameraNearestDepthM": 1.2,
+      "frameStats": {
+        "medianMs": 11,
+        "p99Ms": 17,
+        "samples": 600
+      }
+    }
+  },
+  "humanReview": {
+    "reviewer": "Alice Reviewer",
+    "scores": {
+      "compositionReadability": 4,
+      "materialCoherence": 5,
+      "characterCraft": 4,
+      "mechanicLegibility": 4,
+      "creativeIdentity": 5,
+      "scopeDiscipline": 4
+    },
+    "visualAverage": 4.33,
+    "notes": "Excellent atmosphere, strong material coherence and authored visual identity."
+  },
+  "eligible": true
+}

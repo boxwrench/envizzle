@@ -184,6 +184,23 @@ Verify a demo an agent built from a brief:
 
 ```bash
 node verify/verify_demo.mjs path/to/demo
+node verify/verify_demo.mjs path/to/demo --report verify-report.json
+```
+
+Prepare and run generated-demo benchmarks across coding agents:
+
+```bash
+# List benchmark cases in registry
+node benchmark.mjs list --json
+
+# Prepare benchmark bundles for smoke or full suites
+node benchmark.mjs prepare benchmarks/smoke-run --suite smoke
+
+# Collect a run result into normalized JSON
+node benchmark.mjs collect path/to/demo --case alpine-signature --model claude-3-7-sonnet --attempt 1 --out result.json
+
+# Summarize benchmark runs into Markdown and JSON
+node benchmark.mjs summarize results/ --out summary.md --json summary.json
 ```
 
 Verification requires the demo to expose a `window.__demo` hook (pose setters, a
@@ -204,11 +221,13 @@ image gates cannot run, and the verifier says so instead of passing.
 | `references/showcases.md` | Canonical showcase configurations |
 | `references/character-recipe.md` | The numeric humanoid spec, inlined verbatim into every brief |
 | `references/assembly.md` | Assembly specification schema, input classification, CLI, and bundle rules |
+| `references/benchmarking.md` | Benchmark case registry, bundle preparation, visual rubric, result collection, summary generation |
 | `selection.mjs` | Selection validator (CLI: `node selection.mjs`) and central registries |
 | `check.mjs` | Brief validator (CLI) plus art-direction coherence rules (`node check.mjs coherence`) |
 | `reference-loader.mjs` | Strict reference loader and token extractor |
 | `assemble.mjs` | Deterministic brief assembler and safe output bundle writer |
-| `verify/` | Playwright run with the image gates |
+| `benchmark.mjs` | Benchmark CLI and evaluation harness (`node benchmark.mjs`) |
+| `verify/` | Playwright run with structured report generation and image gates |
 | `tests/` | `node:test` suite over all of the above |
 | `docs/` | Design spec and implementation plan |
 
@@ -216,11 +235,10 @@ image gates cannot run, and the verifier says so instead of passing.
 
 **Envizzle is in public alpha.** Progressive reference loading, central registries,
 operable selection CLI, coherence CLI, deterministic brief assembly, safe project-bundle output,
-test fixtures, cross-file contract verification, and strict assembly integrity (input non-mutation,
-non-overridable structural coherence errors, source preflight, independent section replacement,
-state-buffer omission across all five mechanics) are implemented, and all unit tests pass (`npm test`).
-Multi-agent generated-demo benchmarking remains listed as future work. See `docs/2026-07-29-envizzle-skill-design.md` for the reasoning behind the
-design and `docs/2026-07-29-envizzle-skill.md` for the task plan it was built from.
+machine-readable verification reports, 8-case benchmark registry, bundle preparation, result collection,
+deterministic Markdown/JSON comparative summaries, human visual rubric, test fixtures, cross-file contract verification,
+and strict assembly integrity are implemented, and all unit tests pass (`npm test`).
+See `references/benchmarking.md` for the benchmarking guide and `docs/2026-07-29-envizzle-skill-design.md` for architectural design rationale.
 
 The original prompt templates this skill was distilled from
 (`BIOME_TECHDEMO_TEMPLATE.md`, `TEMPLATE.md`, `TEMPLATE_GUIDE.md`,
