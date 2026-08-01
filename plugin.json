@@ -1,0 +1,9 @@
+{
+  "name": "envizzle",
+  "version": "0.1.0",
+  "description": "Visual vertical slice tech demo brief generator and verifier",
+  "author": {
+    "name": "Envizzle Team"
+  },
+  "license": "MIT"
+}
