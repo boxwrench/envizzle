@@ -251,7 +251,8 @@ const MILESTONE_DEFINITIONS = Object.freeze([
   }),
 ]);
 
-const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'milestones'];
+const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'milestones', 'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria'];
+
 const PROJECT_KEYS = ['name', 'briefFilename', 'briefSha256', 'renderingProfile', 'engine', 'shaderLanguage', 'shaderLanguageExtension', 'materialApi', 'renderingParadigm', 'assetStrategy', 'assetStrategyText', 'targetHardware', 'coreInteractionSentence'];
 const SELECTION_KEYS = ['creativeMode', 'path', 'baseShowcase', 'ambition', 'includedSections', 'omittedOptionalSections', 'extraSections', 'biome', 'archetype', 'mechanic', 'camera', 'renderingProfile', 'cameraAdjustments', 'changedAxes'];
 const STATE_CHANNEL_KEYS = ['enabled', 'omittedBehavior', 'channels'];
@@ -335,6 +336,319 @@ function compareCanonical(value, canonical, pathLabel, errors) {
     return;
   }
   if (value !== canonical) errors.push(`${pathLabel} must equal ${JSON.stringify(canonical)}`);
+}
+
+function deepFreeze(value) {
+  if (Array.isArray(value)) {
+    value.forEach(deepFreeze);
+    return Object.freeze(value);
+  }
+  if (isPlainObject(value)) {
+    Object.values(value).forEach(deepFreeze);
+    return Object.freeze(value);
+  }
+  return value;
+}
+
+const SOURCE_OF_TRUTH = deepFreeze({
+  builderRole: 'implementer',
+  builderMayRedesignArchitecture: false,
+  builderMayAddFallbacks: false,
+  builderMaySkipStages: false,
+  builderMayIgnoreFailedChecks: false,
+  conflictPolicy: 'stop-and-report',
+  requiredInputs: ['<PROJECT>_TECHDEMO_PROMPT.md', 'ENVIZZLE_BUILD.json', 'ENVIZZLE_EVIDENCE.json', 'HANDOFF.md', 'verify/'],
+});
+
+const TERRAIN_ELEVATION_OWNERSHIP = deepFreeze({
+  renderOwner: 'gpu',
+  renderMeshBaseHeight: 0,
+  cpuHeightPurpose: ['physics', 'camera-clearance', 'foot-planting'],
+  forbidCpuPredisplacedRenderVertices: true,
+  requireCpuGpuParityTest: true,
+  parityToleranceM: 0.03,
+});
+
+const ARCHITECTURE_DEVIATION_POLICY = 'Builder may split files further only when responsibilities stay unchanged and the deviation is documented.';
+
+const BABYLON_FILE_OWNERSHIP = [
+  { path: 'src/core/engine.js', responsibility: 'WebGPUEngine init, adapter/device failure, unsupported-backend behavior' },
+  { path: 'src/core/gpuValidation.js', responsibility: 'validation scopes, uncaptured errors, device loss, validation-error storage' },
+  { path: 'src/core/demoDiagnostics.js', responsibility: 'window.__demo, actual system state, no fabricated readiness' },
+  { path: 'src/core/settings.js', responsibility: 'approved feature toggles only' },
+  { path: 'src/shaders/', responsibility: 'Babylon-compatible WGSL sources + shared shader functions' },
+  { path: 'src/terrain/heightfield.js', responsibility: 'CPU height mirroring for physics, camera clearance, foot planting ONLY' },
+  { path: 'src/terrain/parity.js', responsibility: 'GPU evaluation/readback + CPU/GPU parity comparison' },
+  { path: 'src/terrain/', responsibility: 'GPU-rendered terrain mesh + LOD system' },
+  { path: 'src/character/', responsibility: 'rig, silhouette, animation, visibility, foot placement' },
+  { path: 'src/mechanic/', responsibility: 'centrepiece mechanic + mechanic verification state' },
+];
+
+const THREE_WEBGL2_FILE_OWNERSHIP = [
+  { path: 'src/core/engine.js', responsibility: 'WebGLRenderer init requesting a WebGL2 context, context-loss/unsupported-backend behavior' },
+  { path: 'src/core/glValidation.js', responsibility: 'WebGL2 error capture (gl.getError, context-loss listeners), validation-error storage' },
+  { path: 'src/core/demoDiagnostics.js', responsibility: 'window.__demo, actual system state, no fabricated readiness' },
+  { path: 'src/core/settings.js', responsibility: 'approved feature toggles only' },
+  { path: 'src/shaders/', responsibility: 'WebGL2-compatible GLSL ES 3.00 raw shader modules + shared shader functions' },
+  { path: 'src/terrain/heightfield.js', responsibility: 'CPU height mirroring for physics, camera clearance, foot planting ONLY' },
+  { path: 'src/terrain/parity.js', responsibility: 'GPU evaluation/readback + CPU/GPU parity comparison' },
+  { path: 'src/terrain/', responsibility: 'GPU-rendered terrain mesh + LOD system' },
+  { path: 'src/character/', responsibility: 'rig, silhouette, animation, visibility, foot placement' },
+  { path: 'src/mechanic/', responsibility: 'centrepiece mechanic + mechanic verification state' },
+];
+
+export const ARCHITECTURE_BY_PROFILE = deepFreeze({
+  'babylon-webgpu': {
+    fileOwnership: BABYLON_FILE_OWNERSHIP,
+    terrainElevationOwnership: TERRAIN_ELEVATION_OWNERSHIP,
+    deviationPolicy: ARCHITECTURE_DEVIATION_POLICY,
+  },
+  'three-webgl2': {
+    fileOwnership: THREE_WEBGL2_FILE_OWNERSHIP,
+    terrainElevationOwnership: TERRAIN_ELEVATION_OWNERSHIP,
+    deviationPolicy: ARCHITECTURE_DEVIATION_POLICY,
+  },
+});
+
+const APPROVED_PATTERN_TERRAIN_ELEVATION = {
+  id: 'terrain-gpu-elevation-ownership',
+  requirement: 'Apply procedural terrain elevation exactly once, inside the GPU vertex shader, at render mesh base height y = 0.',
+  detection: 'source-and-runtime',
+};
+const APPROVED_PATTERN_CPU_GPU_PARITY = {
+  id: 'cpu-gpu-parity-check',
+  requirement: 'Use the CPU height mirror only for physics, camera clearance, and foot planting, and verify it against a GPU readback within the parity tolerance.',
+  detection: 'source-and-runtime',
+};
+const APPROVED_PATTERN_TRUTHFUL_READINESS = {
+  id: 'truthful-readiness-lifecycle',
+  requirement: 'window.__demo.ready becomes true only after status reaches "ready" and every backend readiness proof step has succeeded; never set it inside a finally block.',
+  detection: 'runtime-only',
+};
+
+export const APPROVED_PATTERNS_BY_PROFILE = deepFreeze({
+  'babylon-webgpu': [
+    { id: 'engine-initialization', requirement: 'Initialize the engine as new BABYLON.WebGPUEngine(canvas) and await engine.initAsync(); never construct BABYLON.Engine as a fallback.', detection: 'source-only' },
+    { id: 'shader-language-conformance', requirement: 'Author shaders as WGSL using BABYLON.ShaderLanguage.WGSL on ShaderMaterial, sourced from BABYLON.ShaderStore.ShadersStoreWGSL.', detection: 'source-only' },
+    { id: 'binding-ownership', requirement: "Declare uniforms, textures, samplers, and storage resources through Babylon's ShaderMaterial/UniformBuffer APIs; Babylon owns the generated binding groups and numbers.", detection: 'source-only' },
+    { id: 'material-mesh-compilation-proof', requirement: 'Force-compile the representative material and mesh via material.forceCompilationAsync(mesh) and confirm material.isReady(mesh) before reporting readiness.', detection: 'source-and-runtime' },
+    { id: 'validation-error-capture', requirement: 'Capture both scoped and uncaptured WebGPU validation errors and device-loss events, storing them for diagnostics rather than discarding them.', detection: 'source-and-runtime' },
+    { id: 'render-submission-proof', requirement: 'Submit at least one frame and, where the device exposes it, await queue.onSubmittedWorkDone() before counting the frame as complete.', detection: 'source-and-runtime' },
+    APPROVED_PATTERN_TERRAIN_ELEVATION,
+    APPROVED_PATTERN_CPU_GPU_PARITY,
+    APPROVED_PATTERN_TRUTHFUL_READINESS,
+  ],
+  'three-webgl2': [
+    { id: 'engine-initialization', requirement: 'Initialize the renderer as new THREE.WebGLRenderer({...}) against a context explicitly requested as "webgl2"; never silently accept a WebGL1 context as a substitute.', detection: 'source-only' },
+    { id: 'shader-language-conformance', requirement: 'Author shaders as raw GLSL ES 3.00 modules for THREE.RawShaderMaterial; do not mix in WGSL syntax or Babylon shader APIs.', detection: 'source-only' },
+    { id: 'binding-ownership', requirement: "Declare uniforms and attributes through Three.js's RawShaderMaterial uniform/attribute definitions; do not hand-roll WebGPU-style @group/@binding layouts.", detection: 'source-only' },
+    { id: 'material-mesh-compilation-proof', requirement: 'Compile the representative material and mesh by rendering one frame and confirm the WebGL2 program linked successfully before reporting readiness.', detection: 'source-and-runtime' },
+    { id: 'validation-error-capture', requirement: 'Capture WebGL2 context errors via gl.getError() polling and listen for webglcontextlost/webglcontextrestored events, storing them for diagnostics rather than discarding them.', detection: 'source-and-runtime' },
+    { id: 'render-submission-proof', requirement: 'Render at least one frame and confirm submission via renderer.info.render.frame (or gl.finish()) before counting the frame as complete.', detection: 'source-and-runtime' },
+    APPROVED_PATTERN_TERRAIN_ELEVATION,
+    APPROVED_PATTERN_CPU_GPU_PARITY,
+    APPROVED_PATTERN_TRUTHFUL_READINESS,
+  ],
+});
+
+const FORBIDDEN_PATTERN_WEBGL_FALLBACK = { id: 'webgl-fallback', blocking: true, reason: 'Falling back to a lesser rendering backend than the one selected for this project defeats the purpose of the rendering-profile proof.', detection: 'source-and-runtime' };
+const FORBIDDEN_PATTERN_DUPLICATE_TERRAIN_DISPLACEMENT = { id: 'duplicate-terrain-displacement', blocking: true, reason: 'Applying procedural elevation more than once (e.g. on both CPU and GPU, or twice in the vertex shader) breaks the single source of truth for terrain height.', detection: 'source-and-runtime' };
+const FORBIDDEN_PATTERN_CPU_PREDISPLACED_RENDER_MESH = { id: 'cpu-predisplaced-render-mesh', blocking: true, reason: 'Render vertices must enter the vertex shader flat at base height; pre-displacing them on the CPU duplicates elevation ownership and breaks GPU/CPU parity.', detection: 'source-and-runtime' };
+const FORBIDDEN_PATTERN_PREMATURE_READINESS = { id: 'premature-readiness', blocking: true, reason: 'Setting window.__demo.ready to true before status reaches "ready" and every backend proof step succeeds fabricates readiness.', detection: 'runtime-only' };
+const FORBIDDEN_PATTERN_SUPPRESSED_INIT_FAILURE = { id: 'suppressed-initialization-failure', blocking: true, reason: 'Catching an initialization failure and continuing without setting status to "failed" and a nonblank error hides a real backend failure.', detection: 'source-and-runtime' };
+const FORBIDDEN_PATTERN_PLACEHOLDER_CHARACTER = { id: 'placeholder-character', blocking: true, reason: 'Shipping a primitive box, capsule, or sphere stand-in instead of an intentional procedural silhouette defeats the character-locomotion stage.', detection: 'visual-review' };
+const FORBIDDEN_PATTERN_INDISTINGUISHABLE_POSES = { id: 'indistinguishable-poses', blocking: true, reason: 'Idle, locomotion, and mechanic captures must be visually distinguishable from each other; identical or near-identical poses indicate the pose system is not wired up.', detection: 'visual-review' };
+const FORBIDDEN_PATTERN_RENDER_LOOP_ALLOCATION = { id: 'render-loop-allocation', blocking: true, reason: 'Allocating new objects, arrays, or materials inside the per-frame render loop causes garbage-collection stalls and masks true performance.', detection: 'source-only' };
+const FORBIDDEN_PATTERN_INCOMPLETE_EVIDENCE = { id: 'incomplete-evidence', blocking: true, reason: 'Marking a milestone complete without the required screenshots, console findings, performance values, or visual self-review is a false completion claim.', detection: 'evidence-record' };
+const FORBIDDEN_PATTERN_CONTINUE_AFTER_FAILED_STAGE = { id: 'continue-after-failed-stage', blocking: true, reason: 'Starting the next implementation stage while the current stage has not passed its automated and visual checks violates the one-stage-at-a-time workflow.', detection: 'process' };
+
+export const FORBIDDEN_PATTERNS_BY_PROFILE = deepFreeze({
+  'babylon-webgpu': [
+    { id: 'manual-babylon-bindings', blocking: true, reason: "Manual @group(...)/@binding(...) declarations inside a Babylon-managed ShaderMaterial source fight Babylon's own generated binding groups and numbers, even when Babylon's UniformBuffer/storage/texture/sampler APIs are used.", detection: 'source-only' },
+    { id: 'wrong-babylon-shader-language', blocking: true, reason: 'Configuring a ShaderMaterial with BABYLON.ShaderLanguage.GLSL (or any non-WGSL language) abandons the selected WGSL/WebGPU rendering profile.', detection: 'source-only' },
+    { id: 'wrong-babylon-shader-store', blocking: true, reason: 'Registering shaders under a non-WGSL ShaderStore (e.g. a fallbackGlsl entry) reintroduces a forbidden fallback shader path.', detection: 'source-only' },
+    FORBIDDEN_PATTERN_WEBGL_FALLBACK,
+    FORBIDDEN_PATTERN_DUPLICATE_TERRAIN_DISPLACEMENT,
+    FORBIDDEN_PATTERN_CPU_PREDISPLACED_RENDER_MESH,
+    FORBIDDEN_PATTERN_PREMATURE_READINESS,
+    FORBIDDEN_PATTERN_SUPPRESSED_INIT_FAILURE,
+    FORBIDDEN_PATTERN_PLACEHOLDER_CHARACTER,
+    FORBIDDEN_PATTERN_INDISTINGUISHABLE_POSES,
+    FORBIDDEN_PATTERN_RENDER_LOOP_ALLOCATION,
+    FORBIDDEN_PATTERN_INCOMPLETE_EVIDENCE,
+    FORBIDDEN_PATTERN_CONTINUE_AFTER_FAILED_STAGE,
+  ],
+  'three-webgl2': [
+    { id: 'wgsl-binding-syntax-in-webgl2', blocking: true, reason: 'WGSL-only @group(...)/@binding(...) binding syntax has no meaning in a WebGL2/GLSL ES 3.00 project and indicates a copy-pasted WebGPU shader path.', detection: 'source-only' },
+    { id: 'wrong-webgl2-shader-language', blocking: true, reason: 'WGSL entry-point syntax (e.g. @vertex/@fragment directives or fn main()) inside a three-webgl2 project abandons the selected GLSL ES 3.00 rendering profile.', detection: 'source-only' },
+    { id: 'webgl1-fallback-context', blocking: true, reason: 'Requesting a "webgl" (WebGL1) context instead of "webgl2" silently downgrades the selected rendering profile.', detection: 'source-and-runtime' },
+    FORBIDDEN_PATTERN_WEBGL_FALLBACK,
+    FORBIDDEN_PATTERN_DUPLICATE_TERRAIN_DISPLACEMENT,
+    FORBIDDEN_PATTERN_CPU_PREDISPLACED_RENDER_MESH,
+    FORBIDDEN_PATTERN_PREMATURE_READINESS,
+    FORBIDDEN_PATTERN_SUPPRESSED_INIT_FAILURE,
+    FORBIDDEN_PATTERN_PLACEHOLDER_CHARACTER,
+    FORBIDDEN_PATTERN_INDISTINGUISHABLE_POSES,
+    FORBIDDEN_PATTERN_RENDER_LOOP_ALLOCATION,
+    FORBIDDEN_PATTERN_INCOMPLETE_EVIDENCE,
+    FORBIDDEN_PATTERN_CONTINUE_AFTER_FAILED_STAGE,
+  ],
+});
+
+const IMPLEMENTATION_PLAN = deepFreeze([
+  {
+    id: 'backend-proof',
+    order: 1,
+    goal: 'Prove the selected rendering backend, shader language, and readiness lifecycle are genuinely active before any other system is built.',
+    allowedScope: ['engine initialization', 'one representative material', 'one representative mesh', 'required backend diagnostics', 'GPU validation capture', 'one successfully completed frame', 'truthful readiness state'],
+    requiredOutputs: ['selected backend is active', 'selected shader language is active', 'representative shader is processed by the selected engine', 'pipeline and bindings are valid', 'representative material compiles', 'material becomes ready', 'validation error list is empty', 'at least one submitted frame completes', 'readiness changes to true only after all prior proof succeeds'],
+    approvedPatternIds: ['engine-initialization', 'shader-language-conformance', 'binding-ownership', 'material-mesh-compilation-proof', 'validation-error-capture', 'render-submission-proof', 'truthful-readiness-lifecycle'],
+    forbiddenPatternIds: ['webgl-fallback', 'premature-readiness', 'suppressed-initialization-failure', 'render-loop-allocation', 'continue-after-failed-stage'],
+    automatedChecks: ['production build succeeds', 'rendererInfo() reports the selected backend and shader language', 'rendererInfo().materialsReady is true', 'rendererInfo().renderedFrames is at least 1', 'rendererInfo().validationErrors is empty'],
+    visualChecks: ['the representative material and mesh render without visible corruption or missing textures'],
+    stopConditions: ['do not build full terrain, character, particles, mechanic, or atmosphere systems until backend proof passes', 'do not add a fallback renderer under any circumstance'],
+    requiredEvidence: ['window.__demo.rendererInfo() capture', 'zero scoped and uncaptured validation errors'],
+    doNotProceedUntilPassed: true,
+  },
+  {
+    id: 'terrain-kernel',
+    order: 2,
+    goal: 'Prove a single GPU-owned terrain patch renders correctly with a flat CPU render mirror and verified GPU/CPU parity before expanding terrain coverage.',
+    allowedScope: ['one terrain patch', 'GPU-owned visual elevation', 'flat CPU-built render vertices', 'CPU mirror used only for physics, camera clearance, and foot planting', 'GPU parity evaluation', 'normals', 'camera clearance'],
+    requiredOutputs: ['the single terrain patch renders with GPU-owned elevation', 'CPU-built render vertices remain flat at base height', 'CPU height mirror is used only for physics, camera clearance, and foot planting', 'GPU/CPU parity evaluation is within tolerance', 'terrain normals are correct', 'camera clearance above the terrain is verified'],
+    approvedPatternIds: ['terrain-gpu-elevation-ownership', 'cpu-gpu-parity-check'],
+    forbiddenPatternIds: ['duplicate-terrain-displacement', 'cpu-predisplaced-render-mesh', 'render-loop-allocation', 'continue-after-failed-stage'],
+    automatedChecks: ['terrainDiagnostics().renderOwner is "gpu"', 'terrainDiagnostics().renderMeshBaseHeight is 0', 'terrainDiagnostics().parityMethod reflects a GPU readback', 'terrainDiagnostics().parityMaxErrorM is within tolerance'],
+    visualChecks: ['the terrain patch shows continuous natural elevation, not a flat or corrupted plane'],
+    stopConditions: ['do not add clipmap rings or continuous terrain expansion until the single patch passes'],
+    requiredEvidence: ['window.__demo.terrainDiagnostics() capture', 'camera clearance confirmation'],
+    doNotProceedUntilPassed: true,
+  },
+  {
+    id: 'environment-composition',
+    order: 3,
+    goal: 'Expand the single terrain patch into continuous, biome-correct terrain with LOD, far field, lighting, and atmosphere, and compose the initial camera view.',
+    allowedScope: ['continuous terrain expansion', 'clipmap or nested-ring LOD', 'biome morphology', 'far field', 'lighting', 'atmosphere', 'initial camera composition'],
+    requiredOutputs: ['terrain expands continuously beyond the single patch without visible seams', 'biome morphology reads clearly', 'far field, lighting, and atmosphere are present', 'the initial camera composition matches the selected camera mode'],
+    approvedPatternIds: ['terrain-gpu-elevation-ownership', 'cpu-gpu-parity-check'],
+    forbiddenPatternIds: ['duplicate-terrain-displacement', 'cpu-predisplaced-render-mesh', 'render-loop-allocation', 'continue-after-failed-stage'],
+    automatedChecks: ['production build succeeds', 'no blocking console or GPU errors'],
+    visualChecks: ['the idle screenshot already clearly resembles the selected biome before character development begins'],
+    stopConditions: ['do not begin character or locomotion work until the environment composition visually reads as the selected biome'],
+    requiredEvidence: ['idle screenshot resembling the selected biome'],
+    doNotProceedUntilPassed: true,
+  },
+  {
+    id: 'character-locomotion',
+    order: 4,
+    goal: 'Build an intentional procedural character with a readable silhouette, idle and locomotion animation, foot planting, and appropriate camera framing.',
+    allowedScope: ['procedural character', 'intentional silhouette', 'idle animation', 'locomotion', 'foot planting', 'appropriate camera framing', 'character visibility verification'],
+    requiredOutputs: ['the character has an intentional, non-placeholder silhouette', 'idle and locomotion animations are present and visually distinguishable', 'foot planting tracks the terrain surface', 'the camera frames the character appropriately for the selected camera mode', 'character visibility is verified'],
+    approvedPatternIds: [],
+    forbiddenPatternIds: ['placeholder-character', 'indistinguishable-poses', 'render-loop-allocation', 'continue-after-failed-stage'],
+    automatedChecks: ['setCharacterVisible(true) makes the character visible', 'setPose("idle") and setPose("locomotion") both succeed'],
+    visualChecks: ['idle and locomotion poses are immediately distinguishable from each other', 'the character is not a placeholder primitive'],
+    stopConditions: ['the character must not be a placeholder primitive', 'idle and locomotion must be visually distinguishable before proceeding'],
+    requiredEvidence: ['idle pose screenshot', 'locomotion pose screenshot'],
+    doNotProceedUntilPassed: true,
+  },
+  {
+    id: 'mechanic-polish',
+    order: 5,
+    goal: 'Implement the centrepiece mechanic, add particles and secondary effects, finalize materials, lighting, and performance, and complete all evidence for final review.',
+    allowedScope: ['centrepiece mechanic', 'particles and secondary effects', 'final materials', 'final lighting', 'performance cleanup', 'complete evidence', 'final visual review'],
+    requiredOutputs: ['the centrepiece mechanic is demonstrated and visibly affects the scene', 'particles and secondary effects are present where specified', 'final materials and lighting are applied', 'performance is reviewed and recorded', 'all required evidence is complete across all three milestones'],
+    approvedPatternIds: [],
+    forbiddenPatternIds: ['indistinguishable-poses', 'render-loop-allocation', 'incomplete-evidence', 'continue-after-failed-stage'],
+    automatedChecks: ['setPose("mechanic") succeeds', 'no blocking console or GPU errors', 'all three milestones report complete status with full evidence'],
+    visualChecks: ['the mechanic capture is immediately distinguishable from both the idle and locomotion captures'],
+    stopConditions: ['do not report the demo complete while any milestone evidence is missing or any visual weakness is uncorrected'],
+    requiredEvidence: ['mechanic pose screenshot distinguishable from idle and locomotion', 'final performance values', 'final visual self-review'],
+    doNotProceedUntilPassed: true,
+  },
+]);
+
+const DIAGNOSTICS_LIFECYCLE = deepFreeze({
+  statuses: ['initializing', 'ready', 'failed'],
+  readyRequiresStatus: 'ready',
+  failureRequiresNonblankError: true,
+});
+
+const TERRAIN_DIAGNOSTICS_CONTRACT = deepFreeze({
+  keys: ['renderOwner', 'renderMeshBaseHeight', 'parityMethod', 'paritySamples', 'parityMaxErrorM'],
+  renderOwner: 'gpu',
+  renderMeshBaseHeight: 0,
+  parityMethod: 'gpu-readback',
+  parityToleranceM: 0.03,
+});
+
+const CAMERA_DIAGNOSTICS_CONTRACT = deepFreeze({
+  keys: ['method', 'nearestDepthM', 'terrainClearanceM'],
+  allowedMethods: ['gpu-depth', 'cpu-height-with-gpu-parity'],
+  forbiddenMethods: ['cpu-height-only'],
+  minNearestDepthM: 0.30,
+});
+
+export const DIAGNOSTICS_CONTRACT_BY_PROFILE = deepFreeze({
+  'babylon-webgpu': {
+    hook: 'window.__demo',
+    lifecycle: DIAGNOSTICS_LIFECYCLE,
+    rendererInfo: {
+      keys: ['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors'],
+      backend: 'webgpu',
+      shaderLanguage: 'wgsl',
+      materialsReadyRequired: true,
+      minRenderedFrames: 1,
+      maxValidationErrors: 0,
+    },
+    terrainDiagnostics: TERRAIN_DIAGNOSTICS_CONTRACT,
+    cameraDiagnostics: CAMERA_DIAGNOSTICS_CONTRACT,
+  },
+  'three-webgl2': {
+    hook: 'window.__demo',
+    lifecycle: DIAGNOSTICS_LIFECYCLE,
+    rendererInfo: {
+      keys: ['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors'],
+      backend: 'webgl2',
+      shaderLanguage: 'glsl-es-300',
+      materialsReadyRequired: true,
+      minRenderedFrames: 1,
+      maxValidationErrors: 0,
+    },
+    terrainDiagnostics: TERRAIN_DIAGNOSTICS_CONTRACT,
+    cameraDiagnostics: CAMERA_DIAGNOSTICS_CONTRACT,
+  },
+});
+
+const REVIEW_CRITERIA_UNIVERSAL = deepFreeze([
+  { category: 'biome-identity', questions: ['Does the scene immediately read as the selected biome without being told what it is?', "Are the biome's signature morphology, materials, and lighting present and dominant?"] },
+  { category: 'composition', questions: ['Is the frame composed with a clear focal subject and readable depth?', "Does the camera framing match the selected camera mode's intent?"] },
+  { category: 'terrain-quality', questions: ['Does the terrain show continuous, natural elevation rather than repeated primitive shapes?', 'Are terrain normals and shading consistent with the claimed elevation?'] },
+  { category: 'lod-continuity', questions: ['Are LOD or clipmap boundaries seamless, with no visible popping, cracks, or grid seams?', 'Does terrain detail degrade gracefully with distance rather than dropping abruptly?'] },
+  { category: 'material-quality', questions: ['Do materials read as the intended surface type rather than a flat placeholder color?', 'Is the approved palette respected and coherent across surfaces?'] },
+  { category: 'character-silhouette', questions: ['Is the character an intentional, readable silhouette rather than a primitive box, capsule, or sphere?', "Does the archetype's identity read clearly at the verification camera distance?"] },
+  { category: 'character-scale', questions: ['Is the character scaled plausibly relative to the terrain and environment?', 'Does the character avoid appearing miniature or oversized against nearby landmarks?'] },
+  { category: 'locomotion-readability', questions: ['Are idle and locomotion poses visually distinguishable from each other?', 'Does foot planting track the terrain surface without floating or clipping?'] },
+  { category: 'mechanic-readability', questions: ['Is the centrepiece mechanic immediately distinguishable from idle and locomotion when captured?', 'Does the mechanic visibly affect the state-buffer-driven surface when enabled?'] },
+  { category: 'placeholder-detection', questions: ['Are there any unstyled default materials, missing textures, or debug-only primitives visible?', 'Does anything in the frame look like scaffolding rather than a finished demo?'] },
+  { category: 'visual-hierarchy', questions: ['Does the eye land on the character or mechanic first, not on background noise?', 'Is lighting and contrast used to separate subject from environment?'] },
+  { category: 'scope-discipline', questions: ["Does the captured scene match the current stage's allowed scope, with no later-stage systems built ahead of schedule?", "Is anything visible that the current milestone's requiredOutputs do not yet justify?"] },
+]);
+
+const REVIEW_CRITERIA_KEYS = ['universal', 'biomeSpecific'];
+const REVIEW_CRITERIA_CATEGORY_KEYS = ['category', 'questions'];
+
+function biomeReviewCriteria(biome) {
+  const entries = [];
+  const morphologyAntiPatterns = biome?.tokens?.MORPHOLOGY_ANTI_PATTERNS;
+  if (nonEmptyString(morphologyAntiPatterns)) {
+    entries.push({ category: 'morphology-anti-patterns', questions: [morphologyAntiPatterns] });
+  }
+  const visualReviewQuestions = biome?.tokens?.VISUAL_REVIEW_QUESTIONS;
+  if (nonEmptyString(visualReviewQuestions)) {
+    entries.push({ category: 'biome-visual-review-questions', questions: [visualReviewQuestions] });
+  }
+  return entries;
 }
 
 function canonicalSections(values, registry) {
@@ -442,6 +756,16 @@ export function createCanonicalAssemblyModel({
     },
     acceptance: clone(ACCEPTANCE_GATES),
     milestones: clone(MILESTONE_DEFINITIONS),
+    sourceOfTruth: clone(SOURCE_OF_TRUTH),
+    architecture: clone(ARCHITECTURE_BY_PROFILE[profile.id]),
+    approvedPatterns: clone(APPROVED_PATTERNS_BY_PROFILE[profile.id]),
+    forbiddenPatterns: clone(FORBIDDEN_PATTERNS_BY_PROFILE[profile.id]),
+    implementationPlan: clone(IMPLEMENTATION_PLAN),
+    diagnostics: clone(DIAGNOSTICS_CONTRACT_BY_PROFILE[profile.id]),
+    reviewCriteria: {
+      universal: clone(REVIEW_CRITERIA_UNIVERSAL),
+      biomeSpecific: biomeReviewCriteria(biome),
+    },
   };
 }
 
@@ -452,7 +776,7 @@ export function createBuildContract(model) {
   };
 }
 
-export function createEvidenceTemplate(briefSha256 = '0'.repeat(64)) {
+export function createEvidenceTemplate(briefSha256 = null) {
   return {
     schemaVersion: BUILD_CONTRACT_SCHEMA_VERSION,
     briefSha256,
@@ -597,6 +921,29 @@ function validateCreative(contract, errors) {
   }
 }
 
+function validateReviewCriteria(contract, errors) {
+  const label = 'reviewCriteria';
+  if (!isPlainObject(contract.reviewCriteria)) {
+    errors.push(`${label} must be a plain object`);
+    return;
+  }
+  if (!exactKeys(contract.reviewCriteria, REVIEW_CRITERIA_KEYS, label, errors)) return;
+  compareCanonical(contract.reviewCriteria.universal, REVIEW_CRITERIA_UNIVERSAL, `${label}.universal`, errors);
+  const biomeSpecific = contract.reviewCriteria.biomeSpecific;
+  if (!Array.isArray(biomeSpecific)) {
+    errors.push(`${label}.biomeSpecific must be an array`);
+    return;
+  }
+  biomeSpecific.forEach((entry, index) => {
+    const entryLabel = `${label}.biomeSpecific[${index}]`;
+    if (!exactKeys(entry, REVIEW_CRITERIA_CATEGORY_KEYS, entryLabel, errors)) return;
+    if (!nonEmptyString(entry.category)) errors.push(`${entryLabel}.category must be a non-empty string`);
+    if (!Array.isArray(entry.questions) || entry.questions.length === 0 || entry.questions.some((q) => !nonEmptyString(q))) {
+      errors.push(`${entryLabel}.questions must be a non-empty array of non-empty strings`);
+    }
+  });
+}
+
 export function validateBuildContract(contract) {
   const errors = [];
   if (!isPlainObject(contract)) return { valid: false, errors: ['Build contract must be a plain object'] };
@@ -612,6 +959,41 @@ export function validateBuildContract(contract) {
   validateCreative(contract, errors);
   compareCanonical(contract.acceptance, ACCEPTANCE_GATES, 'acceptance', errors);
   compareCanonical(contract.milestones, MILESTONE_DEFINITIONS, 'milestones', errors);
+  compareCanonical(contract.sourceOfTruth, SOURCE_OF_TRUTH, 'sourceOfTruth', errors);
+  const architectureCanonical = isPlainObject(contract.project) ? ARCHITECTURE_BY_PROFILE[contract.project.renderingProfile] : undefined;
+  if (architectureCanonical) {
+    compareCanonical(contract.architecture, architectureCanonical, 'architecture', errors);
+  } else {
+    errors.push('architecture cannot be validated without a valid project.renderingProfile');
+  }
+  const approvedPatternsCanonical = isPlainObject(contract.project) ? APPROVED_PATTERNS_BY_PROFILE[contract.project.renderingProfile] : undefined;
+  if (approvedPatternsCanonical) {
+    compareCanonical(contract.approvedPatterns, approvedPatternsCanonical, 'approvedPatterns', errors);
+  } else {
+    errors.push('approvedPatterns cannot be validated without a valid project.renderingProfile');
+  }
+  const forbiddenPatternsCanonical = isPlainObject(contract.project) ? FORBIDDEN_PATTERNS_BY_PROFILE[contract.project.renderingProfile] : undefined;
+  if (forbiddenPatternsCanonical) {
+    compareCanonical(contract.forbiddenPatterns, forbiddenPatternsCanonical, 'forbiddenPatterns', errors);
+  } else {
+    errors.push('forbiddenPatterns cannot be validated without a valid project.renderingProfile');
+  }
+  compareCanonical(contract.implementationPlan, IMPLEMENTATION_PLAN, 'implementationPlan', errors);
+  if (Array.isArray(contract.implementationPlan)) {
+    const expectedStageIds = IMPLEMENTATION_PLAN.map(({ id }) => id);
+    const actualStageIds = contract.implementationPlan.map((stage) => (isPlainObject(stage) ? stage.id : undefined));
+    if (JSON.stringify(actualStageIds) !== JSON.stringify(expectedStageIds)) errors.push(`implementationPlan must contain exactly these stage IDs in order: ${expectedStageIds.join(', ')}`);
+    const expectedOrders = IMPLEMENTATION_PLAN.map(({ order }) => order);
+    const actualOrders = contract.implementationPlan.map((stage) => (isPlainObject(stage) ? stage.order : undefined));
+    if (JSON.stringify(actualOrders) !== JSON.stringify(expectedOrders)) errors.push(`implementationPlan stage order must be exactly: ${expectedOrders.join(', ')}`);
+  }
+  const diagnosticsCanonical = isPlainObject(contract.project) ? DIAGNOSTICS_CONTRACT_BY_PROFILE[contract.project.renderingProfile] : undefined;
+  if (diagnosticsCanonical) {
+    compareCanonical(contract.diagnostics, diagnosticsCanonical, 'diagnostics', errors);
+  } else {
+    errors.push('diagnostics cannot be validated without a valid project.renderingProfile');
+  }
+  validateReviewCriteria(contract, errors);
   scanForNonFiniteOrAbsolute(contract, 'contract', errors);
   return { valid: errors.length === 0, errors };
 }
@@ -682,8 +1064,10 @@ export function validateMilestoneEvidence(evidence) {
   if (!isPlainObject(evidence)) return { valid: false, errors: ['Evidence record must be a plain object'] };
   if (!exactKeys(evidence, ['schemaVersion', 'briefSha256', 'status', 'milestones'], 'evidence', errors)) return { valid: false, errors };
   if (evidence.schemaVersion !== BUILD_CONTRACT_SCHEMA_VERSION) errors.push(`evidence.schemaVersion must be ${BUILD_CONTRACT_SCHEMA_VERSION}`);
-  if (typeof evidence.briefSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(evidence.briefSha256)) errors.push('evidence.briefSha256 must be exactly 64 lowercase hexadecimal characters');
   if (![INCOMPLETE_VERIFICATION_STATUS, COMPLETE_STATUS].includes(evidence.status)) errors.push(`evidence.status must be '${INCOMPLETE_VERIFICATION_STATUS}' or '${COMPLETE_STATUS}'`);
+  if (!(evidence.briefSha256 === null || (typeof evidence.briefSha256 === 'string' && /^[0-9a-f]{64}$/.test(evidence.briefSha256)))) {
+    errors.push('evidence.briefSha256 must be null or exactly 64 lowercase hexadecimal characters');
+  }
   if (!Array.isArray(evidence.milestones)) {
     errors.push('evidence.milestones must be an array');
   } else {
@@ -702,6 +1086,24 @@ export function validateMilestoneEvidence(evidence) {
   }
   scanForNonFiniteOrAbsolute(evidence, 'evidence', errors);
   return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Cross-checks evidence.briefSha256 against contract.project.briefSha256.
+ * Not yet wired into any pass/fail gate — that wiring lands in a later task.
+ */
+export function validateEvidenceContractBinding(contract, evidence, errors) {
+  if (!isPlainObject(contract) || !isPlainObject(contract.project) || typeof contract.project.briefSha256 !== 'string') {
+    errors.push('evidence-contract binding requires a valid contract.project.briefSha256');
+    return;
+  }
+  if (!isPlainObject(evidence) || typeof evidence.briefSha256 !== 'string') {
+    errors.push('evidence.briefSha256 must be a string to bind against the contract');
+    return;
+  }
+  if (evidence.briefSha256 !== contract.project.briefSha256) {
+    errors.push('evidence.briefSha256 does not match contract.project.briefSha256');
+  }
 }
 
 export function renderContractSummary(contract) {
@@ -803,3 +1205,10 @@ export function validateAssemblyArtifacts({ model, contract, brief }) {
 
 export const BUILD_CONTRACT_ACCEPTANCE = ACCEPTANCE_GATES;
 export const BUILD_CONTRACT_MILESTONES = MILESTONE_DEFINITIONS;
+export const BUILD_CONTRACT_SOURCE_OF_TRUTH = SOURCE_OF_TRUTH;
+export const BUILD_CONTRACT_IMPLEMENTATION_PLAN = IMPLEMENTATION_PLAN;
+export const BUILD_CONTRACT_ARCHITECTURE = ARCHITECTURE_BY_PROFILE;
+export const BUILD_CONTRACT_APPROVED_PATTERNS = APPROVED_PATTERNS_BY_PROFILE;
+export const BUILD_CONTRACT_FORBIDDEN_PATTERNS = FORBIDDEN_PATTERNS_BY_PROFILE;
+export const BUILD_CONTRACT_DIAGNOSTICS = DIAGNOSTICS_CONTRACT_BY_PROFILE;
+export const BUILD_CONTRACT_REVIEW_CRITERIA_UNIVERSAL = REVIEW_CRITERIA_UNIVERSAL;

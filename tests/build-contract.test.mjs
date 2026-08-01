@@ -14,10 +14,18 @@ import {
   EVIDENCE_FILENAME,
   HANDOFF_FILENAME,
   BUILD_CONTRACT_MILESTONES,
+  BUILD_CONTRACT_SOURCE_OF_TRUTH,
+  BUILD_CONTRACT_IMPLEMENTATION_PLAN,
+  BUILD_CONTRACT_ARCHITECTURE,
+  BUILD_CONTRACT_APPROVED_PATTERNS,
+  BUILD_CONTRACT_FORBIDDEN_PATTERNS,
+  BUILD_CONTRACT_DIAGNOSTICS,
+  BUILD_CONTRACT_REVIEW_CRITERIA_UNIVERSAL,
   createEvidenceTemplate,
   validateAssemblyArtifacts,
   validateBuildContract,
   validateMilestoneEvidence,
+  validateEvidenceContractBinding,
 } from '../build-contract.mjs';
 import { prepareBenchmark } from '../benchmark.mjs';
 
@@ -249,6 +257,16 @@ test('contract rejects unknown keys at every schema level', () => {
     ['coherence override', (contract) => { contract.creative.coherenceOverrides.push({ rule: 'new-rule', reason: 'new reason', unexpected: true }); }],
     ['acceptance', (contract) => { contract.acceptance.unexpected = true; }],
     ['milestone', (contract) => { contract.milestones[0].unexpected = true; }],
+    ['sourceOfTruth', (contract) => { contract.sourceOfTruth.unexpected = true; }],
+    ['architecture', (contract) => { contract.architecture.unexpected = true; }],
+    ['architecture file ownership entry', (contract) => { contract.architecture.fileOwnership[0].unexpected = true; }],
+    ['approved pattern entry', (contract) => { contract.approvedPatterns[0].unexpected = true; }],
+    ['forbidden pattern entry', (contract) => { contract.forbiddenPatterns[0].unexpected = true; }],
+    ['implementation plan stage', (contract) => { contract.implementationPlan[0].unexpected = true; }],
+    ['diagnostics', (contract) => { contract.diagnostics.unexpected = true; }],
+    ['diagnostics rendererInfo', (contract) => { contract.diagnostics.rendererInfo.unexpected = true; }],
+    ['review criteria', (contract) => { contract.reviewCriteria.unexpected = true; }],
+    ['review criteria universal entry', (contract) => { contract.reviewCriteria.universal[0].unexpected = true; }],
   ];
   for (const [label, mutate] of paths) {
     assertInvalidContractMutation(`unknown ${label} key`, mutate);
@@ -451,6 +469,7 @@ test('smoke benchmark preparation produces three bundles whose copied verifiers 
 const createValidCompletedEvidence = () => ({
   schemaVersion: 1,
   status: 'complete',
+  briefSha256: null,
   milestones: [
     {
       id: 'first-runnable-scene',
@@ -652,4 +671,283 @@ test('written prompt SHA-256 equals ENVIZZLE_BUILD.json project.briefSha256', ()
   } finally {
     removeTempDir(tmpDir);
   }
+});
+
+test('build contract has exactly the 14 canonical top-level keys in order', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const keys = Object.keys(assembled.buildContract);
+  assert.deepEqual(keys, [
+    'schemaVersion', 'project', 'selection', 'stateChannels', 'creative', 'acceptance', 'milestones',
+    'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria',
+  ]);
+  assert.equal(keys.length, 14);
+});
+
+test('sourceOfTruth matches the canonical frozen value for every showcase', () => {
+  for (const name of Object.keys(SHOWCASES)) {
+    const assembled = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
+    assert.deepEqual(assembled.buildContract.sourceOfTruth, BUILD_CONTRACT_SOURCE_OF_TRUTH);
+  }
+});
+
+test('adversarial contract mutation: sourceOfTruth builderRole mutated is rejected', () => {
+  const errors = assertInvalidContractMutation('sourceOfTruth.builderRole', (contract) => {
+    contract.sourceOfTruth.builderRole = 'reviewer';
+  });
+  assert.match(errors, /sourceOfTruth/);
+});
+
+test('adversarial contract mutation: sourceOfTruth missing required key is rejected', () => {
+  const errors = assertInvalidContractMutation('sourceOfTruth missing conflictPolicy', (contract) => {
+    delete contract.sourceOfTruth.conflictPolicy;
+  });
+  assert.match(errors, /sourceOfTruth|missing/i);
+});
+
+test('adversarial contract mutation: builderMayIgnoreFailedChecks flipped true is rejected', () => {
+  const errors = assertInvalidContractMutation('sourceOfTruth.builderMayIgnoreFailedChecks', (contract) => {
+    contract.sourceOfTruth.builderMayIgnoreFailedChecks = true;
+  });
+  assert.match(errors, /sourceOfTruth/);
+});
+
+test('architecture matches the canonical per-profile frozen value for both rendering profiles and differs between them', () => {
+  const babylonAssembled = assembleBrief(canonicalShowcaseSpec('Alpine Dawn'), { rootDir: repoRoot });
+  assert.equal(babylonAssembled.buildContract.project.renderingProfile, 'babylon-webgpu');
+  assert.deepEqual(babylonAssembled.buildContract.architecture, BUILD_CONTRACT_ARCHITECTURE['babylon-webgpu']);
+
+  const threeAssembled = assembleBrief(canonicalShowcaseSpec('Hoshi-no-Tani'), { rootDir: repoRoot });
+  assert.equal(threeAssembled.buildContract.project.renderingProfile, 'three-webgl2');
+  assert.deepEqual(threeAssembled.buildContract.architecture, BUILD_CONTRACT_ARCHITECTURE['three-webgl2']);
+
+  assert.notDeepEqual(BUILD_CONTRACT_ARCHITECTURE['babylon-webgpu'], BUILD_CONTRACT_ARCHITECTURE['three-webgl2']);
+  assert.deepEqual(
+    BUILD_CONTRACT_ARCHITECTURE['babylon-webgpu'].terrainElevationOwnership,
+    BUILD_CONTRACT_ARCHITECTURE['three-webgl2'].terrainElevationOwnership,
+    'terrain elevation ownership is engine-agnostic and must be identical across profiles',
+  );
+});
+
+test('adversarial contract mutation: architecture terrainElevationOwnership non-finite value is rejected', () => {
+  const errors = assertInvalidContractMutation('architecture.terrainElevationOwnership.parityToleranceM', (contract) => {
+    contract.architecture.terrainElevationOwnership.parityToleranceM = Infinity;
+  });
+  assert.match(errors, /architecture|finite/i);
+});
+
+test('adversarial contract mutation: architecture fileOwnership entry text mutated is rejected', () => {
+  const errors = assertInvalidContractMutation('architecture.fileOwnership[0].responsibility', (contract) => {
+    contract.architecture.fileOwnership[0].responsibility = 'something else entirely';
+  });
+  assert.match(errors, /architecture/i);
+});
+
+test('adversarial contract mutation: architecture missing terrainElevationOwnership key is rejected', () => {
+  const errors = assertInvalidContractMutation('architecture missing terrainElevationOwnership', (contract) => {
+    delete contract.architecture.terrainElevationOwnership;
+  });
+  assert.match(errors, /architecture|missing/i);
+});
+
+test('approvedPatterns and forbiddenPatterns match the canonical per-profile frozen registries', () => {
+  const babylonAssembled = assembleBrief(canonicalShowcaseSpec('Alpine Dawn'), { rootDir: repoRoot });
+  assert.deepEqual(babylonAssembled.buildContract.approvedPatterns, BUILD_CONTRACT_APPROVED_PATTERNS['babylon-webgpu']);
+  assert.deepEqual(babylonAssembled.buildContract.forbiddenPatterns, BUILD_CONTRACT_FORBIDDEN_PATTERNS['babylon-webgpu']);
+
+  const threeAssembled = assembleBrief(canonicalShowcaseSpec('Hoshi-no-Tani'), { rootDir: repoRoot });
+  assert.deepEqual(threeAssembled.buildContract.approvedPatterns, BUILD_CONTRACT_APPROVED_PATTERNS['three-webgl2']);
+  assert.deepEqual(threeAssembled.buildContract.forbiddenPatterns, BUILD_CONTRACT_FORBIDDEN_PATTERNS['three-webgl2']);
+});
+
+test('forbidden pattern registries contain the global minimum ID list and stay structurally parallel across profiles', () => {
+  const universalIds = ['webgl-fallback', 'duplicate-terrain-displacement', 'cpu-predisplaced-render-mesh', 'premature-readiness', 'suppressed-initialization-failure', 'placeholder-character', 'indistinguishable-poses', 'render-loop-allocation', 'incomplete-evidence', 'continue-after-failed-stage'];
+  const babylonIds = BUILD_CONTRACT_FORBIDDEN_PATTERNS['babylon-webgpu'].map((p) => p.id);
+  const threeIds = BUILD_CONTRACT_FORBIDDEN_PATTERNS['three-webgl2'].map((p) => p.id);
+  for (const id of universalIds) {
+    assert.equal(babylonIds.includes(id), true, `babylon-webgpu missing universal id ${id}`);
+    assert.equal(threeIds.includes(id), true, `three-webgl2 missing universal id ${id}`);
+  }
+  assert.equal(babylonIds.includes('manual-babylon-bindings'), true);
+  assert.equal(babylonIds.includes('wrong-babylon-shader-language'), true);
+  assert.equal(babylonIds.includes('wrong-babylon-shader-store'), true);
+  assert.equal(new Set(babylonIds).size, babylonIds.length, 'no duplicate ids in babylon-webgpu registry');
+  assert.equal(new Set(threeIds).size, threeIds.length, 'no duplicate ids in three-webgl2 registry');
+  assert.equal(babylonIds.length, threeIds.length, 'both profiles should carry a structurally parallel pattern count');
+});
+
+test('adversarial contract mutation: approvedPatterns cross-profile registry swap is rejected', () => {
+  const errors = assertInvalidContractMutation('approvedPatterns cross-profile swap', (contract) => {
+    const otherProfile = contract.project.renderingProfile === 'babylon-webgpu' ? 'three-webgl2' : 'babylon-webgpu';
+    contract.approvedPatterns = clone(BUILD_CONTRACT_APPROVED_PATTERNS[otherProfile]);
+  });
+  assert.match(errors, /approvedPatterns/i);
+});
+
+test('adversarial contract mutation: forbiddenPatterns blocking flag flipped is rejected', () => {
+  const errors = assertInvalidContractMutation('forbiddenPatterns[0].blocking', (contract) => {
+    contract.forbiddenPatterns[0].blocking = false;
+  });
+  assert.match(errors, /forbiddenPatterns/i);
+});
+
+test('implementationPlan contains exactly 5 stages in canonical ID and order, matching the frozen constant', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  assert.deepEqual(assembled.buildContract.implementationPlan.map((s) => s.id), ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-polish']);
+  assert.deepEqual(assembled.buildContract.implementationPlan.map((s) => s.order), [1, 2, 3, 4, 5]);
+  assert.deepEqual(assembled.buildContract.implementationPlan, BUILD_CONTRACT_IMPLEMENTATION_PLAN);
+});
+
+test('adversarial contract mutation: implementationPlan reordered stages is rejected', () => {
+  const errors = assertInvalidContractMutation('implementationPlan reordered stages', (contract) => {
+    [contract.implementationPlan[0], contract.implementationPlan[1]] = [contract.implementationPlan[1], contract.implementationPlan[0]];
+  });
+  assert.match(errors, /implementationPlan/i);
+});
+
+test('adversarial contract mutation: implementationPlan stage order contradicts stage IDs', () => {
+  const errors = assertInvalidContractMutation('implementationPlan order contradiction', (contract) => {
+    contract.implementationPlan[0].order = 2;
+    contract.implementationPlan[1].order = 1;
+  });
+  assert.match(errors, /implementationPlan/i);
+});
+
+test('adversarial contract mutation: implementationPlan doNotProceedUntilPassed flipped is rejected', () => {
+  const errors = assertInvalidContractMutation('implementationPlan[0].doNotProceedUntilPassed', (contract) => {
+    contract.implementationPlan[0].doNotProceedUntilPassed = false;
+  });
+  assert.match(errors, /implementationPlan/i);
+});
+
+test('adversarial contract mutation: implementationPlan missing stage is rejected', () => {
+  const errors = assertInvalidContractMutation('implementationPlan missing stage', (contract) => {
+    contract.implementationPlan.pop();
+  });
+  assert.match(errors, /implementationPlan/i);
+});
+
+test('diagnostics matches the canonical per-profile contract shape for both profiles', () => {
+  const babylonAssembled = assembleBrief(canonicalShowcaseSpec('Alpine Dawn'), { rootDir: repoRoot });
+  assert.deepEqual(babylonAssembled.buildContract.diagnostics, BUILD_CONTRACT_DIAGNOSTICS['babylon-webgpu']);
+  assert.equal(babylonAssembled.buildContract.diagnostics.rendererInfo.backend, 'webgpu');
+  assert.equal(babylonAssembled.buildContract.diagnostics.rendererInfo.shaderLanguage, 'wgsl');
+
+  const threeAssembled = assembleBrief(canonicalShowcaseSpec('Hoshi-no-Tani'), { rootDir: repoRoot });
+  assert.deepEqual(threeAssembled.buildContract.diagnostics, BUILD_CONTRACT_DIAGNOSTICS['three-webgl2']);
+  assert.equal(threeAssembled.buildContract.diagnostics.rendererInfo.backend, 'webgl2');
+  assert.equal(threeAssembled.buildContract.diagnostics.rendererInfo.shaderLanguage, 'glsl-es-300');
+});
+
+test('adversarial contract mutation: diagnostics rendererInfo wrong backend enum is rejected', () => {
+  const errors = assertInvalidContractMutation('diagnostics.rendererInfo.backend', (contract) => {
+    contract.diagnostics.rendererInfo.backend = contract.diagnostics.rendererInfo.backend === 'webgpu' ? 'webgl2' : 'webgpu';
+  });
+  assert.match(errors, /diagnostics/i);
+});
+
+test('adversarial contract mutation: diagnostics cameraDiagnostics non-finite threshold is rejected', () => {
+  const errors = assertInvalidContractMutation('diagnostics.cameraDiagnostics.minNearestDepthM', (contract) => {
+    contract.diagnostics.cameraDiagnostics.minNearestDepthM = Infinity;
+  });
+  assert.match(errors, /diagnostics|finite/i);
+});
+
+test('adversarial contract mutation: diagnostics missing lifecycle key is rejected', () => {
+  const errors = assertInvalidContractMutation('diagnostics missing lifecycle', (contract) => {
+    delete contract.diagnostics.lifecycle;
+  });
+  assert.match(errors, /diagnostics|missing/i);
+});
+
+test('reviewCriteria universal slice matches the canonical frozen 12-category set', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  assert.deepEqual(assembled.buildContract.reviewCriteria.universal, BUILD_CONTRACT_REVIEW_CRITERIA_UNIVERSAL);
+  assert.equal(assembled.buildContract.reviewCriteria.universal.length, 12);
+  const categories = assembled.buildContract.reviewCriteria.universal.map((c) => c.category);
+  assert.deepEqual(categories, [
+    'biome-identity', 'composition', 'terrain-quality', 'lod-continuity', 'material-quality',
+    'character-silhouette', 'character-scale', 'locomotion-readability', 'mechanic-readability',
+    'placeholder-detection', 'visual-hierarchy', 'scope-discipline',
+  ]);
+});
+
+test('reviewCriteria biomeSpecific is tolerant of absent biome tokens and defaults to an empty array today', () => {
+  for (const name of Object.keys(SHOWCASES)) {
+    const assembled = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
+    assert.deepEqual(assembled.buildContract.reviewCriteria.biomeSpecific, []);
+    assert.equal(validateBuildContract(assembled.buildContract).valid, true);
+  }
+});
+
+test('adversarial contract mutation: reviewCriteria universal question text mutated is rejected', () => {
+  const errors = assertInvalidContractMutation('reviewCriteria.universal[0].questions[0]', (contract) => {
+    contract.reviewCriteria.universal[0].questions[0] = 'A different question entirely.';
+  });
+  assert.match(errors, /reviewCriteria/i);
+});
+
+test('adversarial contract mutation: reviewCriteria biomeSpecific entry with empty category is rejected', () => {
+  const errors = assertInvalidContractMutation('reviewCriteria.biomeSpecific empty category', (contract) => {
+    contract.reviewCriteria.biomeSpecific.push({ category: '', questions: ['something'] });
+  });
+  assert.match(errors, /reviewCriteria|non-empty/i);
+});
+
+test('adversarial contract mutation: reviewCriteria biomeSpecific entry with unknown key is rejected', () => {
+  const errors = assertInvalidContractMutation('reviewCriteria.biomeSpecific unknown key', (contract) => {
+    contract.reviewCriteria.biomeSpecific.push({ category: 'x', questions: ['y'], extra: true });
+  });
+  assert.match(errors, /reviewCriteria|unknown/i);
+});
+
+test('adversarial contract mutation: reviewCriteria missing biomeSpecific key is rejected', () => {
+  const errors = assertInvalidContractMutation('reviewCriteria missing biomeSpecific', (contract) => {
+    delete contract.reviewCriteria.biomeSpecific;
+  });
+  assert.match(errors, /reviewCriteria|missing/i);
+});
+
+test('evidence template briefSha256 defaults to null and validates', () => {
+  const evidence = createEvidenceTemplate();
+  assert.equal(evidence.briefSha256, null);
+  assert.equal(validateMilestoneEvidence(evidence).valid, true);
+});
+
+test('adversarial evidence mutation: briefSha256 malformed string is rejected', () => {
+  const evidence = createEvidenceTemplate();
+  const before = evidence.briefSha256;
+  evidence.briefSha256 = 'not-a-valid-hash';
+  assert.notEqual(evidence.briefSha256, before);
+  const validation = validateMilestoneEvidence(evidence);
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join('; '), /briefSha256/i);
+});
+
+test('adversarial evidence mutation: completed evidence with a valid-looking briefSha256 still validates structurally', () => {
+  const ev = createValidCompletedEvidence();
+  ev.briefSha256 = 'a'.repeat(64);
+  const validation = validateMilestoneEvidence(ev);
+  assert.equal(validation.valid, true, validation.errors.join('; '));
+});
+
+test('validateEvidenceContractBinding rejects a missing evidence briefSha256, rejects a mismatch, and accepts a match', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const contract = assembled.buildContract;
+
+  const missingErrors = [];
+  validateEvidenceContractBinding(contract, createEvidenceTemplate(), missingErrors);
+  assert.equal(missingErrors.length > 0, true);
+  assert.match(missingErrors.join('; '), /briefSha256/i);
+
+  const mismatchErrors = [];
+  const evidenceWrongHash = { ...createEvidenceTemplate(), briefSha256: '0'.repeat(64) };
+  assert.notEqual(evidenceWrongHash.briefSha256, contract.project.briefSha256);
+  validateEvidenceContractBinding(contract, evidenceWrongHash, mismatchErrors);
+  assert.equal(mismatchErrors.length > 0, true);
+  assert.match(mismatchErrors.join('; '), /does not match/i);
+
+  const matchErrors = [];
+  const evidenceMatchingHash = { ...createEvidenceTemplate(), briefSha256: contract.project.briefSha256 };
+  validateEvidenceContractBinding(contract, evidenceMatchingHash, matchErrors);
+  assert.equal(matchErrors.length, 0, matchErrors.join('; '));
 });
