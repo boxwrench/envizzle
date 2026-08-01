@@ -10,7 +10,7 @@ import {
   buildCaseAssemblySpec,
 } from './benchmark-cases.mjs';
 import { assembleBrief, writeBundle } from './assemble.mjs';
-import { validateVerificationReport } from './verify/report.mjs';
+import { validateVerificationReport, containsLeak, isPathInside } from './verify/report.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname);
@@ -58,10 +58,16 @@ export function validateHumanReview(review) {
     errors.push('reviewer must be a non-empty string');
   } else if (review.reviewer.includes('\n') || review.reviewer.includes('\r') || CONTROL_CHARS_REGEX.test(review.reviewer)) {
     errors.push('reviewer must be a single-line string without control characters');
+  } else if (containsLeak(review.reviewer)) {
+    errors.push('reviewer contains path, stack, or credential leakage');
   }
 
-  if (review.notes !== undefined && review.notes !== null && typeof review.notes !== 'string') {
-    errors.push('notes must be a string if provided');
+  if (review.notes !== undefined && review.notes !== null) {
+    if (typeof review.notes !== 'string') {
+      errors.push('notes must be a string if provided');
+    } else if (containsLeak(review.notes)) {
+      errors.push('notes contains path, stack, or credential leakage');
+    }
   }
 
   if (!isPlainObject(review.scores)) {
@@ -111,10 +117,16 @@ export function validateStoredHumanReview(review) {
     errors.push('reviewer must be a non-empty string');
   } else if (review.reviewer.includes('\n') || review.reviewer.includes('\r') || CONTROL_CHARS_REGEX.test(review.reviewer)) {
     errors.push('reviewer must be a single-line string without control characters');
+  } else if (containsLeak(review.reviewer)) {
+    errors.push('reviewer contains path, stack, or credential leakage');
   }
 
-  if (review.notes !== undefined && review.notes !== null && typeof review.notes !== 'string') {
-    errors.push('notes must be a string if provided');
+  if (review.notes !== undefined && review.notes !== null) {
+    if (typeof review.notes !== 'string') {
+      errors.push('notes must be a string if provided');
+    } else if (containsLeak(review.notes)) {
+      errors.push('notes contains path, stack, or credential leakage');
+    }
   }
 
   if (!isPlainObject(review.scores)) {
@@ -157,10 +169,6 @@ export function computeVisualAverage(scores) {
   return Math.round((sum / ALLOWED_REVIEW_CATEGORIES.length) * 100) / 100;
 }
 
-function containsLeak(s) {
-  return s.includes(repoRoot) || s.includes(process.env.HOME || '/nonexistent');
-}
-
 export function validateBenchmarkResult(res) {
   const errors = [];
   if (!isPlainObject(res)) {
@@ -184,6 +192,8 @@ export function validateBenchmarkResult(res) {
   }
   if (typeof res.modelLabel !== 'string' || res.modelLabel.trim() === '' || /[\r\n]/.test(res.modelLabel) || CONTROL_CHARS_REGEX.test(res.modelLabel)) {
     errors.push('modelLabel must be a non-empty single-line string');
+  } else if (containsLeak(res.modelLabel)) {
+    errors.push('modelLabel contains path, stack, or credential leakage (this value is embedded directly into Markdown summaries)');
   }
   if (typeof res.attempt !== 'number' || !Number.isInteger(res.attempt) || res.attempt < 1) {
     errors.push('attempt must be a positive integer >= 1');
@@ -220,31 +230,96 @@ export function validateBenchmarkResult(res) {
       errors.push('automated.hardGateFailureCount must equal length of hardGateFailures array');
     }
 
-    if (res.automated.pass === true) {
-      if (!isPlainObject(res.automated.metrics)) {
-        errors.push('Passed benchmark result must contain a non-null metrics object');
+    // Metrics shape must be exact and strictly typed regardless of pass/fail/error status.
+    // Failed and error results may report null/empty evidence, but never a wrong-shaped
+    // value (string, array, or arbitrary object) in place of the metrics object.
+    if (!isPlainObject(res.automated.metrics)) {
+      errors.push('automated.metrics must be a plain object');
+    } else {
+      const m = res.automated.metrics;
+      const mKeys = Object.keys(m);
+      if (mKeys.length !== 3 || !mKeys.includes('frames') || !mKeys.includes('cameraNearestDepthM') || !mKeys.includes('frameStats')) {
+        errors.push(`automated.metrics must contain exact keys ['frames', 'cameraNearestDepthM', 'frameStats'], got [${mKeys.join(', ')}]`);
+      }
+
+      const knownPoses = new Set(['idle', 'locomotion', 'mechanic']);
+      if (!Array.isArray(m.frames)) {
+        errors.push('automated.metrics.frames must be an array');
       } else {
-        const m = res.automated.metrics;
-        const frames = m.frames;
-        if (!Array.isArray(frames) || frames.length !== 3) {
-          errors.push('Passed benchmark result must contain exactly 3 frame metric records');
-        } else {
-          const names = new Set(frames.map((f) => f.name));
-          if (names.size !== 3 || !names.has('idle') || !names.has('locomotion') || !names.has('mechanic')) {
-            errors.push('Passed benchmark result frames must contain exact unique poses idle, locomotion, mechanic');
+        const seenNames = new Set();
+        for (const f of m.frames) {
+          if (!isPlainObject(f)) {
+            errors.push('automated.metrics.frames entries must be plain objects');
+            continue;
           }
-          for (const f of frames) {
-            if (typeof f.meanLuminance !== 'number' || !Number.isFinite(f.meanLuminance)) errors.push(`Frame '${f.name}' missing finite meanLuminance`);
-            if (typeof f.flatFrameRatio !== 'number' || !Number.isFinite(f.flatFrameRatio)) errors.push(`Frame '${f.name}' missing finite flatFrameRatio`);
-            if (typeof f.characterAreaFraction !== 'number' || !Number.isFinite(f.characterAreaFraction)) errors.push(`Frame '${f.name}' missing finite characterAreaFraction`);
+          const fKeys = Object.keys(f);
+          if (fKeys.length !== 4 || !fKeys.includes('name') || !fKeys.includes('meanLuminance') || !fKeys.includes('flatFrameRatio') || !fKeys.includes('characterAreaFraction')) {
+            errors.push(`automated.metrics.frames entry must contain exact keys ['name', 'meanLuminance', 'flatFrameRatio', 'characterAreaFraction'], got [${fKeys.join(', ')}]`);
+          }
+          if (typeof f.name !== 'string') {
+            errors.push('automated.metrics.frames entry name must be a string');
+          } else {
+            if (!knownPoses.has(f.name)) errors.push(`automated.metrics.frames contains unknown pose '${f.name}'`);
+            if (seenNames.has(f.name)) errors.push(`automated.metrics.frames contains duplicate pose '${f.name}'`);
+            seenNames.add(f.name);
+          }
+          if (!(f.meanLuminance === null || (typeof f.meanLuminance === 'number' && Number.isFinite(f.meanLuminance)))) {
+            errors.push(`automated.metrics.frames entry '${f.name}' meanLuminance must be a finite number or null`);
+          }
+          if (!(f.flatFrameRatio === null || (typeof f.flatFrameRatio === 'number' && Number.isFinite(f.flatFrameRatio)))) {
+            errors.push(`automated.metrics.frames entry '${f.name}' flatFrameRatio must be a finite number or null`);
+          }
+          if (!(f.characterAreaFraction === null || (typeof f.characterAreaFraction === 'number' && Number.isFinite(f.characterAreaFraction)))) {
+            errors.push(`automated.metrics.frames entry '${f.name}' characterAreaFraction must be a finite number or null`);
           }
         }
-        if (typeof m.cameraNearestDepthM !== 'number' || !Number.isFinite(m.cameraNearestDepthM) || m.cameraNearestDepthM < 0) {
-          errors.push('Passed benchmark result missing finite non-negative cameraNearestDepthM');
+      }
+
+      if (!(m.cameraNearestDepthM === null || (typeof m.cameraNearestDepthM === 'number' && Number.isFinite(m.cameraNearestDepthM)))) {
+        errors.push('automated.metrics.cameraNearestDepthM must be a finite number or null');
+      }
+
+      if (!isPlainObject(m.frameStats)) {
+        errors.push('automated.metrics.frameStats must be a plain object');
+      } else {
+        const fsKeys = Object.keys(m.frameStats);
+        if (fsKeys.length !== 3 || !fsKeys.includes('medianMs') || !fsKeys.includes('p99Ms') || !fsKeys.includes('samples')) {
+          errors.push(`automated.metrics.frameStats must contain exact keys ['medianMs', 'p99Ms', 'samples'], got [${fsKeys.join(', ')}]`);
         }
-        if (!isPlainObject(m.frameStats) || typeof m.frameStats.medianMs !== 'number' || !Number.isFinite(m.frameStats.medianMs) || typeof m.frameStats.p99Ms !== 'number' || !Number.isFinite(m.frameStats.p99Ms) || typeof m.frameStats.samples !== 'number' || !Number.isInteger(m.frameStats.samples) || m.frameStats.samples < 1) {
-          errors.push('Passed benchmark result missing valid frameStats metrics');
+        if (!(m.frameStats.medianMs === null || (typeof m.frameStats.medianMs === 'number' && Number.isFinite(m.frameStats.medianMs)))) {
+          errors.push('automated.metrics.frameStats.medianMs must be a finite number or null');
         }
+        if (!(m.frameStats.p99Ms === null || (typeof m.frameStats.p99Ms === 'number' && Number.isFinite(m.frameStats.p99Ms)))) {
+          errors.push('automated.metrics.frameStats.p99Ms must be a finite number or null');
+        }
+        if (!(m.frameStats.samples === null || (typeof m.frameStats.samples === 'number' && Number.isInteger(m.frameStats.samples) && m.frameStats.samples >= 0))) {
+          errors.push('automated.metrics.frameStats.samples must be a non-negative integer or null');
+        }
+      }
+    }
+
+    // Passed results additionally require complete, finite, three-pose evidence.
+    if (res.automated.pass === true && isPlainObject(res.automated.metrics)) {
+      const m = res.automated.metrics;
+      const frames = m.frames;
+      if (!Array.isArray(frames) || frames.length !== 3) {
+        errors.push('Passed benchmark result must contain exactly 3 frame metric records');
+      } else {
+        const names = new Set(frames.map((f) => f?.name));
+        if (names.size !== 3 || !names.has('idle') || !names.has('locomotion') || !names.has('mechanic')) {
+          errors.push('Passed benchmark result frames must contain exact unique poses idle, locomotion, mechanic');
+        }
+        for (const f of frames) {
+          if (typeof f.meanLuminance !== 'number' || !Number.isFinite(f.meanLuminance)) errors.push(`Frame '${f.name}' missing finite meanLuminance`);
+          if (typeof f.flatFrameRatio !== 'number' || !Number.isFinite(f.flatFrameRatio)) errors.push(`Frame '${f.name}' missing finite flatFrameRatio`);
+          if (typeof f.characterAreaFraction !== 'number' || !Number.isFinite(f.characterAreaFraction)) errors.push(`Frame '${f.name}' missing finite characterAreaFraction`);
+        }
+      }
+      if (typeof m.cameraNearestDepthM !== 'number' || !Number.isFinite(m.cameraNearestDepthM) || m.cameraNearestDepthM < 0) {
+        errors.push('Passed benchmark result missing finite non-negative cameraNearestDepthM');
+      }
+      if (!isPlainObject(m.frameStats) || typeof m.frameStats.medianMs !== 'number' || !Number.isFinite(m.frameStats.medianMs) || typeof m.frameStats.p99Ms !== 'number' || !Number.isFinite(m.frameStats.p99Ms) || typeof m.frameStats.samples !== 'number' || !Number.isInteger(m.frameStats.samples) || m.frameStats.samples < 1) {
+        errors.push('Passed benchmark result missing valid frameStats metrics');
       }
     }
   }
@@ -699,8 +774,14 @@ export function collectBenchmarkResult(projectDir, options = {}) {
   const caseMetaReal = fs.realpathSync(locatedCasePath);
   const preparedCaseDir = path.dirname(caseMetaReal);
 
+  // case.json must be directly inside the prepared case directory (true by construction,
+  // asserted defensively since preparedCaseDir is derived from it).
+  if (path.dirname(caseMetaReal) !== preparedCaseDir) {
+    throw new Error(`Path security violation: case.json '${caseMetaReal}' is not directly inside its prepared case directory`);
+  }
+
   // Enforce path containment: project directory MUST remain inside prepared case directory!
-  if (!projReal.startsWith(preparedCaseDir) && !preparedCaseDir.startsWith(projReal)) {
+  if (!isPathInside(preparedCaseDir, projReal)) {
     throw new Error(`Path security violation: project directory '${projReal}' resolves outside prepared case directory '${preparedCaseDir}'`);
   }
 
@@ -737,7 +818,7 @@ export function collectBenchmarkResult(projectDir, options = {}) {
   }
 
   const actualPromptReal = fs.realpathSync(actualPromptPath);
-  if (!actualPromptReal.startsWith(preparedCaseDir) && !preparedCaseDir.startsWith(projReal)) {
+  if (!isPathInside(preparedCaseDir, actualPromptReal)) {
     throw new Error(`Path security violation: prompt file '${actualPromptReal}' resolves outside prepared case directory '${preparedCaseDir}'`);
   }
 
@@ -762,6 +843,13 @@ export function collectBenchmarkResult(projectDir, options = {}) {
   const reportPath = path.join(projReal, 'verify-report.json');
   if (!fs.existsSync(reportPath)) {
     throw new Error(`Verification report file '${reportPath}' not found`);
+  }
+
+  // Report must genuinely resolve inside the project directory after realpath resolution,
+  // guarding against a symlinked verify-report.json escaping the sandboxed project directory.
+  const reportReal = fs.realpathSync(reportPath);
+  if (!isPathInside(projReal, reportReal)) {
+    throw new Error(`Path security violation: report file '${reportReal}' resolves outside project directory '${projReal}'`);
   }
 
   let rawReport;

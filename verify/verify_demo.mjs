@@ -245,19 +245,13 @@ export async function verifyDemo(projectDir, options = {}) {
     : (missingPaths.length > 0 ? `Missing required paths: ${missingPaths.join(', ')}` : null);
 
   if (buildOk) {
-    // Test-only escape hatch: lets injected-failure regression tests reach the
-    // browser/server stage without a real network-dependent vite build.
-    if (options._testSkipBuildExec) {
+    try {
+      execSync('npx vite build', { cwd: targetDir, stdio: 'pipe' });
       pass('production build compiled with zero errors');
-    } else {
-      try {
-        execSync('npx vite build', { cwd: targetDir, stdio: 'pipe' });
-        pass('production build compiled with zero errors');
-      } catch (err) {
-        buildOk = false;
-        buildError = `build failed: ${err.stderr?.toString() ?? err.message}`;
-        fail(buildError);
-      }
+    } catch (err) {
+      buildOk = false;
+      buildError = `build failed: ${err.stderr?.toString() ?? err.message}`;
+      fail(buildError);
     }
   }
 
@@ -277,6 +271,11 @@ export async function verifyDemo(projectDir, options = {}) {
   if (buildOk && !options.skipBrowser) {
     let server = null;
     let browser = null;
+    // Demo-level defects (setPose/setCharacterVisible/camera/frame-stat hooks throwing,
+    // or malformed hook return values) are recorded here and never rethrown to the outer
+    // catch below — only genuine infrastructure failures (Playwright load, server spawn,
+    // server unreachable, browser launch, or the browser/page actually disconnecting)
+    // reach the outer catch and set isOperationalError.
     try {
       let playwright;
       try {
@@ -300,7 +299,7 @@ export async function verifyDemo(projectDir, options = {}) {
       }
 
       try {
-        await waitForServer(origin, 30000);
+        await waitForServer(origin, options.serverReadyTimeoutMs ?? 30000);
       } catch (srvErr) {
         isOperationalError = true;
         throw srvErr;
@@ -322,7 +321,16 @@ export async function verifyDemo(projectDir, options = {}) {
         if (m.type() === 'error') runtimeErrors.push(m.text());
       });
 
-      await page.goto(origin, { waitUntil: 'networkidle' });
+      try {
+        await page.goto(origin, { waitUntil: 'networkidle' });
+      } catch (navErr) {
+        if (!browser.isConnected()) {
+          isOperationalError = true;
+          throw new Error(`Browser infrastructure disconnected while loading the demo page: ${navErr.message}`);
+        }
+        // The browser itself is healthy; the demo page failed to load — a demo defect.
+        fail(`Failed to load demo page: ${navErr.message}`);
+      }
 
       try {
         await page.waitForFunction('window.__demo && window.__demo.ready === true', { timeout: 30000 });
@@ -337,24 +345,34 @@ export async function verifyDemo(projectDir, options = {}) {
         const frames = [];
         fs.mkdirSync(shotDir, { recursive: true });
 
-        for (const pose of ['idle', 'locomotion', 'mechanic']) {
-          await page.evaluate((p) => window.__demo.setPose(p), pose);
-          await page.waitForTimeout(1200);
+        let captureError = null;
+        try {
+          for (const pose of ['idle', 'locomotion', 'mechanic']) {
+            await page.evaluate((p) => window.__demo.setPose(p), pose);
+            await page.waitForTimeout(1200);
 
-          const withCharBuf = await page.screenshot();
-          await page.evaluate(() => window.__demo.setCharacterVisible(false));
-          await page.waitForTimeout(300);
-          const withoutCharBuf = await page.screenshot();
-          await page.evaluate(() => window.__demo.setCharacterVisible(true));
+            const withCharBuf = await page.screenshot();
+            await page.evaluate(() => window.__demo.setCharacterVisible(false));
+            await page.waitForTimeout(300);
+            const withoutCharBuf = await page.screenshot();
+            await page.evaluate(() => window.__demo.setCharacterVisible(true));
 
-          frames.push({
-            name: pose,
-            image: toImage(withCharBuf),
-            imageWithoutCharacter: toImage(withoutCharBuf),
-          });
-          const shotName = `milestone_${pose}.png`;
-          fs.writeFileSync(path.join(shotDir, shotName), withCharBuf);
-          writtenCaptures.push(shotName);
+            frames.push({
+              name: pose,
+              image: toImage(withCharBuf),
+              imageWithoutCharacter: toImage(withoutCharBuf),
+            });
+            const shotName = `milestone_${pose}.png`;
+            fs.writeFileSync(path.join(shotDir, shotName), withCharBuf);
+            writtenCaptures.push(shotName);
+          }
+        } catch (err) {
+          if (!browser.isConnected()) {
+            isOperationalError = true;
+            throw new Error(`Browser infrastructure disconnected during pose capture: ${err.message}`);
+          }
+          captureError = err;
+          fail(`demo pose/visibility hook failed: ${err.message}`);
         }
 
         if (runtimeErrors.length === 0) {
@@ -363,24 +381,52 @@ export async function verifyDemo(projectDir, options = {}) {
           fail(`runtime errors: ${runtimeErrors.join(' | ')}`);
         }
 
-        const cameraDepthM = await page.evaluate(() => window.__demo.cameraNearestDepth());
-        const frameStats = await page.evaluate(() => window.__demo.frameStats());
-        gateResult = evaluateGates({ frames, cameraDepthM, frameStats });
-
-        if (runtimeErrors.length > 0) {
+        if (captureError || writtenCaptures.length !== 3) {
           gateResult.pass = false;
-          gateResult.failures = [...(gateResult.failures || []), ...runtimeErrors];
+          gateResult.failures = [
+            ...(gateResult.failures || []),
+            captureError ? `demo pose/visibility hook failed: ${captureError.message}` : 'Incomplete capture evidence after pose loop',
+            ...runtimeErrors,
+          ];
+        } else {
+          let cameraDepthM;
+          let frameStats;
+          let hookError = null;
+          try {
+            cameraDepthM = await page.evaluate(() => window.__demo.cameraNearestDepth());
+            frameStats = await page.evaluate(() => window.__demo.frameStats());
+          } catch (err) {
+            if (!browser.isConnected()) {
+              isOperationalError = true;
+              throw new Error(`Browser infrastructure disconnected during metrics collection: ${err.message}`);
+            }
+            hookError = err;
+            fail(`camera/frame-stat hook failed: ${err.message}`);
+          }
+
+          if (hookError) {
+            gateResult.pass = false;
+            gateResult.failures = [...(gateResult.failures || []), `camera/frame-stat hook failed: ${hookError.message}`, ...runtimeErrors];
+          } else {
+            gateResult = evaluateGates({ frames, cameraDepthM, frameStats });
+
+            if (runtimeErrors.length > 0) {
+              gateResult.pass = false;
+              gateResult.failures = [...(gateResult.failures || []), ...runtimeErrors];
+            }
+
+            gateResult.info.forEach((i) => {
+              logInfo.push(i);
+              if (!options.silent) console.log(`INFO: ${i}`);
+            });
+
+            if (gateResult.pass) pass('all image gates passed');
+            else gateResult.failures.forEach(fail);
+          }
         }
-
-        gateResult.info.forEach((i) => {
-          logInfo.push(i);
-          if (!options.silent) console.log(`INFO: ${i}`);
-        });
-
-        if (gateResult.pass) pass('all image gates passed');
-        else gateResult.failures.forEach(fail);
       }
     } catch (err) {
+      // Only genuine infrastructure failures reach here — see the comment above.
       isOperationalError = true;
       gateResult.pass = false;
       gateResult.failures = [...(gateResult.failures || []), err.message];
@@ -457,8 +503,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   verifyDemo(parsed.projectDir, {
     reportPath: parsed.reportPath,
     screenshotsDir: parsed.screenshotsDir,
-    // Test-only escape hatch (see verifyDemo above): never set outside regression tests.
-    _testSkipBuildExec: process.env.__VERIFY_DEMO_TEST_SKIP_BUILD === '1',
   })
     .then((result) => {
       console.log('\n' + '='.repeat(50));

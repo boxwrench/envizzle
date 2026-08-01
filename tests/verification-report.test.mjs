@@ -244,6 +244,65 @@ test('validateVerificationReport rejects passed reports with duplicate or unknow
   assert.equal(validateVerificationReport(sample2).valid, false);
 });
 
+test('adversarial: passed report with three arbitrary capture names is rejected', () => {
+  const sample = validReportSample();
+  sample.captures = ['screenshot1.png', 'screenshot2.png', 'screenshot3.png'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /Unknown capture filename|exactly the three required capture filenames/.test(e)));
+});
+
+test('adversarial: passed report with duplicate capture names is rejected', () => {
+  const sample = validReportSample();
+  sample.captures = ['milestone_idle.png', 'milestone_idle.png', 'milestone_mechanic.png'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /Duplicate capture filename|exactly the three required capture filenames/.test(e)));
+});
+
+test('validateVerificationReport rejects passed report with a renamed capture (missing required, extra unknown)', () => {
+  const sample = validReportSample();
+  sample.captures = ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic_v2.png'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+});
+
+test('validateVerificationReport rejects unknown capture filenames on failed reports too', () => {
+  const sample = validReportSample();
+  sample.status = 'failed';
+  sample.build = { ok: false, error: 'build failed' };
+  sample.runtime = { hookReady: false, errors: [] };
+  sample.gates.pass = false;
+  sample.gates.failures = ['missing required path'];
+  sample.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
+  sample.captures = ['not-a-real-capture.png'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /Unknown capture filename/.test(e)));
+});
+
+test('validateVerificationReport accepts a failed report with zero or a subset of known captures', () => {
+  const sampleEmpty = validReportSample();
+  sampleEmpty.status = 'failed';
+  sampleEmpty.build = { ok: false, error: 'build failed' };
+  sampleEmpty.runtime = { hookReady: false, errors: [] };
+  sampleEmpty.gates.pass = false;
+  sampleEmpty.gates.failures = ['missing required path'];
+  sampleEmpty.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
+  sampleEmpty.captures = [];
+  assert.equal(validateVerificationReport(sampleEmpty).valid, true, validateVerificationReport(sampleEmpty).errors.join('; '));
+
+  const samplePartial = validReportSample();
+  samplePartial.status = 'failed';
+  samplePartial.build = { ok: true, error: null };
+  samplePartial.runtime = { hookReady: true, errors: ['setPose threw'] };
+  samplePartial.gates.pass = false;
+  samplePartial.gates.failures = ['setPose threw'];
+  samplePartial.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
+  samplePartial.captures = ['milestone_idle.png'];
+  assert.equal(validateVerificationReport(samplePartial).valid, true, validateVerificationReport(samplePartial).errors.join('; '));
+});
+
 test('validateVerificationReport rejects error report with no operational reason', () => {
   const sample = validReportSample();
   sample.status = 'error';

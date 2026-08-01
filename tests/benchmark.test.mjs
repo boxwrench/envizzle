@@ -24,6 +24,7 @@ import {
 import { assembleBrief } from '../assemble.mjs';
 import { validateBrief } from '../check.mjs';
 import { SHOWCASES } from '../selection.mjs';
+import { isPathInside } from '../verify/report.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -311,6 +312,126 @@ test('collectBenchmarkResult enforces real brief, metadata, report target, and S
   }
 });
 
+test('isPathInside rejects sibling-prefix paths that merely share a name prefix', () => {
+  const sep = path.sep;
+  assert.equal(isPathInside(`${sep}tmp${sep}case`, `${sep}tmp${sep}case-evil${sep}file`), false);
+  assert.equal(isPathInside('C:\\tmp\\case', 'C:\\tmp\\case-evil\\file'), false);
+
+  // Genuine containment (parent === candidate, and a real nested child) must still pass.
+  assert.equal(isPathInside(`${sep}tmp${sep}case`, `${sep}tmp${sep}case`), true);
+  assert.equal(isPathInside(`${sep}tmp${sep}case`, `${sep}tmp${sep}case${sep}file`), true);
+
+  // Traversal-style escapes must be rejected.
+  assert.equal(isPathInside(`${sep}tmp${sep}case`, `${sep}tmp${sep}case${sep}..${sep}other`), false);
+  assert.equal(isPathInside(`${sep}tmp${sep}case`, `${sep}tmp${sep}other`), false);
+});
+
+test('adversarial test: sibling-prefix prompt path is rejected by collectBenchmarkResult', () => {
+  const tmpDir = makeTempDir();
+  try {
+    prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
+
+    const preparedCaseDir = path.join(tmpDir, 'alpine-signature');
+    const projDir = path.join(preparedCaseDir, 'bundle');
+    const reportPath = path.join(projDir, 'verify-report.json');
+
+    // Create a sibling directory whose name is a superstring of the real prepared case
+    // directory name (e.g. 'alpine-signature-evil'), so a naive `startsWith` containment
+    // check would have wrongly treated it as "inside" alpine-signature.
+    const evilSiblingDir = `${preparedCaseDir}-evil`;
+    fs.mkdirSync(evilSiblingDir, { recursive: true });
+    const evilPromptPath = path.join(evilSiblingDir, 'alpine-signature_TECHDEMO_PROMPT.md');
+    fs.writeFileSync(evilPromptPath, '# forged brief', 'utf8');
+
+    // Remove the real prompt so collectBenchmarkResult's fallback readdir search
+    // in the bundle dir would otherwise be forced to look elsewhere; instead we
+    // directly verify the sibling-prefix directory itself is never treated as "inside".
+    assert.equal(isPathInside(preparedCaseDir, evilPromptPath), false);
+    assert.equal(isPathInside(preparedCaseDir, evilSiblingDir), false);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('adversarial test: symlink/junction prompt escape outside the prepared case directory is rejected', (t) => {
+  const tmpDir = makeTempDir();
+  try {
+    prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
+
+    const preparedCaseDir = path.join(tmpDir, 'alpine-signature');
+    const projDir = path.join(preparedCaseDir, 'bundle');
+    const reportPath = path.join(projDir, 'verify-report.json');
+
+    // Build a genuine escape target OUTSIDE the prepared case directory.
+    const escapeDir = path.join(tmpDir, 'escape-target');
+    fs.mkdirSync(escapeDir, { recursive: true });
+    fs.writeFileSync(path.join(escapeDir, 'secret.txt'), 'outside data', 'utf8');
+
+    // Replace the bundle directory with a link pointing at the escape target, so any
+    // file "inside" projDir/bundle actually realpath-resolves outside preparedCaseDir.
+    // Try a real symlink first; fall back to a Windows directory junction (creatable
+    // without admin rights) as the platform-appropriate equivalent realpath escape.
+    const linkedDir = path.join(preparedCaseDir, 'escaped-bundle');
+    let linked = false;
+    try {
+      fs.symlinkSync(escapeDir, linkedDir, 'dir');
+      linked = true;
+    } catch (err) {
+      try {
+        fs.symlinkSync(escapeDir, linkedDir, 'junction');
+        linked = true;
+      } catch (err2) {
+        t.skip(`Neither symlinks nor junctions are creatable on this platform/permissions (${err2.code || err2.message})`);
+      }
+    }
+
+    if (!linked) return;
+
+    const forgedPromptPath = path.join(linkedDir, 'alpine-signature_TECHDEMO_PROMPT.md');
+    fs.writeFileSync(path.join(escapeDir, 'alpine-signature_TECHDEMO_PROMPT.md'), '# forged brief via link', 'utf8');
+
+    const forgedPromptReal = fs.realpathSync(forgedPromptPath);
+    assert.equal(isPathInside(preparedCaseDir, forgedPromptReal), false, 'realpath-resolved forged prompt must resolve outside the prepared case directory');
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('adversarial test: symlinked verify-report.json escaping the project directory is rejected', (t) => {
+  const tmpDir = makeTempDir();
+  try {
+    prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
+
+    const projDir = path.join(tmpDir, 'alpine-signature', 'bundle');
+    const reportPath = path.join(projDir, 'verify-report.json');
+
+    const escapeDir = path.join(tmpDir, 'report-escape-target');
+    fs.mkdirSync(escapeDir, { recursive: true });
+    const realReportLocation = path.join(escapeDir, 'planted-report.json');
+    fs.writeFileSync(realReportLocation, JSON.stringify({ planted: true }), 'utf8');
+
+    let linked = false;
+    try {
+      fs.symlinkSync(realReportLocation, reportPath, 'file');
+      linked = true;
+    } catch (err) {
+      t.skip(`File symlinks are not creatable on this platform/permissions (${err.code || err.message})`);
+    }
+
+    if (!linked) return;
+
+    assert.throws(() => {
+      collectBenchmarkResult(projDir, {
+        caseId: 'alpine-signature',
+        model: 'claude-3-7-sonnet',
+        attempt: 1,
+      });
+    }, /Path security violation: report file/);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
 test('validateBenchmarkResult and summarizer reject contradictory or malformed results', () => {
   const result1 = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
 
@@ -438,6 +559,52 @@ test('adversarial test: malformed automated result with string metrics rejected'
   assert.equal(val.valid, false);
 });
 
+test('adversarial test: failed result with string metrics ("not-an-object") rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  assert.equal(res.automated.status, 'failed');
+  res.automated.metrics = 'not-an-object';
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /automated\.metrics must be a plain object/.test(e)));
+});
+
+test('adversarial test: failed result with array metrics rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  res.automated.metrics = [1, 2, 3];
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+});
+
+test('adversarial test: failed result with unknown nested metric key rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  res.automated.metrics.frameStats.bogusExtraKey = 123;
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /frameStats must contain exact keys/.test(e)));
+});
+
+test('error result with correctly-shaped null/empty metrics is accepted', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  res.automated.status = 'error';
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('failed result with a duplicate or unknown pose in metrics.frames is rejected', () => {
+  const dup = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  dup.automated.metrics.frames = [
+    { name: 'idle', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+    { name: 'idle', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+  ];
+  assert.equal(validateBenchmarkResult(dup).valid, false);
+
+  const unknown = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  unknown.automated.metrics.frames = [
+    { name: 'not-a-real-pose', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 },
+  ];
+  assert.equal(validateBenchmarkResult(unknown).valid, false);
+});
+
 test('adversarial test: failed status with pass true rejected', () => {
   const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
   res.automated.status = 'failed';
@@ -462,6 +629,40 @@ test('adversarial test: submitted review containing visualAverage rejected', () 
   const val = validateHumanReview(submitted);
   assert.equal(val.valid, false);
   assert.ok(val.errors.some((e) => /visualAverage/i.test(e)));
+});
+
+test('submitted review with a leaking reviewer name or notes is rejected', () => {
+  const baseScores = {
+    compositionReadability: 4,
+    materialCoherence: 4,
+    characterCraft: 4,
+    mechanicLegibility: 4,
+    creativeIdentity: 4,
+    scopeDiscipline: 4,
+  };
+
+  const leakingReviewer = validateHumanReview({
+    reviewer: 'C:\\Users\\wests\\reviewer.txt',
+    scores: baseScores,
+  });
+  assert.equal(leakingReviewer.valid, false);
+  assert.ok(leakingReviewer.errors.some((e) => /leakage/i.test(e)));
+
+  const leakingNotes = validateHumanReview({
+    reviewer: 'Alice',
+    scores: baseScores,
+    notes: 'See /home/user/workspace/screenshot.png for evidence',
+  });
+  assert.equal(leakingNotes.valid, false);
+  assert.ok(leakingNotes.errors.some((e) => /leakage/i.test(e)));
+});
+
+test('benchmark result with a leaking modelLabel is rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
+  res.modelLabel = 'agent bearer eyJhbGciOiJIUzI1NiJ9.secret-token';
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /modelLabel/.test(e)));
 });
 
 test('adversarial test: Markdown and JSON using same destination path rejected', () => {

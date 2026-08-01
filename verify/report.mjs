@@ -29,6 +29,7 @@ function isFiniteOrNull(val) {
 
 const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const REQUIRED_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
+export const REQUIRED_CAPTURE_FILENAMES = Object.freeze(['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png']);
 
 export function containsLeak(str) {
   if (typeof str !== 'string') return false;
@@ -59,6 +60,21 @@ export function isSafeRelativePath(str) {
   if (parts.includes('..')) return false;
   if (containsLeak(s)) return false;
   return true;
+}
+
+/**
+ * Whether `candidate` (an absolute, realpath-resolved path) is inside `parent`
+ * (also absolute, realpath-resolved), or equal to it. Uses path.relative rather
+ * than string-prefix comparison so sibling directories that merely share a
+ * name prefix (e.g. parent '/tmp/case' vs candidate '/tmp/case-evil/file') are
+ * correctly rejected.
+ */
+export function isPathInside(parent, candidate) {
+  const rel = path.relative(parent, candidate);
+  return rel === '' ||
+    (!rel.startsWith(`..${path.sep}`) &&
+     rel !== '..' &&
+     !path.isAbsolute(rel));
 }
 
 function sanitizePathOrString(str) {
@@ -175,8 +191,21 @@ export function validateVerificationReport(report) {
     }
   }
 
-  if (!Array.isArray(report.captures) || report.captures.some((c) => typeof c !== 'string' || !isSafeRelativePath(c))) {
+  if (!Array.isArray(report.captures)) {
     errors.push('captures must be an array of safe relative filename strings');
+  } else {
+    const seenCaptures = new Set();
+    for (const c of report.captures) {
+      if (typeof c !== 'string' || !isSafeRelativePath(c)) {
+        errors.push('captures must be an array of safe relative filename strings');
+      } else if (!REQUIRED_CAPTURE_FILENAMES.includes(c)) {
+        errors.push(`Unknown capture filename '${c}'; only the known milestone capture filenames are permitted`);
+      } else if (seenCaptures.has(c)) {
+        errors.push(`Duplicate capture filename '${c}'`);
+      } else {
+        seenCaptures.add(c);
+      }
+    }
   }
 
   if (!isPlainObject(report.gates)) {
@@ -297,8 +326,9 @@ export function validateVerificationReport(report) {
     if (typeof samples !== 'number' || !Number.isInteger(samples) || samples < 1) {
       errors.push('Passed report must contain a positive integer sample count in gates.metrics.frameStats.samples');
     }
-    if (!Array.isArray(report.captures) || report.captures.length !== 3) {
-      errors.push('Passed report must contain exactly 3 written capture filenames in captures array');
+    const captureSet = new Set(Array.isArray(report.captures) ? report.captures : []);
+    if (captureSet.size !== 3 || !REQUIRED_CAPTURE_FILENAMES.every((f) => captureSet.has(f))) {
+      errors.push(`Passed report must contain exactly the three required capture filenames [${REQUIRED_CAPTURE_FILENAMES.join(', ')}] once each`);
     }
 
     const frames = report.gates?.metrics?.frames || [];
