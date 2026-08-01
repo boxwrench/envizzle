@@ -138,6 +138,8 @@ Never set `ready` inside a `finally` block, and never suppress an initialization
 
 A minimal `ShaderMaterial` configured for WGSL, with its sources registered on `ShaderStore.ShadersStoreWGSL` and no manual `@group`/`@binding` anywhere — Babylon assigns the binding layout when it processes the registered sources.
 
+The example below uses ES-module imports (`ShaderMaterial`, `ShaderLanguage`, `ShaderStore`) rather than the `BABYLON.X` namespace form used elsewhere in this document — the two are equivalent; `ShaderLanguage.WGSL` here is the same value as `BABYLON.ShaderLanguage.WGSL`.
+
 ```js
 import { ShaderMaterial, ShaderLanguage, ShaderStore } from "@babylonjs/core";
 

@@ -52,6 +52,9 @@ test('local Markdown file links in active skill and reference documentation reso
     'references/mechanics.md',
     'references/cameras.md',
     'references/showcases.md',
+    'references/implementation-planning.md',
+    'references/babylon-webgpu-patterns.md',
+    'references/visual-review.md',
   ];
 
   const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
