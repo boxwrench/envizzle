@@ -25,6 +25,14 @@ function computeSha256(str) {
 
 const CONTROL_CHARS_REGEX = /[\x00-\x1F\x7F]/;
 
+function isUnitRangeOrNull(val) {
+  return val === null || (typeof val === 'number' && Number.isFinite(val) && val >= 0 && val <= 1);
+}
+
+function isNonNegativeOrNull(val) {
+  return val === null || (typeof val === 'number' && Number.isFinite(val) && val >= 0);
+}
+
 const ALLOWED_REVIEW_CATEGORIES = Object.freeze([
   'compositionReadability',
   'materialCoherence',
@@ -263,20 +271,20 @@ export function validateBenchmarkResult(res) {
             if (seenNames.has(f.name)) errors.push(`automated.metrics.frames contains duplicate pose '${f.name}'`);
             seenNames.add(f.name);
           }
-          if (!(f.meanLuminance === null || (typeof f.meanLuminance === 'number' && Number.isFinite(f.meanLuminance)))) {
-            errors.push(`automated.metrics.frames entry '${f.name}' meanLuminance must be a finite number or null`);
+          if (!isUnitRangeOrNull(f.meanLuminance)) {
+            errors.push(`automated.metrics.frames entry '${f.name}' meanLuminance must be a finite number between 0 and 1, or null`);
           }
-          if (!(f.flatFrameRatio === null || (typeof f.flatFrameRatio === 'number' && Number.isFinite(f.flatFrameRatio)))) {
-            errors.push(`automated.metrics.frames entry '${f.name}' flatFrameRatio must be a finite number or null`);
+          if (!isUnitRangeOrNull(f.flatFrameRatio)) {
+            errors.push(`automated.metrics.frames entry '${f.name}' flatFrameRatio must be a finite number between 0 and 1, or null`);
           }
-          if (!(f.characterAreaFraction === null || (typeof f.characterAreaFraction === 'number' && Number.isFinite(f.characterAreaFraction)))) {
-            errors.push(`automated.metrics.frames entry '${f.name}' characterAreaFraction must be a finite number or null`);
+          if (!isUnitRangeOrNull(f.characterAreaFraction)) {
+            errors.push(`automated.metrics.frames entry '${f.name}' characterAreaFraction must be a finite number between 0 and 1, or null`);
           }
         }
       }
 
-      if (!(m.cameraNearestDepthM === null || (typeof m.cameraNearestDepthM === 'number' && Number.isFinite(m.cameraNearestDepthM)))) {
-        errors.push('automated.metrics.cameraNearestDepthM must be a finite number or null');
+      if (!isNonNegativeOrNull(m.cameraNearestDepthM)) {
+        errors.push('automated.metrics.cameraNearestDepthM must be a non-negative finite number or null');
       }
 
       if (!isPlainObject(m.frameStats)) {
@@ -286,11 +294,11 @@ export function validateBenchmarkResult(res) {
         if (fsKeys.length !== 3 || !fsKeys.includes('medianMs') || !fsKeys.includes('p99Ms') || !fsKeys.includes('samples')) {
           errors.push(`automated.metrics.frameStats must contain exact keys ['medianMs', 'p99Ms', 'samples'], got [${fsKeys.join(', ')}]`);
         }
-        if (!(m.frameStats.medianMs === null || (typeof m.frameStats.medianMs === 'number' && Number.isFinite(m.frameStats.medianMs)))) {
-          errors.push('automated.metrics.frameStats.medianMs must be a finite number or null');
+        if (!isNonNegativeOrNull(m.frameStats.medianMs)) {
+          errors.push('automated.metrics.frameStats.medianMs must be a non-negative finite number or null');
         }
-        if (!(m.frameStats.p99Ms === null || (typeof m.frameStats.p99Ms === 'number' && Number.isFinite(m.frameStats.p99Ms)))) {
-          errors.push('automated.metrics.frameStats.p99Ms must be a finite number or null');
+        if (!isNonNegativeOrNull(m.frameStats.p99Ms)) {
+          errors.push('automated.metrics.frameStats.p99Ms must be a non-negative finite number or null');
         }
         if (!(m.frameStats.samples === null || (typeof m.frameStats.samples === 'number' && Number.isInteger(m.frameStats.samples) && m.frameStats.samples >= 0))) {
           errors.push('automated.metrics.frameStats.samples must be a non-negative integer or null');

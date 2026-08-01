@@ -27,6 +27,14 @@ function isFiniteOrNull(val) {
   return val === null || (typeof val === 'number' && Number.isFinite(val));
 }
 
+function isUnitRangeOrNull(val) {
+  return val === null || (typeof val === 'number' && Number.isFinite(val) && val >= 0 && val <= 1);
+}
+
+function isNonNegativeOrNull(val) {
+  return val === null || (typeof val === 'number' && Number.isFinite(val) && val >= 0);
+}
+
 const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const REQUIRED_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
 export const REQUIRED_CAPTURE_FILENAMES = Object.freeze(['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png']);
@@ -259,15 +267,15 @@ export function validateVerificationReport(report) {
               errors.push(`gates.metrics.frames[${i}] must contain exact keys ['name', 'meanLuminance', 'flatFrameRatio', 'characterAreaFraction'], got [${fKeys.join(', ')}]`);
             }
             if (typeof f.name !== 'string') errors.push(`gates.metrics.frames[${i}].name must be string`);
-            if (!isFiniteOrNull(f.meanLuminance)) errors.push(`gates.metrics.frames[${i}].meanLuminance must be finite number or null`);
-            if (!isFiniteOrNull(f.flatFrameRatio)) errors.push(`gates.metrics.frames[${i}].flatFrameRatio must be finite number or null`);
-            if (!isFiniteOrNull(f.characterAreaFraction)) errors.push(`gates.metrics.frames[${i}].characterAreaFraction must be finite number or null`);
+            if (!isUnitRangeOrNull(f.meanLuminance)) errors.push(`gates.metrics.frames[${i}].meanLuminance must be a finite number between 0 and 1, or null`);
+            if (!isUnitRangeOrNull(f.flatFrameRatio)) errors.push(`gates.metrics.frames[${i}].flatFrameRatio must be a finite number between 0 and 1, or null`);
+            if (!isUnitRangeOrNull(f.characterAreaFraction)) errors.push(`gates.metrics.frames[${i}].characterAreaFraction must be a finite number between 0 and 1, or null`);
           }
         }
       }
 
-      if (!isFiniteOrNull(m.cameraNearestDepthM)) {
-        errors.push('gates.metrics.cameraNearestDepthM must be a finite number or null');
+      if (!isNonNegativeOrNull(m.cameraNearestDepthM)) {
+        errors.push('gates.metrics.cameraNearestDepthM must be a non-negative finite number or null');
       }
 
       if (!isPlainObject(m.frameStats)) {
@@ -277,8 +285,8 @@ export function validateVerificationReport(report) {
         if (fsKeys.length !== 3 || !fsKeys.includes('medianMs') || !fsKeys.includes('p99Ms') || !fsKeys.includes('samples')) {
           errors.push(`gates.metrics.frameStats must contain exact keys ['medianMs', 'p99Ms', 'samples'], got [${fsKeys.join(', ')}]`);
         }
-        if (!isFiniteOrNull(m.frameStats.medianMs)) errors.push('gates.metrics.frameStats.medianMs must be finite number or null');
-        if (!isFiniteOrNull(m.frameStats.p99Ms)) errors.push('gates.metrics.frameStats.p99Ms must be finite number or null');
+        if (!isNonNegativeOrNull(m.frameStats.medianMs)) errors.push('gates.metrics.frameStats.medianMs must be a non-negative finite number or null');
+        if (!isNonNegativeOrNull(m.frameStats.p99Ms)) errors.push('gates.metrics.frameStats.p99Ms must be a non-negative finite number or null');
         if (!isFiniteOrNull(m.frameStats.samples)) errors.push('gates.metrics.frameStats.samples must be finite number or null');
         if (m.frameStats.samples !== null && (typeof m.frameStats.samples !== 'number' || !Number.isInteger(m.frameStats.samples) || m.frameStats.samples < 0)) {
           errors.push('gates.metrics.frameStats.samples must be a non-negative integer or null');

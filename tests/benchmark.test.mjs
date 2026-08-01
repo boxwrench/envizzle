@@ -605,6 +605,33 @@ test('failed result with a duplicate or unknown pose in metrics.frames is reject
   assert.equal(validateBenchmarkResult(unknown).valid, false);
 });
 
+test('adversarial test: failed benchmark result with a negative camera depth rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  res.automated.metrics.cameraNearestDepthM = -2;
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /cameraNearestDepthM/.test(e)));
+});
+
+test('adversarial test: error benchmark result with a negative frame time rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  res.automated.status = 'error';
+  res.automated.metrics.frameStats.medianMs = -10;
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /medianMs/.test(e)));
+});
+
+test('adversarial test: failed benchmark result with an out-of-range ratio rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  res.automated.metrics.frames = [
+    { name: 'idle', meanLuminance: 0.4, flatFrameRatio: 1.2, characterAreaFraction: 0.1 },
+  ];
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /flatFrameRatio/.test(e)));
+});
+
 test('adversarial test: failed status with pass true rejected', () => {
   const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
   res.automated.status = 'failed';

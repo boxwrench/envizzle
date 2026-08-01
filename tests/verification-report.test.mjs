@@ -303,6 +303,61 @@ test('validateVerificationReport accepts a failed report with zero or a subset o
   assert.equal(validateVerificationReport(samplePartial).valid, true, validateVerificationReport(samplePartial).errors.join('; '));
 });
 
+test('validateVerificationReport rejects a failed report with a negative camera depth', () => {
+  const sample = validReportSample();
+  sample.status = 'failed';
+  sample.build = { ok: true, error: null };
+  sample.runtime = { hookReady: true, errors: [] };
+  sample.gates.pass = false;
+  sample.gates.failures = ['camera nearest depth below threshold'];
+  sample.gates.metrics.cameraNearestDepthM = -1.5;
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /cameraNearestDepthM/.test(e)));
+});
+
+test('validateVerificationReport rejects an error report with a negative frame time', () => {
+  const sample = validReportSample();
+  sample.status = 'error';
+  sample.build = { ok: false, error: 'build failed' };
+  sample.runtime = { hookReady: false, errors: [] };
+  sample.gates.pass = false;
+  sample.gates.failures = ['build failed'];
+  sample.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: -5, p99Ms: null, samples: null } };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /medianMs/.test(e)));
+});
+
+test('validateVerificationReport rejects out-of-range luminance and flat-frame ratios regardless of status', () => {
+  const sample1 = validReportSample();
+  sample1.status = 'failed';
+  sample1.gates.pass = false;
+  sample1.gates.failures = ['bad metric'];
+  sample1.gates.metrics.frames[0].meanLuminance = 1.5;
+  const val1 = validateVerificationReport(sample1);
+  assert.equal(val1.valid, false);
+  assert.ok(val1.errors.some((e) => /meanLuminance/.test(e)));
+
+  const sample2 = validReportSample();
+  sample2.status = 'failed';
+  sample2.gates.pass = false;
+  sample2.gates.failures = ['bad metric'];
+  sample2.gates.metrics.frames[0].flatFrameRatio = -0.2;
+  const val2 = validateVerificationReport(sample2);
+  assert.equal(val2.valid, false);
+  assert.ok(val2.errors.some((e) => /flatFrameRatio/.test(e)));
+
+  const sample3 = validReportSample();
+  sample3.status = 'failed';
+  sample3.gates.pass = false;
+  sample3.gates.failures = ['bad metric'];
+  sample3.gates.metrics.frames[0].characterAreaFraction = 1.01;
+  const val3 = validateVerificationReport(sample3);
+  assert.equal(val3.valid, false);
+  assert.ok(val3.errors.some((e) => /characterAreaFraction/.test(e)));
+});
+
 test('validateVerificationReport rejects error report with no operational reason', () => {
   const sample = validReportSample();
   sample.status = 'error';

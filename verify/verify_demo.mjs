@@ -257,6 +257,7 @@ export async function verifyDemo(projectDir, options = {}) {
 
   let hookReady = false;
   const runtimeErrors = [];
+  let navFailureMessage = null;
   let gateResult = {
     pass: false,
     failures: buildOk ? ['Runtime check failed'] : [buildError || 'Build check failed'],
@@ -329,14 +330,21 @@ export async function verifyDemo(projectDir, options = {}) {
           throw new Error(`Browser infrastructure disconnected while loading the demo page: ${navErr.message}`);
         }
         // The browser itself is healthy; the demo page failed to load — a demo defect.
-        fail(`Failed to load demo page: ${navErr.message}`);
+        // Recorded separately from `failures` too, since whatever gate result gets
+        // computed later (even a fully passing one) must not silently supersede this.
+        navFailureMessage = `Failed to load demo page: ${navErr.message}`;
+        fail(navFailureMessage);
       }
 
       try {
         await page.waitForFunction('window.__demo && window.__demo.ready === true', { timeout: 30000 });
         hookReady = true;
         pass('window.__demo hook present and ready');
-      } catch {
+      } catch (hookErr) {
+        if (!browser.isConnected()) {
+          isOperationalError = true;
+          throw new Error(`Browser infrastructure disconnected while waiting for window.__demo hook readiness: ${hookErr.message}`);
+        }
         hookReady = false;
         fail('window.__demo hook missing or never became ready — see the brief\'s verification-hook section. Cannot verify.');
       }
@@ -443,9 +451,19 @@ export async function verifyDemo(projectDir, options = {}) {
     }
   }
 
+  // A recorded demo-level failure (e.g. navigation) must never be silently superseded
+  // by an otherwise-passing gate result computed later in the flow.
+  if (navFailureMessage) {
+    gateResult = {
+      ...gateResult,
+      pass: false,
+      failures: [...(gateResult.failures || []), navFailureMessage],
+    };
+  }
+
   const finishedAt = new Date().toISOString();
   const durationMs = Date.now() - startTime;
-  const overallPass = buildOk && hookReady && runtimeErrors.length === 0 && gateResult.pass && !isOperationalError;
+  const overallPass = buildOk && hookReady && runtimeErrors.length === 0 && gateResult.pass && !isOperationalError && failures.length === 0;
   const status = isOperationalError ? 'error' : (overallPass ? 'passed' : 'failed');
 
   const report = createVerificationReport({
@@ -479,6 +497,17 @@ export async function verifyDemo(projectDir, options = {}) {
   };
 }
 
+/**
+ * Pure exit-code policy for a verifyDemo() result. The CLI below must derive its
+ * process.exit() code from this same function, so tests can prove the exit-code
+ * policy directly without launching a browser.
+ */
+export function verificationExitCode(result) {
+  if (result.status === 'error') return 2;
+  if (result.pass && result.status === 'passed') return 0;
+  return 1;
+}
+
 // Executable entry point when invoked via CLI
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   let parsed;
@@ -509,16 +538,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
       if (result.status === 'error') {
         console.log(`VERIFICATION ERROR — ${result.failures.length} operational failure(s):`);
         result.failures.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
-        process.exit(2);
       } else if (result.pass && result.status === 'passed') {
         console.log('VERIFICATION PASSED');
-        process.exit(0);
       } else {
         console.log(`VERIFICATION FAILED — ${result.failures.length} problem(s):`);
         result.failures.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
         console.log('\nFix these and re-run. Do not proceed with failures outstanding.');
-        process.exit(1);
       }
+      process.exit(verificationExitCode(result));
     })
     .catch((err) => {
       console.error(`VERIFICATION ERROR: ${err.message}`);

@@ -9,7 +9,7 @@ import { PNG } from 'pngjs';
 import {
   meanLuminance, flatFrameRatio, changedAreaFraction, evaluateGates, THRESHOLDS,
 } from '../verify/gates.mjs';
-import { verifyDemo } from '../verify/verify_demo.mjs';
+import { verifyDemo, verificationExitCode } from '../verify/verify_demo.mjs';
 import { solid, gradient, withBlob } from './fixtures/make-synthetic.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -355,11 +355,14 @@ function tinyPngBuffer() {
   return PNG.sync.write(png);
 }
 
-function makeFakePlaywright({ evaluateImpl, isConnected = () => true }) {
+function makeFakePlaywright({ evaluateImpl, isConnected = () => true, waitForFunctionImpl, gotoImpl }) {
   const page = {
     on() {},
-    async goto() {},
-    async waitForFunction() {
+    async goto(...args) {
+      if (gotoImpl) return gotoImpl(...args);
+    },
+    async waitForFunction(...args) {
+      if (waitForFunctionImpl) return waitForFunctionImpl(...args);
       return true;
     },
     async evaluate(fn, arg) {
@@ -376,6 +379,67 @@ function makeFakePlaywright({ evaluateImpl, isConnected = () => true }) {
     },
     async close() {},
     isConnected,
+  };
+  return {
+    chromium: {
+      async launch() {
+        return browser;
+      },
+    },
+  };
+}
+
+/**
+ * A fake Playwright whose screenshots are real gate-passing synthetic images
+ * (same idle/locomotion/mechanic combo proven to pass in the pure-gates tests
+ * above), so tests can prove a specific failure blocks success even when
+ * every other gate would genuinely pass.
+ */
+function makeGatePassingPlaywright({ gotoImpl } = {}) {
+  const base = gradient(300, 300);
+  const withChar = withBlob(base, 0.08);
+  let characterVisible = true;
+
+  const toPngBuffer = (img) => {
+    const png = new PNG({ width: img.width, height: img.height });
+    Buffer.from(img.data).copy(png.data);
+    return PNG.sync.write(png);
+  };
+
+  const page = {
+    on() {},
+    async goto(...args) {
+      if (gotoImpl) return gotoImpl(...args);
+    },
+    async waitForFunction() {
+      return true;
+    },
+    async evaluate(fn) {
+      const src = fn.toString();
+      if (src.includes('setCharacterVisible(false)')) {
+        characterVisible = false;
+        return undefined;
+      }
+      if (src.includes('setCharacterVisible(true)')) {
+        characterVisible = true;
+        return undefined;
+      }
+      if (src.includes('setPose')) return undefined;
+      if (src.includes('cameraNearestDepth')) return 5;
+      if (src.includes('frameStats')) return { medianMs: 10, p99Ms: 15, samples: 100 };
+      return undefined;
+    },
+    async waitForTimeout() {},
+    async screenshot() {
+      return toPngBuffer(characterVisible ? withChar : base);
+    },
+  };
+  const browser = {
+    async newPage() {
+      return page;
+    },
+    async close() {},
+    isConnected: () => true,
   };
   return {
     chromium: {
@@ -561,33 +625,162 @@ test('adversarial test: browser disconnecting mid-capture is classified as statu
   }
 });
 
-test('adversarial test: real (unmocked) browser launch failure exits 2 via the CLI end-to-end', () => {
-  // This environment has no installed Chromium executable, so with a real (unmocked)
-  // Playwright import and a real dev server (via the shim), chromium.launch() genuinely
-  // fails here — this is a real infrastructure failure, not a simulated one.
+// --- verificationExitCode: pure exit-code policy helper, used by the CLI --------------
+//
+// The CLI must derive its process.exit() code from this same function, so these tests
+// prove actual exit-code policy without launching a browser, real or otherwise, and
+// without caring whether Chromium happens to be installed on the machine running them.
+
+test('verificationExitCode: status "error" always maps to exit 2', () => {
+  assert.equal(verificationExitCode({ status: 'error', pass: false }), 2);
+  assert.equal(verificationExitCode({ status: 'error', pass: true }), 2);
+});
+
+test('verificationExitCode: status "passed" with pass true maps to exit 0', () => {
+  assert.equal(verificationExitCode({ status: 'passed', pass: true }), 0);
+});
+
+test('verificationExitCode: status "failed" maps to exit 1', () => {
+  assert.equal(verificationExitCode({ status: 'failed', pass: false }), 1);
+});
+
+test('verificationExitCode: passed status with pass false (contradictory) still maps to exit 1, not 0', () => {
+  assert.equal(verificationExitCode({ status: 'passed', pass: false }), 1);
+});
+
+test('adversarial test: injected browser-launch failure maps to status error and exit code 2, without launching a real browser', async () => {
   const shim = makeNpxShim('serve-ok');
   const projectDir = makeStubProject();
   try {
     const reportPath = path.join(projectDir, 'verify-report.json');
-    let status = 0;
-    try {
-      execFileSync(
-        process.execPath,
-        [path.join(repoRoot, 'verify', 'verify_demo.mjs'), projectDir, '--report', reportPath],
-        {
-          cwd: repoRoot,
-          stdio: 'pipe',
-          env: { ...process.env, PATH: shim.dir + path.delimiter + process.env.PATH },
+    const failingPlaywright = {
+      chromium: {
+        async launch() {
+          throw new Error('Injected: chromium.launch() failed');
         },
-      );
-    } catch (err) {
-      status = err.status;
-    }
-    assert.equal(status, 2, 'a genuine browser launch failure must exit 2');
+      },
+    };
+
+    const result = await withShimOnPath(shim, () =>
+      verifyDemo(projectDir, {
+        reportPath,
+        screenshotsDir: path.join(projectDir, 'screenshots'),
+        silent: true,
+        serverReadyTimeoutMs: 5000,
+        playwright: failingPlaywright,
+      }));
+
+    assert.equal(result.status, 'error', `injected launch failure must be operational (status: error), got '${result.status}'`);
+    assert.equal(verificationExitCode(result), 2);
 
     const written = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
     assert.equal(written.status, 'error');
     assert.equal(written.gates.pass, false);
+  } finally {
+    shim.cleanup();
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+// --- Hook-readiness disconnect classification -------------------------------------
+
+test('adversarial test: disconnected browser during hook readiness is classified as status error (exit 2), not a demo failure', async () => {
+  const shim = makeNpxShim('serve-ok');
+  const projectDir = makeStubProject();
+  try {
+    const reportPath = path.join(projectDir, 'verify-report.json');
+    const fakePlaywright = makeFakePlaywright({
+      isConnected: () => false,
+      waitForFunctionImpl: async () => {
+        throw new Error('Target closed');
+      },
+      evaluateImpl() {
+        return undefined;
+      },
+    });
+
+    const result = await withShimOnPath(shim, () =>
+      verifyDemo(projectDir, {
+        reportPath,
+        screenshotsDir: path.join(projectDir, 'screenshots'),
+        silent: true,
+        serverReadyTimeoutMs: 5000,
+        playwright: fakePlaywright,
+      }));
+
+    assert.equal(result.status, 'error', `a disconnected browser during hook readiness must be operational (status: error), got '${result.status}'`);
+    assert.equal(result.pass, false);
+    assert.equal(verificationExitCode(result), 2);
+  } finally {
+    shim.cleanup();
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test('adversarial test: connected browser with hook readiness timeout is classified as status failed (exit 1), a demo defect', async () => {
+  const shim = makeNpxShim('serve-ok');
+  const projectDir = makeStubProject();
+  try {
+    const reportPath = path.join(projectDir, 'verify-report.json');
+    const fakePlaywright = makeFakePlaywright({
+      waitForFunctionImpl: async () => {
+        throw new Error('Timeout 30000ms exceeded');
+      },
+      evaluateImpl() {
+        return undefined;
+      },
+    });
+
+    const result = await withShimOnPath(shim, () =>
+      verifyDemo(projectDir, {
+        reportPath,
+        screenshotsDir: path.join(projectDir, 'screenshots'),
+        silent: true,
+        serverReadyTimeoutMs: 5000,
+        playwright: fakePlaywright,
+      }));
+
+    assert.equal(result.status, 'failed', `a connected browser with hook timeout must be a demo defect (status: failed), got '${result.status}'`);
+    assert.equal(result.pass, false);
+    assert.equal(verificationExitCode(result), 1);
+    assert.ok(result.failures.some((f) => /hook missing or never became ready/i.test(f)));
+  } finally {
+    shim.cleanup();
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+// --- Every recorded demo failure must block success -------------------------------
+
+test('adversarial test: connected page.goto() failure blocks success even when every later gate would pass', async () => {
+  const shim = makeNpxShim('serve-ok');
+  const projectDir = makeStubProject();
+  try {
+    const reportPath = path.join(projectDir, 'verify-report.json');
+    const fakePlaywright = makeGatePassingPlaywright({
+      gotoImpl: async () => {
+        throw new Error('net::ERR_CONNECTION_REFUSED');
+      },
+    });
+
+    const result = await withShimOnPath(shim, () =>
+      verifyDemo(projectDir, {
+        reportPath,
+        screenshotsDir: path.join(projectDir, 'screenshots'),
+        silent: true,
+        serverReadyTimeoutMs: 5000,
+        playwright: fakePlaywright,
+      }));
+
+    assert.equal(result.status, 'failed', 'a navigation failure must block success even when hooks and gates would otherwise pass');
+    assert.equal(result.pass, false);
+    assert.equal(verificationExitCode(result), 1);
+    assert.ok(
+      result.report.gates.failures.some((f) => /Failed to load demo page/i.test(f)),
+      `expected the navigation failure inside report.gates.failures, got: ${result.report.gates.failures.join(' | ')}`,
+    );
+    assert.equal(result.report.captures.length, 3, 'later captures must still have succeeded, proving the navigation failure alone caused the block');
+    assert.equal(result.report.runtime.hookReady, true, 'hook readiness must still have succeeded, proving the navigation failure alone caused the block');
   } finally {
     shim.cleanup();
     fs.rmSync(projectDir, { recursive: true, force: true });
