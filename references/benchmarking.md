@@ -172,7 +172,7 @@ Human visual scores evaluate subjective artistic execution for eligible runs.
 
 ## Reproducibility & Brief Hashes
 
-Every generated brief's content is hashed using SHA-256 (`briefSha256`). `case.json` and result records store this hash to guarantee that runs are evaluated against identical brief specifications.
+Every generated brief's content is hashed using SHA-256 (`briefSha256`). `case.json` and result records store this hash, and `benchmark.mjs collect` strictly verifies that the actual prompt file bytes match both the case metadata hash and the canonical derived benchmark brief hash.
 
 ---
 

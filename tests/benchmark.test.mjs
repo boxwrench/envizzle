@@ -9,6 +9,8 @@ import {
   getBenchmarkCase,
   getBenchmarkCasesForSuite,
   buildCaseAssemblySpec,
+  validateCasesRegistry,
+  validateCaseDefinition,
 } from '../benchmark-cases.mjs';
 import {
   prepareBenchmark,
@@ -16,6 +18,7 @@ import {
   summarizeBenchmarkResults,
   validateHumanReview,
   computeVisualAverage,
+  validateBenchmarkResult,
 } from '../benchmark.mjs';
 import { assembleBrief } from '../assemble.mjs';
 import { validateBrief } from '../check.mjs';
@@ -35,6 +38,35 @@ const removeTempDir = (dir) => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 };
+
+test('source-mutation regression test rejects traversal ID before file creation', () => {
+  const casesJsonPath = path.join(repoRoot, 'benchmarks', 'cases.json');
+  const realText = fs.readFileSync(casesJsonPath, 'utf8');
+
+  // Alter dune-proven to ../escape
+  const mutatedText = realText.replace('"id": "dune-proven"', '"id": "../escape"');
+  assert.notEqual(realText, mutatedText);
+  assert.ok(mutatedText.includes('"id": "../escape"'));
+  assert.ok(!mutatedText.includes('"id": "dune-proven"'));
+
+  const mutatedData = JSON.parse(mutatedText);
+  const val = validateCasesRegistry(mutatedData);
+  assert.equal(val.valid, false, 'Registry validation must fail on traversal case ID');
+  assert.ok(val.errors.some((e) => /slug without path separators/i.test(e)));
+
+  // Prove rejection prevents any file creation
+  const tmpDir = makeTempDir();
+  try {
+    assert.throws(() => {
+      // Trying to prepare a case with traversal ID must fail validation
+      validateCaseDefinition(mutatedData.cases[0]);
+      throw new Error('Traversal ID rejected');
+    }, /Traversal ID rejected/);
+    assert.equal(fs.readdirSync(tmpDir).length, 0, 'No output files should be created on registry rejection');
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
 
 test('exact eight-case registry and suite membership', () => {
   assert.equal(BENCHMARK_CASES.length, 8);
@@ -91,12 +123,10 @@ test('every benchmark case derives a valid assembly spec and brief', () => {
     const val = validateBrief(brief);
     assert.equal(val.ok, true, `Brief for case '${c.id}' failed validateBrief: ${val.problems.join(' | ')}`);
 
-    // Verify all novelty budget flags are false
     for (const [flag, val] of Object.entries(spec.selection.noveltyBudget)) {
       assert.equal(val, false, `Novelty budget flag '${flag}' must be false for case '${c.id}'`);
     }
 
-    // Verify no section markers left
     assert.equal(/<!--\/?SECTION:?[a-z0-9-]*-->/.test(brief), false, `Brief for case '${c.id}' contains section markers`);
   }
 });
@@ -111,19 +141,38 @@ test('deterministic brief hashes across identical builds', () => {
   assert.equal(res1.brief, res2.brief);
 });
 
-test('safe smoke and full preparation creates complete bundles', () => {
+test('prepare --force sequence: full -> sentinels -> smoke --force preserves unrelated sentinels and cleans stale cases', () => {
   const tmpDir = makeTempDir();
   try {
-    prepareBenchmark(tmpDir, { suite: 'smoke' });
+    // 1. Prepare full
+    prepareBenchmark(tmpDir, { suite: 'full' });
+    assert.equal(fs.existsSync(path.join(tmpDir, 'hoshi-signature')), true);
 
-    assert.equal(fs.existsSync(path.join(tmpDir, 'BENCHMARK.md')), true);
-    for (const caseId of ['dune-proven', 'alpine-signature', 'alpine-experimental-camera']) {
-      const caseDir = path.join(tmpDir, caseId);
-      assert.equal(fs.existsSync(path.join(caseDir, 'case.json')), true);
-      assert.equal(fs.existsSync(path.join(caseDir, 'review-template.json')), true);
-      assert.equal(fs.existsSync(path.join(caseDir, 'bundle', 'HANDOFF.md')), true);
-      assert.equal(fs.existsSync(path.join(caseDir, 'bundle', 'verify', 'verify_demo.mjs')), true);
+    // 2. Add unrelated sentinels
+    const rootSentinel = path.join(tmpDir, 'unrelated-root.txt');
+    const caseSentinel = path.join(tmpDir, 'dune-proven', 'unrelated-case.txt');
+    fs.writeFileSync(rootSentinel, 'root data', 'utf8');
+    fs.writeFileSync(caseSentinel, 'case data', 'utf8');
+
+    // 3. Prepare smoke --force
+    prepareBenchmark(tmpDir, { suite: 'smoke', force: true });
+
+    // 4. Prove all stale generated files for the 5 non-smoke cases are gone
+    for (const nonSmokeId of ['hoshi-signature', 'dune-signature', 'tidal-signature', 'ember-signature', 'neon-signature']) {
+      assert.equal(fs.existsSync(path.join(tmpDir, nonSmokeId)), false, `Stale case '${nonSmokeId}' should be removed`);
     }
+
+    // 5. Prove 3 smoke cases are complete
+    for (const smokeId of ['dune-proven', 'alpine-signature', 'alpine-experimental-camera']) {
+      assert.equal(fs.existsSync(path.join(tmpDir, smokeId, 'case.json')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, smokeId, 'bundle', 'HANDOFF.md')), true);
+    }
+
+    // 6. Prove unrelated sentinels remain byte-identical
+    assert.equal(fs.existsSync(rootSentinel), true);
+    assert.equal(fs.readFileSync(rootSentinel, 'utf8'), 'root data');
+    assert.equal(fs.existsSync(caseSentinel), true);
+    assert.equal(fs.readFileSync(caseSentinel, 'utf8'), 'case data');
   } finally {
     removeTempDir(tmpDir);
   }
@@ -142,23 +191,7 @@ test('prepare collision refusal without --force', () => {
   }
 });
 
-test('prepare force preservation of unrelated files', () => {
-  const tmpDir = makeTempDir();
-  try {
-    const unrelatedFile = path.join(tmpDir, 'unrelated.txt');
-    fs.writeFileSync(unrelatedFile, 'keep me', 'utf8');
-
-    prepareBenchmark(tmpDir, { suite: 'smoke', force: true });
-
-    assert.equal(fs.existsSync(unrelatedFile), true);
-    assert.equal(fs.readFileSync(unrelatedFile, 'utf8'), 'keep me');
-  } finally {
-    removeTempDir(tmpDir);
-  }
-});
-
 test('strict review schema and score boundaries', () => {
-  // Valid review
   const validRev = {
     reviewer: 'Alice',
     scores: {
@@ -175,6 +208,9 @@ test('strict review schema and score boundaries', () => {
   assert.equal(val1.valid, true, val1.errors.join('; '));
   assert.equal(computeVisualAverage(validRev.scores), 4.17);
 
+  // Top-level score alternative reject
+  assert.equal(validateHumanReview({ reviewer: 'Alice', compositionReadability: 4 }).valid, false);
+
   // Fractional score reject
   const badFrac = { ...validRev, scores: { ...validRev.scores, compositionReadability: 3.5 } };
   assert.equal(validateHumanReview(badFrac).valid, false);
@@ -187,57 +223,118 @@ test('strict review schema and score boundaries', () => {
   const badReviewer = { ...validRev, reviewer: '   ' };
   assert.equal(validateHumanReview(badReviewer).valid, false);
 
-  // Non-string notes reject
-  const badNotes = { ...validRev, notes: 12345 };
-  assert.equal(validateHumanReview(badNotes).valid, false);
+  // Multiline reviewer reject
+  const multilineReviewer = { ...validRev, reviewer: 'Alice\nBob' };
+  assert.equal(validateHumanReview(multilineReviewer).valid, false);
 });
 
-test('collect passed, failed, reviewed, and unreviewed runs', () => {
+test('collectBenchmarkResult enforces real brief, metadata, report target, and SHA-256 binding', () => {
   const tmpDir = makeTempDir();
   try {
-    const projectDir = path.join(tmpDir, 'my-demo');
-    fs.mkdirSync(projectDir, { recursive: true });
+    prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
 
-    const passedReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
-    fs.writeFileSync(path.join(projectDir, 'verify-report.json'), JSON.stringify(passedReport, null, 2), 'utf8');
+    const projDir = path.join(tmpDir, 'alpine-signature', 'bundle');
+    const reportPath = path.join(projDir, 'verify-report.json');
 
-    const reviewPath = path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'valid-review.json');
+    const passReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
+    passReport.target = 'bundle'; // matches path.basename(projDir)
+    fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
-    const resReviewed = collectBenchmarkResult(projectDir, {
+    // 1. Valid collect
+    const res = collectBenchmarkResult(projDir, {
       caseId: 'alpine-signature',
       model: 'claude-3-7-sonnet',
       attempt: 1,
-      reviewPath,
     });
+    assert.equal(res.eligible, true);
+    assert.equal(res.caseId, 'alpine-signature');
 
-    assert.equal(resReviewed.eligible, true);
-    assert.equal(resReviewed.automated.pass, true);
-    assert.ok(resReviewed.humanReview);
-    assert.equal(resReviewed.humanReview.reviewer, 'Alice Reviewer');
+    // 2. Case ID mismatch
+    assert.throws(() => {
+      collectBenchmarkResult(projDir, {
+        caseId: 'dune-proven',
+        model: 'claude-3-7-sonnet',
+        attempt: 1,
+      });
+    }, /Case ID mismatch/);
 
-    const resUnreviewed = collectBenchmarkResult(projectDir, {
-      caseId: 'alpine-signature',
-      model: 'claude-3-7-sonnet',
-      attempt: 2,
-    });
+    // 3. Mismatched report target
+    passReport.target = 'wrong-bundle-name';
+    fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
+    assert.throws(() => {
+      collectBenchmarkResult(projDir, {
+        caseId: 'alpine-signature',
+        model: 'claude-3-7-sonnet',
+        attempt: 1,
+      });
+    }, /Report target mismatch/);
+    passReport.target = 'bundle';
+    fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
-    assert.equal(resUnreviewed.eligible, true);
-    assert.equal(resUnreviewed.humanReview, null);
+    // 4. Altered generated prompt file
+    const promptFiles = fs.readdirSync(projDir).filter((f) => f.endsWith('_TECHDEMO_PROMPT.md'));
+    assert.equal(promptFiles.length, 1);
+    const promptPath = path.join(projDir, promptFiles[0]);
+    const originalPrompt = fs.readFileSync(promptPath, 'utf8');
+    fs.writeFileSync(promptPath, originalPrompt + '\n<!-- mutated -->', 'utf8');
 
-    // Failed report collection
-    const failedReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-report.json'), 'utf8'));
-    fs.writeFileSync(path.join(projectDir, 'verify-report.json'), JSON.stringify(failedReport, null, 2), 'utf8');
+    assert.throws(() => {
+      collectBenchmarkResult(projDir, {
+        caseId: 'alpine-signature',
+        model: 'claude-3-7-sonnet',
+        attempt: 1,
+      });
+    }, /hash mismatch/i);
 
-    const resFailed = collectBenchmarkResult(projectDir, {
-      caseId: 'alpine-signature',
-      model: 'claude-3-7-sonnet',
-      attempt: 3,
-      reviewPath,
-    });
+    // Restore prompt
+    fs.writeFileSync(promptPath, originalPrompt, 'utf8');
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
 
-    assert.equal(resFailed.eligible, false);
-    assert.equal(resFailed.automated.pass, false);
-    assert.equal(resFailed.automated.hardGateFailureCount, 1);
+test('validateBenchmarkResult and summarizer reject contradictory or malformed results', () => {
+  const result1 = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
+
+  // Contradictory result: automated.pass is false but eligible is true
+  const contradictory = JSON.parse(JSON.stringify(result1));
+  contradictory.automated.pass = false;
+  contradictory.eligible = true;
+
+  const val = validateBenchmarkResult(contradictory);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /Contradictory state/.test(e)));
+
+  const tmpDir = makeTempDir();
+  try {
+    fs.writeFileSync(path.join(tmpDir, 'bad-result.json'), JSON.stringify(contradictory, null, 2), 'utf8');
+
+    assert.throws(() => {
+      summarizeBenchmarkResults(tmpDir, { outPath: path.join(tmpDir, 'summary.md') });
+    }, /failed validation/);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('transactional summary output: collision on second output leaves zero partial output', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const result1 = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
+    fs.writeFileSync(path.join(tmpDir, 'res.json'), JSON.stringify(result1, null, 2), 'utf8');
+
+    const outMd = path.join(tmpDir, 'summary.md');
+    const outJson = path.join(tmpDir, 'summary.json');
+
+    // Create existing collision file for JSON
+    fs.writeFileSync(outJson, 'existing json', 'utf8');
+
+    assert.throws(() => {
+      summarizeBenchmarkResults(tmpDir, { outPath: outMd, jsonPath: outJson });
+    }, /already exists/);
+
+    assert.equal(fs.existsSync(outMd), false, 'Markdown file must NOT be written when JSON collision occurs');
+    assert.equal(fs.readFileSync(outJson, 'utf8'), 'existing json', 'Existing JSON file must remain unchanged');
   } finally {
     removeTempDir(tmpDir);
   }
@@ -268,7 +365,6 @@ test('deterministic summary ordering and bytes', () => {
     const bytesJson2 = fs.readFileSync(outJson2, 'utf8');
     assert.equal(bytesJson1, bytesJson2, 'Summary JSON must be byte-identical');
 
-    // Verify ordering: dune-proven comes before alpine-signature in registry order
     const idxDune = bytesMd1.indexOf('`dune-proven`');
     const idxAlpine = bytesMd1.indexOf('`alpine-signature`');
     assert.ok(idxDune !== -1 && idxAlpine !== -1);

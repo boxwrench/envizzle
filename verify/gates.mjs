@@ -59,6 +59,19 @@ export function changedAreaFraction(a, b, threshold = 0.02) {
   return changed / n;
 }
 
+const REQUIRED_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
+
+function isValidImage(img) {
+  if (!img || typeof img !== 'object') return false;
+  const { width, height, data } = img;
+  if (typeof width !== 'number' || !Number.isInteger(width) || width <= 0) return false;
+  if (typeof height !== 'number' || !Number.isInteger(height) || height <= 0) return false;
+  if (!data) return false;
+  const len = typeof data.length === 'number' ? data.length : data.byteLength;
+  if (typeof len !== 'number' || len !== width * height * 4) return false;
+  return true;
+}
+
 /**
  * Run every gate over a captured run.
  * @returns {{pass: boolean, failures: string[], info: string[], metrics: object}}
@@ -68,35 +81,71 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
   const info = [];
   const metricFrames = [];
 
-  // Guard the inputs before gating on them. Every numeric comparison below is
-  // false for NaN and undefined, so a hook that returns nothing would sail
-  // through every threshold and report success — exactly the vacuous pass this
-  // module exists to eliminate. An empty frame list is the same failure: zero
-  // frames trivially satisfy zero image gates.
+  // 1. Validate pose list completeness and uniqueness
   if (!Array.isArray(frames) || frames.length === 0) {
     failures.push(
       'no frames captured — window.__demo.setPose() produced nothing to inspect. Verification cannot pass on an empty capture.',
     );
-  }
-  if (typeof cameraDepthM !== 'number' || !Number.isFinite(cameraDepthM)) {
-    failures.push(
-      `window.__demo.cameraNearestDepth() returned ${JSON.stringify(cameraDepthM)} instead of a finite number — the camera-clipping gate cannot run. Implement it to return metres.`,
-    );
-  }
-  for (const key of ['medianMs', 'p99Ms', 'samples']) {
-    if (typeof frameStats?.[key] !== 'number' || !Number.isFinite(frameStats[key])) {
-      failures.push(
-        `window.__demo.frameStats() is missing a finite "${key}" — got ${JSON.stringify(frameStats?.[key])}. Frame time is informational, but a malformed hook is still a defect.`,
-      );
+  } else {
+    const seenPoses = new Set();
+    for (const frame of frames) {
+      const name = frame?.name;
+      if (!name || !REQUIRED_POSES.includes(name)) {
+        failures.push(`unknown or missing pose name "${name}" in captured frames.`);
+      } else if (seenPoses.has(name)) {
+        failures.push(`duplicate captured frame for pose "${name}". Each pose must be captured exactly once.`);
+      } else {
+        seenPoses.add(name);
+      }
+    }
+    for (const reqPose of REQUIRED_POSES) {
+      if (!seenPoses.has(reqPose)) {
+        failures.push(`missing required captured pose "${reqPose}". Verification requires all three poses: idle, locomotion, mechanic.`);
+      }
     }
   }
 
+  // 2. Validate numeric inputs
+  if (typeof cameraDepthM !== 'number' || !Number.isFinite(cameraDepthM) || cameraDepthM < 0) {
+    failures.push(
+      `window.__demo.cameraNearestDepth() returned ${JSON.stringify(cameraDepthM)} instead of a finite non-negative number — the camera-clipping gate cannot run. Implement it to return metres.`,
+    );
+  }
+  if (typeof frameStats?.medianMs !== 'number' || !Number.isFinite(frameStats.medianMs) || frameStats.medianMs < 0) {
+    failures.push(
+      `window.__demo.frameStats() is missing a finite non-negative "medianMs" — got ${JSON.stringify(frameStats?.medianMs)}.`,
+    );
+  }
+  if (typeof frameStats?.p99Ms !== 'number' || !Number.isFinite(frameStats.p99Ms) || frameStats.p99Ms < 0) {
+    failures.push(
+      `window.__demo.frameStats() is missing a finite non-negative "p99Ms" — got ${JSON.stringify(frameStats?.p99Ms)}.`,
+    );
+  }
+  if (typeof frameStats?.samples !== 'number' || !Number.isInteger(frameStats.samples) || frameStats.samples < 1) {
+    failures.push(
+      `window.__demo.frameStats() is missing a positive integer "samples" — got ${JSON.stringify(frameStats?.samples)}.`,
+    );
+  }
+
+  // 3. Evaluate each frame record
   for (const { name, image, imageWithoutCharacter } of frames ?? []) {
-    const lum = image ? meanLuminance(image) : null;
-    const flat = image ? flatFrameRatio(image) : null;
+    const validImg = isValidImage(image);
+    const validImgNoChar = isValidImage(imageWithoutCharacter);
+
+    if (!validImg) {
+      failures.push(`[${name ?? 'unknown'}] missing or malformed image data (requires positive dimensions and RGBA buffer of width*height*4).`);
+    }
+    if (!validImgNoChar) {
+      failures.push(`[${name ?? 'unknown'}] missing or malformed imageWithoutCharacter data (character removal screenshot is required for occlusion/visibility gating).`);
+    }
+
+    let lum = null;
+    let flat = null;
     let charFraction = null;
 
-    if (image) {
+    if (validImg) {
+      lum = meanLuminance(image);
+      flat = flatFrameRatio(image);
       info.push(`[${name}] mean luminance ${lum.toFixed(3)}`);
       if (lum < THRESHOLDS.meanLuminanceMin || lum > THRESHOLDS.meanLuminanceMax) {
         failures.push(
@@ -111,17 +160,21 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
       }
     }
 
-    if (image && imageWithoutCharacter) {
-      charFraction = changedAreaFraction(image, imageWithoutCharacter);
-      info.push(`[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame`);
-      if (charFraction < THRESHOLDS.characterAreaMin) {
-        failures.push(
-          `[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame (floor ${THRESHOLDS.characterAreaMin * 100}%) — character is missing, off-screen, or occluded.`,
-        );
-      } else if (charFraction > THRESHOLDS.characterAreaMax) {
-        failures.push(
-          `[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame (cap ${THRESHOLDS.characterAreaMax * 100}%) — camera is too close to read the environment.`,
-        );
+    if (validImg && validImgNoChar) {
+      try {
+        charFraction = changedAreaFraction(image, imageWithoutCharacter);
+        info.push(`[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame`);
+        if (charFraction < THRESHOLDS.characterAreaMin) {
+          failures.push(
+            `[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame (floor ${THRESHOLDS.characterAreaMin * 100}%) — character is missing, off-screen, or occluded.`,
+          );
+        } else if (charFraction > THRESHOLDS.characterAreaMax) {
+          failures.push(
+            `[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame (cap ${THRESHOLDS.characterAreaMax * 100}%) — camera is too close to read the environment.`,
+          );
+        }
+      } catch (err) {
+        failures.push(`[${name}] failed to calculate character area fraction: ${err.message}`);
       }
     }
 
@@ -133,15 +186,13 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
     });
   }
 
-  if (Number.isFinite(cameraDepthM) && cameraDepthM < THRESHOLDS.cameraMinDepthM) {
+  if (Number.isFinite(cameraDepthM) && cameraDepthM >= 0 && cameraDepthM < THRESHOLDS.cameraMinDepthM) {
     failures.push(
       `camera nearest depth ${cameraDepthM.toFixed(2)} m below ${THRESHOLDS.cameraMinDepthM} m — camera is inside geometry.`,
     );
   }
 
-  // Reported only. See the module comment. Guarded so a malformed hook yields
-  // the diagnosis pushed above rather than a TypeError from toFixed().
-  if (Number.isFinite(frameStats?.medianMs) && Number.isFinite(frameStats?.p99Ms)) {
+  if (Number.isFinite(frameStats?.medianMs) && Number.isFinite(frameStats?.p99Ms) && frameStats?.samples >= 1) {
     info.push(
       `frame time: median ${frameStats.medianMs.toFixed(1)} ms, p99 ${frameStats.p99Ms.toFixed(1)} ms over ${frameStats.samples} samples (informational — headless timing is not gated)`,
     );
@@ -149,11 +200,11 @@ export function evaluateGates({ frames, cameraDepthM, frameStats }) {
 
   const metrics = {
     frames: metricFrames,
-    cameraNearestDepthM: typeof cameraDepthM === 'number' && Number.isFinite(cameraDepthM) ? cameraDepthM : null,
+    cameraNearestDepthM: typeof cameraDepthM === 'number' && Number.isFinite(cameraDepthM) && cameraDepthM >= 0 ? cameraDepthM : null,
     frameStats: {
-      medianMs: typeof frameStats?.medianMs === 'number' && Number.isFinite(frameStats.medianMs) ? frameStats.medianMs : null,
-      p99Ms: typeof frameStats?.p99Ms === 'number' && Number.isFinite(frameStats.p99Ms) ? frameStats.p99Ms : null,
-      samples: typeof frameStats?.samples === 'number' && Number.isFinite(frameStats.samples) ? frameStats.samples : null,
+      medianMs: typeof frameStats?.medianMs === 'number' && Number.isFinite(frameStats.medianMs) && frameStats.medianMs >= 0 ? frameStats.medianMs : null,
+      p99Ms: typeof frameStats?.p99Ms === 'number' && Number.isFinite(frameStats.p99Ms) && frameStats.p99Ms >= 0 ? frameStats.p99Ms : null,
+      samples: typeof frameStats?.samples === 'number' && Number.isInteger(frameStats.samples) && frameStats.samples >= 1 ? frameStats.samples : null,
     },
   };
 

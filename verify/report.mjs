@@ -26,15 +26,34 @@ function isFiniteOrNull(val) {
   return val === null || (typeof val === 'number' && Number.isFinite(val));
 }
 
+const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+const REQUIRED_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
+
+function containsLeak(str) {
+  if (typeof str !== 'string') return false;
+  // Stack traces
+  if (/\bat\s+.*:\d+:\d+/i.test(str)) return true;
+  // Windows absolute paths or Unix user/system absolute paths
+  if (/[a-zA-Z]:[\\/]/i.test(str)) return true;
+  if (/^\/(Users|home|var|usr|etc|opt|tmp|root)\//i.test(str)) return true;
+  // Credentials/tokens
+  if (/bearer\s+[a-z0-9._-]+/i.test(str)) return true;
+  if (/(api[_-]?key|secret|token|password|auth)\s*[:=]\s*\S+/i.test(str)) return true;
+  return false;
+}
+
 function sanitizePathOrString(str) {
   if (typeof str !== 'string') return str;
-  // Strip stack trace lines or absolute paths if present
-  let cleaned = str.replace(/([a-zA-Z]:[\\/][^\s\n:]+|\/[^\s\n:]+)/g, (match) => {
-    // preserve plain relative or basename
-    return path.basename(match);
-  });
-  // Strip JS stack lines (e.g., at Object.<anonymous>...)
-  cleaned = cleaned.replace(/\s+at\s+.*:\d+:\d+/g, '');
+  let cleaned = str;
+  // Strip stack traces
+  cleaned = cleaned.replace(/\s+at\s+.*:\d+:\d+/gi, '');
+  // Strip Windows absolute paths
+  cleaned = cleaned.replace(/[a-zA-Z]:[\\/][^\s\n:]+/g, (match) => path.basename(match));
+  // Strip Unix absolute paths
+  cleaned = cleaned.replace(/\/(Users|home|var|usr|etc|opt|tmp|root)\/[^\s\n:]+/g, (match) => path.basename(match));
+  // Strip credentials
+  cleaned = cleaned.replace(/bearer\s+[a-z0-9._-]+/gi, 'bearer [REDACTED]');
+  cleaned = cleaned.replace(/(api[_-]?key|secret|token|password|auth)\s*[:=]\s*\S+/gi, '$1=[REDACTED]');
   return cleaned.trim();
 }
 
@@ -76,32 +95,38 @@ export function validateVerificationReport(report) {
 
   if (typeof report.target !== 'string' || report.target.trim() === '') {
     errors.push('target must be a non-empty string');
-  } else if (path.isAbsolute(report.target)) {
-    errors.push(`target must be a project directory name or relative path, got absolute path '${report.target}'`);
+  } else if (path.isAbsolute(report.target) || report.target.includes('..')) {
+    errors.push(`target must be a safe project directory name without absolute paths or traversal, got '${report.target}'`);
   }
 
-  if (typeof report.startedAt !== 'string' || Number.isNaN(Date.parse(report.startedAt))) {
+  if (typeof report.startedAt !== 'string' || !ISO_TIMESTAMP_REGEX.test(report.startedAt) || Number.isNaN(Date.parse(report.startedAt))) {
     errors.push(`startedAt must be a valid ISO timestamp string, got ${JSON.stringify(report.startedAt)}`);
   }
 
-  if (typeof report.finishedAt !== 'string' || Number.isNaN(Date.parse(report.finishedAt))) {
+  if (typeof report.finishedAt !== 'string' || !ISO_TIMESTAMP_REGEX.test(report.finishedAt) || Number.isNaN(Date.parse(report.finishedAt))) {
     errors.push(`finishedAt must be a valid ISO timestamp string, got ${JSON.stringify(report.finishedAt)}`);
   }
 
-  if (typeof report.durationMs !== 'number' || !Number.isFinite(report.durationMs) || report.durationMs < 0) {
-    errors.push(`durationMs must be a non-negative finite number, got ${JSON.stringify(report.durationMs)}`);
+  if (typeof report.startedAt === 'string' && typeof report.finishedAt === 'string' && !Number.isNaN(Date.parse(report.startedAt)) && !Number.isNaN(Date.parse(report.finishedAt))) {
+    if (Date.parse(report.finishedAt) < Date.parse(report.startedAt)) {
+      errors.push(`finishedAt (${report.finishedAt}) cannot be earlier than startedAt (${report.startedAt})`);
+    }
   }
 
-  if (!Array.isArray(report.requiredPaths) || report.requiredPaths.some((p) => typeof p !== 'string')) {
-    errors.push('requiredPaths must be an array of strings');
+  if (typeof report.durationMs !== 'number' || !Number.isInteger(report.durationMs) || report.durationMs < 0) {
+    errors.push(`durationMs must be a non-negative integer, got ${JSON.stringify(report.durationMs)}`);
+  }
+
+  if (!Array.isArray(report.requiredPaths) || report.requiredPaths.some((p) => typeof p !== 'string' || path.isAbsolute(p) || p.includes('..'))) {
+    errors.push('requiredPaths must be an array of safe relative path strings');
   }
 
   if (!isPlainObject(report.build)) {
     errors.push('build must be a plain object');
   } else {
     const buildKeys = Object.keys(report.build);
-    if (buildKeys.some((k) => k !== 'ok' && k !== 'error')) {
-      errors.push(`build contains unexpected keys: ${buildKeys.filter((k) => k !== 'ok' && k !== 'error').join(', ')}`);
+    if (buildKeys.length !== 2 || !buildKeys.includes('ok') || !buildKeys.includes('error')) {
+      errors.push(`build must contain exact keys ['ok', 'error'], got [${buildKeys.join(', ')}]`);
     }
     if (typeof report.build.ok !== 'boolean') {
       errors.push('build.ok must be a boolean');
@@ -109,39 +134,54 @@ export function validateVerificationReport(report) {
     if (report.build.error !== null && typeof report.build.error !== 'string') {
       errors.push('build.error must be a string or null');
     }
+    if (containsLeak(report.build.error)) {
+      errors.push('build.error contains path, stack, or credential leakage');
+    }
   }
 
   if (!isPlainObject(report.runtime)) {
     errors.push('runtime must be a plain object');
   } else {
     const runtimeKeys = Object.keys(report.runtime);
-    if (runtimeKeys.some((k) => k !== 'hookReady' && k !== 'errors')) {
-      errors.push(`runtime contains unexpected keys: ${runtimeKeys.filter((k) => k !== 'hookReady' && k !== 'errors').join(', ')}`);
+    if (runtimeKeys.length !== 2 || !runtimeKeys.includes('hookReady') || !runtimeKeys.includes('errors')) {
+      errors.push(`runtime must contain exact keys ['hookReady', 'errors'], got [${runtimeKeys.join(', ')}]`);
     }
     if (typeof report.runtime.hookReady !== 'boolean') {
       errors.push('runtime.hookReady must be a boolean');
     }
     if (!Array.isArray(report.runtime.errors) || report.runtime.errors.some((e) => typeof e !== 'string')) {
       errors.push('runtime.errors must be an array of strings');
+    } else {
+      for (const errStr of report.runtime.errors) {
+        if (containsLeak(errStr)) {
+          errors.push(`runtime error contains path, stack, or credential leakage: '${errStr}'`);
+        }
+      }
     }
   }
 
-  if (!Array.isArray(report.captures)) {
-    errors.push('captures must be an array');
+  if (!Array.isArray(report.captures) || report.captures.some((c) => typeof c !== 'string' || path.isAbsolute(c) || c.includes('..'))) {
+    errors.push('captures must be an array of safe relative filename strings');
   }
 
   if (!isPlainObject(report.gates)) {
     errors.push('gates must be a plain object');
   } else {
     const gateKeys = Object.keys(report.gates);
-    if (gateKeys.some((k) => !['pass', 'failures', 'info', 'metrics'].includes(k))) {
-      errors.push(`gates contains unexpected keys`);
+    if (gateKeys.length !== 4 || !gateKeys.includes('pass') || !gateKeys.includes('failures') || !gateKeys.includes('info') || !gateKeys.includes('metrics')) {
+      errors.push(`gates must contain exact keys ['pass', 'failures', 'info', 'metrics'], got [${gateKeys.join(', ')}]`);
     }
     if (typeof report.gates.pass !== 'boolean') {
       errors.push('gates.pass must be a boolean');
     }
     if (!Array.isArray(report.gates.failures) || report.gates.failures.some((f) => typeof f !== 'string')) {
       errors.push('gates.failures must be an array of strings');
+    } else {
+      for (const failStr of report.gates.failures) {
+        if (containsLeak(failStr)) {
+          errors.push(`gates failure contains path, stack, or credential leakage: '${failStr}'`);
+        }
+      }
     }
     if (!Array.isArray(report.gates.info) || report.gates.info.some((i) => typeof i !== 'string')) {
       errors.push('gates.info must be an array of strings');
@@ -151,6 +191,11 @@ export function validateVerificationReport(report) {
       errors.push('gates.metrics must be a plain object');
     } else {
       const m = report.gates.metrics;
+      const mKeys = Object.keys(m);
+      if (mKeys.length !== 3 || !mKeys.includes('frames') || !mKeys.includes('cameraNearestDepthM') || !mKeys.includes('frameStats')) {
+        errors.push(`gates.metrics must contain exact keys ['frames', 'cameraNearestDepthM', 'frameStats'], got [${mKeys.join(', ')}]`);
+      }
+
       if (!Array.isArray(m.frames)) {
         errors.push('gates.metrics.frames must be an array');
       } else {
@@ -159,6 +204,10 @@ export function validateVerificationReport(report) {
           if (!isPlainObject(f)) {
             errors.push(`gates.metrics.frames[${i}] must be an object`);
           } else {
+            const fKeys = Object.keys(f);
+            if (fKeys.length !== 4 || !fKeys.includes('name') || !fKeys.includes('meanLuminance') || !fKeys.includes('flatFrameRatio') || !fKeys.includes('characterAreaFraction')) {
+              errors.push(`gates.metrics.frames[${i}] must contain exact keys ['name', 'meanLuminance', 'flatFrameRatio', 'characterAreaFraction'], got [${fKeys.join(', ')}]`);
+            }
             if (typeof f.name !== 'string') errors.push(`gates.metrics.frames[${i}].name must be string`);
             if (!isFiniteOrNull(f.meanLuminance)) errors.push(`gates.metrics.frames[${i}].meanLuminance must be finite number or null`);
             if (!isFiniteOrNull(f.flatFrameRatio)) errors.push(`gates.metrics.frames[${i}].flatFrameRatio must be finite number or null`);
@@ -174,6 +223,10 @@ export function validateVerificationReport(report) {
       if (!isPlainObject(m.frameStats)) {
         errors.push('gates.metrics.frameStats must be a plain object');
       } else {
+        const fsKeys = Object.keys(m.frameStats);
+        if (fsKeys.length !== 3 || !fsKeys.includes('medianMs') || !fsKeys.includes('p99Ms') || !fsKeys.includes('samples')) {
+          errors.push(`gates.metrics.frameStats must contain exact keys ['medianMs', 'p99Ms', 'samples'], got [${fsKeys.join(', ')}]`);
+        }
         if (!isFiniteOrNull(m.frameStats.medianMs)) errors.push('gates.metrics.frameStats.medianMs must be finite number or null');
         if (!isFiniteOrNull(m.frameStats.p99Ms)) errors.push('gates.metrics.frameStats.p99Ms must be finite number or null');
         if (!isFiniteOrNull(m.frameStats.samples)) errors.push('gates.metrics.frameStats.samples must be finite number or null');
@@ -197,6 +250,16 @@ export function validateVerificationReport(report) {
     }
     if (Array.isArray(report.gates?.failures) && report.gates.failures.length > 0) {
       errors.push('Contradictory state: status is "passed" but gates.failures is not empty');
+    }
+    const samples = report.gates?.metrics?.frameStats?.samples;
+    if (typeof samples !== 'number' || !Number.isInteger(samples) || samples < 1) {
+      errors.push('Passed report must contain a positive integer sample count in gates.metrics.frameStats.samples');
+    }
+    const frameNames = new Set((report.gates?.metrics?.frames || []).map((f) => f.name));
+    for (const pose of REQUIRED_POSES) {
+      if (!frameNames.has(pose)) {
+        errors.push(`Passed report is missing frame metric evidence for required pose '${pose}'`);
+      }
     }
   } else if (report.status === 'failed') {
     const hasFailureReason =
@@ -233,9 +296,9 @@ export function normalizeVerificationReport(report) {
     target: targetName,
     startedAt: report.startedAt || new Date().toISOString(),
     finishedAt: report.finishedAt || new Date().toISOString(),
-    durationMs: typeof report.durationMs === 'number' && Number.isFinite(report.durationMs) && report.durationMs >= 0
+    durationMs: typeof report.durationMs === 'number' && Number.isInteger(report.durationMs) && report.durationMs >= 0
       ? report.durationMs
-      : 0,
+      : Math.floor(Math.max(0, report.durationMs || 0)),
     requiredPaths: Array.isArray(report.requiredPaths)
       ? report.requiredPaths.map((p) => sanitizePathOrString(String(p)))
       : [],
@@ -250,7 +313,7 @@ export function normalizeVerificationReport(report) {
         : [],
     },
     captures: Array.isArray(report.captures)
-      ? report.captures.map((c) => (typeof c === 'string' ? sanitizePathOrString(c) : c))
+      ? report.captures.map((c) => (typeof c === 'string' ? sanitizePathOrString(c) : String(c)))
       : [],
     gates: {
       pass: Boolean(report.gates?.pass),
@@ -341,6 +404,12 @@ export const createReport = createVerificationReport;
  * Write verification report atomically to reportPath.
  */
 export function writeVerificationReport(reportPath, report) {
+  // Pre-validate input report FIRST
+  const inputVal = validateVerificationReport(report);
+  if (!inputVal.valid) {
+    throw new Error(`Cannot write invalid report: ${inputVal.errors.join('; ')}`);
+  }
+
   const normalized = normalizeVerificationReport(report);
   const val = validateVerificationReport(normalized);
   if (!val.valid) {

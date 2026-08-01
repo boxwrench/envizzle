@@ -24,7 +24,7 @@ const validReportSample = () => ({
   requiredPaths: ['index.html', 'package.json'],
   build: { ok: true, error: null },
   runtime: { hookReady: true, errors: [] },
-  captures: ['idle.png', 'locomotion.png'],
+  captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
   gates: {
     pass: true,
     failures: [],
@@ -32,6 +32,8 @@ const validReportSample = () => ({
     metrics: {
       frames: [
         { name: 'idle', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
+        { name: 'locomotion', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
+        { name: 'mechanic', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
       ],
       cameraNearestDepthM: 1.2,
       frameStats: { medianMs: 11, p99Ms: 17, samples: 600 },
@@ -48,13 +50,17 @@ test('createVerificationReport creates valid schemaVersion 1 report', () => {
     requiredPaths: ['index.html'],
     build: { ok: true, error: null },
     runtime: { hookReady: true, errors: [] },
-    captures: ['idle.png'],
+    captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
     gates: {
       pass: true,
       failures: [],
       info: [],
       metrics: {
-        frames: [{ name: 'idle', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 }],
+        frames: [
+          { name: 'idle', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
+          { name: 'locomotion', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
+          { name: 'mechanic', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
+        ],
         cameraNearestDepthM: 1.2,
         frameStats: { medianMs: 11, p99Ms: 17, samples: 600 },
       },
@@ -111,23 +117,80 @@ test('validateVerificationReport rejects absolute target paths', () => {
   sample.target = path.resolve('/some/absolute/path');
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /absolute path/.test(e)));
+  assert.ok(val.errors.some((e) => /target/.test(e)));
 });
 
-test('validateVerificationReport rejects non-finite metrics', () => {
+test('validateVerificationReport rejects fractional duration', () => {
   const sample = validReportSample();
-  sample.gates.metrics.frames[0].meanLuminance = NaN;
+  sample.durationMs = 12.34;
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /meanLuminance/.test(e)));
+  assert.ok(val.errors.some((e) => /durationMs/.test(e)));
 });
 
-test('validateVerificationReport rejects malformed frame records', () => {
+test('validateVerificationReport rejects non-ISO timestamps', () => {
   const sample = validReportSample();
-  sample.gates.metrics.frames = ['not-an-object'];
+  sample.startedAt = '2026-07-31 12:00:00';
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /must be an object/.test(e)));
+  assert.ok(val.errors.some((e) => /startedAt/.test(e)));
+});
+
+test('validateVerificationReport rejects reversed timestamps', () => {
+  const sample = validReportSample();
+  sample.startedAt = '2026-07-31T12:00:05.000Z';
+  sample.finishedAt = '2026-07-31T12:00:00.000Z';
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /finishedAt/.test(e)));
+});
+
+test('validateVerificationReport rejects absolute or traversal requiredPaths', () => {
+  const sample = validReportSample();
+  sample.requiredPaths = ['../outside.js'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /requiredPaths/.test(e)));
+});
+
+test('validateVerificationReport rejects object captures', () => {
+  const sample = validReportSample();
+  sample.captures = [{ file: 'idle.png' }];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /captures/.test(e)));
+});
+
+test('validateVerificationReport rejects path or stack leakage in string fields', () => {
+  const sample = validReportSample();
+  sample.runtime.errors = ['Error at Object.<anonymous> (C:\\Users\\wests\\app.js:10:15)'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /leakage/.test(e)));
+});
+
+test('validateVerificationReport rejects credential/token leakage', () => {
+  const sample = validReportSample();
+  sample.gates.failures = ['Failed request with bearer eyJhbGciOiJIUzI1NiJ9.secret'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /leakage/.test(e)));
+});
+
+test('validateVerificationReport rejects negative or fractional sample count in passed report', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.frameStats.samples = -5;
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /samples/.test(e)));
+});
+
+test('validateVerificationReport rejects passed reports with missing frame evidence', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.frames = [{ name: 'idle', meanLuminance: 0.4, flatFrameRatio: 0.1, characterAreaFraction: 0.1 }];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /missing frame metric evidence/i.test(e)));
 });
 
 test('validateVerificationReport rejects contradictory state: passed status with failing gates', () => {

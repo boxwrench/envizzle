@@ -23,6 +23,8 @@ function computeSha256(str) {
   return crypto.createHash('sha256').update(str, 'utf8').digest('hex');
 }
 
+const CONTROL_CHARS_REGEX = /[\x00-\x1F\x7F]/;
+
 /**
  * Validate human review schema strictly.
  */
@@ -32,10 +34,26 @@ export function validateHumanReview(review) {
     return { valid: false, errors: ['Human review must be a plain object'] };
   }
 
-  // Support both top-level score keys and nested scores object
-  let scoresObj = review;
-  if (isPlainObject(review.scores)) {
-    scoresObj = review.scores;
+  const allowedTopKeys = new Set(['reviewer', 'scores', 'notes', 'visualAverage']);
+  for (const k of Object.keys(review)) {
+    if (!allowedTopKeys.has(k)) {
+      errors.push(`Unknown property '${k}' in review`);
+    }
+  }
+
+  if (typeof review.reviewer !== 'string' || review.reviewer.trim() === '') {
+    errors.push('reviewer must be a non-empty string');
+  } else if (review.reviewer.includes('\n') || review.reviewer.includes('\r') || CONTROL_CHARS_REGEX.test(review.reviewer)) {
+    errors.push('reviewer must be a single-line string without control characters');
+  }
+
+  if (review.notes !== undefined && review.notes !== null && typeof review.notes !== 'string') {
+    errors.push('notes must be a string if provided');
+  }
+
+  if (!isPlainObject(review.scores)) {
+    errors.push('scores must be a plain object');
+    return { valid: false, errors };
   }
 
   const allowedCategories = [
@@ -47,26 +65,17 @@ export function validateHumanReview(review) {
     'scopeDiscipline',
   ];
 
-  const allowedTopKeys = new Set(['reviewer', 'notes', 'scores', ...allowedCategories]);
-
-  for (const k of Object.keys(review)) {
-    if (!allowedTopKeys.has(k)) {
-      errors.push(`Unknown property '${k}' in review`);
-    }
-  }
-
-  if (typeof review.reviewer !== 'string' || review.reviewer.trim() === '') {
-    errors.push('reviewer must be a non-empty string');
-  } else if (review.reviewer.includes('\n') || review.reviewer.includes('\r')) {
-    errors.push('reviewer must be a single-line string');
-  }
-
-  if (review.notes !== undefined && review.notes !== null && typeof review.notes !== 'string') {
-    errors.push('notes must be a string if provided');
+  const scoreKeys = Object.keys(review.scores);
+  if (scoreKeys.length !== allowedCategories.length) {
+    errors.push(`scores must contain exact ${allowedCategories.length} categories`);
   }
 
   for (const cat of allowedCategories) {
-    const val = scoresObj[cat];
+    if (!(cat in review.scores)) {
+      errors.push(`Missing score category '${cat}'`);
+      continue;
+    }
+    const val = review.scores[cat];
     if (typeof val !== 'number' || !Number.isInteger(val)) {
       errors.push(`Score category '${cat}' must be an integer, got ${JSON.stringify(val)}`);
     } else if (val < 1 || val > 5) {
@@ -93,15 +102,88 @@ export function computeVisualAverage(scores) {
   return Math.round((sum / categories.length) * 100) / 100;
 }
 
+export function validateBenchmarkResult(res) {
+  const errors = [];
+  if (!isPlainObject(res)) {
+    return { valid: false, errors: ['Benchmark result must be a plain object'] };
+  }
+
+  const allowedKeys = new Set(['schemaVersion', 'caseId', 'modelLabel', 'attempt', 'briefSha256', 'automated', 'humanReview', 'eligible']);
+  for (const k of Object.keys(res)) {
+    if (!allowedKeys.has(k)) errors.push(`Unknown top-level key '${k}' in benchmark result`);
+  }
+
+  if (res.schemaVersion !== 1) errors.push(`schemaVersion must be 1, got ${JSON.stringify(res.schemaVersion)}`);
+  if (typeof res.caseId !== 'string' || !BENCHMARK_CASES.some((c) => c.id === res.caseId)) {
+    errors.push(`Invalid caseId '${res.caseId}'`);
+  }
+  if (typeof res.modelLabel !== 'string' || res.modelLabel.trim() === '' || /[\r\n]/.test(res.modelLabel) || CONTROL_CHARS_REGEX.test(res.modelLabel)) {
+    errors.push('modelLabel must be a non-empty single-line string');
+  }
+  if (typeof res.attempt !== 'number' || !Number.isInteger(res.attempt) || res.attempt < 1) {
+    errors.push('attempt must be a positive integer >= 1');
+  }
+  if (typeof res.briefSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(res.briefSha256)) {
+    errors.push('briefSha256 must be a lowercase 64-character hex SHA-256 hash');
+  }
+
+  if (!isPlainObject(res.automated)) {
+    errors.push('automated must be a plain object');
+  } else {
+    const autoKeys = new Set(['status', 'pass', 'hardGateFailures', 'hardGateFailureCount', 'metrics']);
+    for (const k of Object.keys(res.automated)) {
+      if (!autoKeys.has(k)) errors.push(`Unknown key '${k}' in automated`);
+    }
+    if (typeof res.automated.pass !== 'boolean') errors.push('automated.pass must be a boolean');
+    if (!Array.isArray(res.automated.hardGateFailures)) errors.push('automated.hardGateFailures must be an array');
+    if (typeof res.automated.hardGateFailureCount !== 'number' || res.automated.hardGateFailureCount !== (res.automated.hardGateFailures || []).length) {
+      errors.push('automated.hardGateFailureCount must equal length of hardGateFailures array');
+    }
+  }
+
+  if (res.humanReview !== null && res.humanReview !== undefined) {
+    const valRev = validateHumanReview(res.humanReview);
+    if (!valRev.valid) {
+      errors.push(`Invalid humanReview: ${valRev.errors.join('; ')}`);
+    } else {
+      const computedAvg = computeVisualAverage(res.humanReview.scores);
+      if (res.humanReview.visualAverage !== computedAvg) {
+        errors.push(`humanReview.visualAverage (${res.humanReview.visualAverage}) does not match computed average (${computedAvg})`);
+      }
+    }
+  }
+
+  const expectedEligibility = res.automated?.pass === true;
+  if (res.eligible !== expectedEligibility) {
+    errors.push(`Contradictory state: eligible is ${res.eligible} but automated.pass is ${res.automated?.pass}`);
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
 export function parseBenchmarkCliArgs(args) {
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+    if (args.length > 1) throw new Error('Cannot combine --help with other arguments');
     return { command: 'help' };
   }
 
   const cmd = args[0];
 
   if (cmd === 'list') {
-    const json = args.includes('--json');
+    const seenFlags = new Set();
+    let json = false;
+    for (let i = 1; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === '--json') {
+        if (seenFlags.has('json')) throw new Error('Duplicate option --json');
+        seenFlags.add('json');
+        json = true;
+      } else if (arg === '--help' || arg === '-h') {
+        throw new Error('Cannot combine --help with other arguments');
+      } else {
+        throw new Error(`Unknown argument '${arg}' for list command`);
+      }
+    }
     return { command: 'list', json };
   }
 
@@ -111,20 +193,30 @@ export function parseBenchmarkCliArgs(args) {
     let caseId = null;
     let force = false;
 
+    const seenFlags = new Set();
+
     for (let i = 1; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--suite') {
+        if (seenFlags.has('suite')) throw new Error('Duplicate option --suite');
+        seenFlags.add('suite');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) {
           throw new Error('Missing value for --suite');
         }
         suite = args[++i];
       } else if (arg === '--case') {
+        if (seenFlags.has('case')) throw new Error('Duplicate option --case');
+        seenFlags.add('case');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) {
           throw new Error('Missing value for --case');
         }
         caseId = args[++i];
       } else if (arg === '--force') {
+        if (seenFlags.has('force')) throw new Error('Duplicate option --force');
+        seenFlags.add('force');
         force = true;
+      } else if (arg === '--help' || arg === '-h') {
+        throw new Error('Cannot combine --help with other arguments');
       } else if (arg.startsWith('-')) {
         throw new Error(`Unknown option '${arg}' for prepare`);
       } else {
@@ -152,30 +244,46 @@ export function parseBenchmarkCliArgs(args) {
     let projectDir = null;
     let caseId = null;
     let model = null;
-    let attempt = null;
+    let attemptStr = null;
     let out = null;
     let review = null;
     let force = false;
 
+    const seenFlags = new Set();
+
     for (let i = 1; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--case') {
+        if (seenFlags.has('case')) throw new Error('Duplicate option --case');
+        seenFlags.add('case');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) throw new Error('Missing value for --case');
         caseId = args[++i];
       } else if (arg === '--model') {
+        if (seenFlags.has('model')) throw new Error('Duplicate option --model');
+        seenFlags.add('model');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) throw new Error('Missing value for --model');
         model = args[++i];
       } else if (arg === '--attempt') {
+        if (seenFlags.has('attempt')) throw new Error('Duplicate option --attempt');
+        seenFlags.add('attempt');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) throw new Error('Missing value for --attempt');
-        attempt = parseInt(args[++i], 10);
+        attemptStr = args[++i];
       } else if (arg === '--out') {
+        if (seenFlags.has('out')) throw new Error('Duplicate option --out');
+        seenFlags.add('out');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) throw new Error('Missing value for --out');
         out = args[++i];
       } else if (arg === '--review') {
+        if (seenFlags.has('review')) throw new Error('Duplicate option --review');
+        seenFlags.add('review');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) throw new Error('Missing value for --review');
         review = args[++i];
       } else if (arg === '--force') {
+        if (seenFlags.has('force')) throw new Error('Duplicate option --force');
+        seenFlags.add('force');
         force = true;
+      } else if (arg === '--help' || arg === '-h') {
+        throw new Error('Cannot combine --help with other arguments');
       } else if (arg.startsWith('-')) {
         throw new Error(`Unknown option '${arg}' for collect`);
       } else {
@@ -187,7 +295,7 @@ export function parseBenchmarkCliArgs(args) {
     if (!projectDir) throw new Error('collect command requires <project-directory>');
     if (!caseId) throw new Error('collect command requires --case <case-id>');
     if (!model) throw new Error('collect command requires --model <label>');
-    if (!attempt || Number.isNaN(attempt) || attempt < 1) throw new Error('collect command requires valid --attempt <integer>');
+    if (!attemptStr || !/^[1-9]\d*$/.test(attemptStr)) throw new Error('collect command requires valid --attempt <positive-integer>');
     if (!out) throw new Error('collect command requires --out <result.json>');
 
     return {
@@ -195,7 +303,7 @@ export function parseBenchmarkCliArgs(args) {
       projectDir: path.resolve(projectDir),
       caseId,
       model,
-      attempt,
+      attempt: parseInt(attemptStr, 10),
       outPath: path.resolve(out),
       reviewPath: review ? path.resolve(review) : null,
       force,
@@ -208,16 +316,26 @@ export function parseBenchmarkCliArgs(args) {
     let jsonPath = null;
     let force = false;
 
+    const seenFlags = new Set();
+
     for (let i = 1; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--out') {
+        if (seenFlags.has('out')) throw new Error('Duplicate option --out');
+        seenFlags.add('out');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) throw new Error('Missing value for --out');
         outPath = args[++i];
       } else if (arg === '--json') {
+        if (seenFlags.has('json')) throw new Error('Duplicate option --json');
+        seenFlags.add('json');
         if (i + 1 >= args.length || args[i + 1].startsWith('-')) throw new Error('Missing value for --json');
         jsonPath = args[++i];
       } else if (arg === '--force') {
+        if (seenFlags.has('force')) throw new Error('Duplicate option --force');
+        seenFlags.add('force');
         force = true;
+      } else if (arg === '--help' || arg === '-h') {
+        throw new Error('Cannot combine --help with other arguments');
       } else if (arg.startsWith('-')) {
         throw new Error(`Unknown option '${arg}' for summarize`);
       } else {
@@ -263,6 +381,9 @@ export function prepareBenchmark(outDir, options = {}) {
     throw new Error('Must specify caseId or suite');
   }
 
+  const targetCaseIds = new Set(targetCases.map((c) => c.id));
+  const allCaseIds = new Set(BENCHMARK_CASES.map((c) => c.id));
+
   // Preflight check: verify all cases build assembly specs cleanly before writing anything
   const preparedBundles = [];
   for (const c of targetCases) {
@@ -286,6 +407,33 @@ export function prepareBenchmark(outDir, options = {}) {
     const contents = fs.readdirSync(outDir);
     if (contents.length > 0 && !options.force) {
       throw new Error(`Destination directory '${outDir}' is not empty. Use --force to overwrite benchmark-owned files.`);
+    }
+  }
+
+  // If force mode, clean stale benchmark-owned case directories not in targetCaseIds
+  if (destExists && options.force) {
+    for (const child of fs.readdirSync(outDir)) {
+      const childPath = path.join(outDir, child);
+      if (fs.statSync(childPath).isDirectory() && allCaseIds.has(child) && !targetCaseIds.has(child)) {
+        // Clean benchmark files in this stale case dir
+        const caseFiles = fs.readdirSync(childPath);
+        const benchmarkFiles = new Set(['case.json', 'review-template.json', 'bundle']);
+        let hasUnrelated = false;
+        for (const cf of caseFiles) {
+          if (!benchmarkFiles.has(cf)) {
+            hasUnrelated = true;
+          }
+        }
+        if (!hasUnrelated) {
+          fs.rmSync(childPath, { recursive: true, force: true });
+        } else {
+          // Delete only benchmark files
+          for (const bf of benchmarkFiles) {
+            const p = path.join(childPath, bf);
+            if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
+          }
+        }
+      }
     }
   }
 
@@ -367,7 +515,6 @@ Your project must satisfy all required paths, build cleanly, expose \`window.__d
       fs.writeFileSync(path.join(bundleDir, 'HANDOFF.md'), handoffContent, 'utf8');
     }
 
-    // Now copy from staging to outDir cleanly
     if (!fs.existsSync(outDir)) {
       fs.mkdirSync(outDir, { recursive: true });
     }
@@ -393,15 +540,79 @@ Your project must satisfy all required paths, build cleanly, expose \`window.__d
 export function collectBenchmarkResult(projectDir, options = {}) {
   const caseDef = getBenchmarkCase(options.caseId);
 
-  if (typeof options.model !== 'string' || options.model.trim() === '' || options.model.includes('\n')) {
-    throw new Error('Model label must be a non-empty single-line string');
+  if (typeof options.model !== 'string' || options.model.trim() === '' || /[\r\n]/.test(options.model) || CONTROL_CHARS_REGEX.test(options.model)) {
+    throw new Error('Model label must be a non-empty single-line string without control characters');
   }
 
   if (typeof options.attempt !== 'number' || !Number.isInteger(options.attempt) || options.attempt < 1) {
     throw new Error('Attempt must be a positive integer >= 1');
   }
 
-  const reportPath = path.join(projectDir, 'verify-report.json');
+  const projAbs = path.resolve(projectDir);
+  const projName = path.basename(projAbs);
+
+  // 1. Locate case.json in projectDir or parent or sibling
+  let caseMetaPath = path.join(projAbs, 'case.json');
+  if (!fs.existsSync(caseMetaPath)) {
+    caseMetaPath = path.join(path.dirname(projAbs), 'case.json');
+  }
+  if (!fs.existsSync(caseMetaPath)) {
+    caseMetaPath = path.join(projAbs, '..', 'case.json');
+  }
+  if (!fs.existsSync(caseMetaPath)) {
+    throw new Error(`case.json metadata file not found in or near project directory '${projAbs}'`);
+  }
+
+  let caseMeta;
+  try {
+    caseMeta = JSON.parse(fs.readFileSync(caseMetaPath, 'utf8'));
+  } catch (err) {
+    throw new Error(`Failed to parse case.json metadata: ${err.message}`);
+  }
+
+  if (caseMeta.caseId !== caseDef.id) {
+    throw new Error(`Case ID mismatch: expected '${caseDef.id}' but case.json metadata specified '${caseMeta.caseId}'`);
+  }
+
+  // 2. Locate generated prompt brief file
+  const candidatePromptPaths = [
+    path.join(projAbs, 'bundle', `${caseDef.id}_TECHDEMO_PROMPT.md`),
+    path.join(projAbs, `${caseDef.id}_TECHDEMO_PROMPT.md`),
+    path.join(path.dirname(projAbs), 'bundle', `${caseDef.id}_TECHDEMO_PROMPT.md`),
+  ];
+  let actualPromptPath = candidatePromptPaths.find((p) => fs.existsSync(p));
+  if (!actualPromptPath) {
+    // Search for any *_TECHDEMO_PROMPT.md in projectDir or bundle/
+    const bundleDir = fs.existsSync(path.join(projAbs, 'bundle')) ? path.join(projAbs, 'bundle') : projAbs;
+    if (fs.existsSync(bundleDir)) {
+      const files = fs.readdirSync(bundleDir).filter((f) => f.endsWith('_TECHDEMO_PROMPT.md'));
+      if (files.length > 0) actualPromptPath = path.join(bundleDir, files[0]);
+    }
+  }
+
+  if (!actualPromptPath || !fs.existsSync(actualPromptPath)) {
+    throw new Error(`Generated techdemo prompt brief file not found for project '${projAbs}'`);
+  }
+
+  // 3. Compute SHA-256 of actual prompt file
+  const actualPromptContent = fs.readFileSync(actualPromptPath, 'utf8');
+  const actualPromptSha256 = computeSha256(actualPromptContent);
+
+  // 4. Compute canonical expected SHA-256 for case
+  const spec = buildCaseAssemblySpec(caseDef.id);
+  const { brief: canonicalBrief } = assembleBrief(spec, { rootDir: repoRoot });
+  const canonicalSha256 = computeSha256(canonicalBrief);
+
+  // Enforce SHA-256 bindings!
+  if (caseMeta.briefSha256 !== actualPromptSha256) {
+    throw new Error(`Prompt byte hash mismatch: case.json expected hash '${caseMeta.briefSha256}' but actual prompt file hash was '${actualPromptSha256}'`);
+  }
+  if (actualPromptSha256 !== canonicalSha256) {
+    throw new Error(`Canonical brief hash mismatch: actual prompt hash '${actualPromptSha256}' does not match canonical benchmark brief hash '${canonicalSha256}'`);
+  }
+
+  // 5. Check verifier report
+  const reportPath = path.join(projAbs, 'verify-report.json');
   if (!fs.existsSync(reportPath)) {
     throw new Error(`Verification report file '${reportPath}' not found`);
   }
@@ -418,9 +629,9 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     throw new Error(`Invalid verification report: ${valReport.errors.join('; ')}`);
   }
 
-  // Case/Report Target check if target exists
-  if (rawReport.target && path.basename(projectDir) !== rawReport.target && projectDir !== rawReport.target) {
-    // Also acceptable if target matches
+  // 6. Enforce report target binding
+  if (rawReport.target !== projName) {
+    throw new Error(`Report target mismatch: verify-report.json target is '${rawReport.target}' but project directory basename is '${projName}'`);
   }
 
   let humanReview = null;
@@ -430,7 +641,7 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     }
     let rawReview;
     try {
-      rawReview = JSON.parse(fs.readFileSync(options.reviewPath), 'utf8');
+      rawReview = JSON.parse(fs.readFileSync(options.reviewPath, 'utf8'));
     } catch (err) {
       throw new Error(`Failed to parse review JSON: ${err.message}`);
     }
@@ -440,18 +651,13 @@ export function collectBenchmarkResult(projectDir, options = {}) {
       throw new Error(`Invalid human review: ${valRev.errors.join('; ')}`);
     }
 
-    let scoresObj = rawReview;
-    if (isPlainObject(rawReview.scores)) {
-      scoresObj = rawReview.scores;
-    }
-
     const scores = {
-      compositionReadability: scoresObj.compositionReadability,
-      materialCoherence: scoresObj.materialCoherence,
-      characterCraft: scoresObj.characterCraft,
-      mechanicLegibility: scoresObj.mechanicLegibility,
-      creativeIdentity: scoresObj.creativeIdentity,
-      scopeDiscipline: scoresObj.scopeDiscipline,
+      compositionReadability: rawReview.scores.compositionReadability,
+      materialCoherence: rawReview.scores.materialCoherence,
+      characterCraft: rawReview.scores.characterCraft,
+      mechanicLegibility: rawReview.scores.mechanicLegibility,
+      creativeIdentity: rawReview.scores.creativeIdentity,
+      scopeDiscipline: rawReview.scores.scopeDiscipline,
     };
 
     humanReview = {
@@ -462,11 +668,6 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     };
   }
 
-  // Compute brief sha256 for case if possible
-  const spec = buildCaseAssemblySpec(caseDef.id);
-  const { brief } = assembleBrief(spec, { rootDir: repoRoot });
-  const briefSha256 = computeSha256(brief);
-
   const isPassed = rawReport.status === 'passed' && rawReport.gates?.pass === true && rawReport.build?.ok === true;
 
   const normalizedResult = {
@@ -474,7 +675,7 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     caseId: caseDef.id,
     modelLabel: options.model.trim(),
     attempt: options.attempt,
-    briefSha256,
+    briefSha256: actualPromptSha256,
     automated: {
       status: rawReport.status,
       pass: isPassed,
@@ -486,15 +687,31 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     eligible: isPassed,
   };
 
+  const valRes = validateBenchmarkResult(normalizedResult);
+  if (!valRes.valid) {
+    throw new Error(`Constructed result failed validation: ${valRes.errors.join('; ')}`);
+  }
+
   if (options.outPath) {
-    if (fs.existsSync(options.outPath) && !options.force) {
-      throw new Error(`Output file '${options.outPath}' already exists. Use --force to overwrite.`);
+    const outAbs = path.resolve(options.outPath);
+    if (fs.existsSync(outAbs) && !options.force) {
+      throw new Error(`Output file '${outAbs}' already exists. Use --force to overwrite.`);
     }
-    const outDir = path.dirname(options.outPath);
+    const outDir = path.dirname(outAbs);
     if (!fs.existsSync(outDir)) {
       fs.mkdirSync(outDir, { recursive: true });
     }
-    fs.writeFileSync(options.outPath, JSON.stringify(normalizedResult, null, 2) + '\n', 'utf8');
+
+    const tmpOut = path.join(outDir, `.tmp-res-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.json`);
+    try {
+      fs.writeFileSync(tmpOut, JSON.stringify(normalizedResult, null, 2) + '\n', 'utf8');
+      fs.renameSync(tmpOut, outAbs);
+    } catch (err) {
+      if (fs.existsSync(tmpOut)) {
+        try { fs.unlinkSync(tmpOut); } catch (_) {}
+      }
+      throw err;
+    }
   }
 
   return normalizedResult;
@@ -505,6 +722,21 @@ export function summarizeBenchmarkResults(resultsDir, options = {}) {
     throw new Error(`Results directory '${resultsDir}' does not exist`);
   }
 
+  if (!options.outPath) {
+    throw new Error('summarizeBenchmarkResults requires options.outPath');
+  }
+
+  const outMdAbs = path.resolve(options.outPath);
+  const outJsonAbs = options.jsonPath ? path.resolve(options.jsonPath) : null;
+
+  // Collision preflight check before processing or writing anything!
+  if (fs.existsSync(outMdAbs) && !options.force) {
+    throw new Error(`Summary Markdown destination file '${outMdAbs}' already exists. Use --force to overwrite.`);
+  }
+  if (outJsonAbs && fs.existsSync(outJsonAbs) && !options.force) {
+    throw new Error(`Summary JSON destination file '${outJsonAbs}' already exists. Use --force to overwrite.`);
+  }
+
   const files = fs.readdirSync(resultsDir).filter((f) => f.endsWith('.json'));
   if (files.length === 0) {
     throw new Error(`No JSON result files found in '${resultsDir}'`);
@@ -513,21 +745,31 @@ export function summarizeBenchmarkResults(resultsDir, options = {}) {
   const results = [];
   for (const f of files) {
     const fullPath = path.join(resultsDir, f);
+    let data;
     try {
-      const data = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-      if (data.schemaVersion === 1 && data.caseId && data.modelLabel) {
-        results.push(data);
-      }
-    } catch (_) {
-      // ignore non-result JSON files
+      data = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+    } catch (err) {
+      throw new Error(`Failed to parse result file '${f}': ${err.message}`);
     }
+
+    // Skip summary JSON files
+    if (isPlainObject(data) && Array.isArray(data.results) && typeof data.totalRuns === 'number') {
+      continue;
+    }
+
+    const val = validateBenchmarkResult(data);
+    if (!val.valid) {
+      throw new Error(`Result file '${f}' failed validation: ${val.errors.join('; ')}`);
+    }
+
+    results.push(data);
   }
 
   if (results.length === 0) {
     throw new Error(`No valid benchmark result files found in '${resultsDir}'`);
   }
 
-  // Sort results by case registry order, modelLabel, attempt
+  // Sort results deterministically by case registry order, modelLabel, attempt
   const caseOrderMap = new Map();
   BENCHMARK_CASES.forEach((c, idx) => caseOrderMap.set(c.id, idx));
 
@@ -612,25 +854,47 @@ export function summarizeBenchmarkResults(resultsDir, options = {}) {
     }
   }
 
-  if (options.outPath) {
-    if (fs.existsSync(options.outPath) && !options.force) {
-      throw new Error(`Summary file '${options.outPath}' already exists. Use --force to overwrite.`);
-    }
-    fs.writeFileSync(options.outPath, md, 'utf8');
+  const summaryJsonData = outJsonAbs
+    ? {
+        schemaVersion: 1,
+        totalRuns: results.length,
+        eligibleRuns: results.filter((r) => r.eligible).length,
+        results,
+      }
+    : null;
+
+  // Transactional staging write for both outputs
+  const outDir = path.dirname(outMdAbs);
+  if (!fs.existsSync(outDir)) {
+    fs.mkdirSync(outDir, { recursive: true });
   }
 
-  let summaryJsonData = null;
-  if (options.jsonPath) {
-    if (fs.existsSync(options.jsonPath) && !options.force) {
-      throw new Error(`Summary JSON file '${options.jsonPath}' already exists. Use --force to overwrite.`);
+  const tmpMdPath = path.join(outDir, `.tmp-summary-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.md`);
+  const tmpJsonPath = outJsonAbs
+    ? path.join(path.dirname(outJsonAbs), `.tmp-summary-json-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.json`)
+    : null;
+
+  try {
+    fs.writeFileSync(tmpMdPath, md, 'utf8');
+    if (outJsonAbs && tmpJsonPath && summaryJsonData) {
+      const jsonDir = path.dirname(outJsonAbs);
+      if (!fs.existsSync(jsonDir)) fs.mkdirSync(jsonDir, { recursive: true });
+      fs.writeFileSync(tmpJsonPath, JSON.stringify(summaryJsonData, null, 2) + '\n', 'utf8');
     }
-    summaryJsonData = {
-      schemaVersion: 1,
-      totalRuns: results.length,
-      eligibleRuns: results.filter((r) => r.eligible).length,
-      results,
-    };
-    fs.writeFileSync(options.jsonPath, JSON.stringify(summaryJsonData, null, 2) + '\n', 'utf8');
+
+    // Atomic rename both
+    fs.renameSync(tmpMdPath, outMdAbs);
+    if (outJsonAbs && tmpJsonPath) {
+      fs.renameSync(tmpJsonPath, outJsonAbs);
+    }
+  } catch (err) {
+    if (fs.existsSync(tmpMdPath)) {
+      try { fs.unlinkSync(tmpMdPath); } catch (_) {}
+    }
+    if (tmpJsonPath && fs.existsSync(tmpJsonPath)) {
+      try { fs.unlinkSync(tmpJsonPath); } catch (_) {}
+    }
+    throw err;
   }
 
   return { markdown: md, json: summaryJsonData, results };

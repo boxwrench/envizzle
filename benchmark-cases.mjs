@@ -12,6 +12,17 @@ export const VALID_SUITES = Object.freeze(['smoke', 'full']);
 const casesJsonPath = path.join(repoRoot, 'benchmarks', 'cases.json');
 const rawCasesData = JSON.parse(fs.readFileSync(casesJsonPath, 'utf8'));
 
+const SAFE_SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+export function deepFreeze(obj) {
+  if (obj === null || typeof obj !== 'object') return obj;
+  Object.freeze(obj);
+  for (const key of Object.keys(obj)) {
+    deepFreeze(obj[key]);
+  }
+  return obj;
+}
+
 export function validateCaseDefinition(c) {
   const errors = [];
   if (!c || typeof c !== 'object' || Array.isArray(c)) {
@@ -39,13 +50,26 @@ export function validateCaseDefinition(c) {
     }
   }
 
-  if (typeof c.id !== 'string' || c.id.trim() === '') errors.push('Case id must be a non-empty string');
-  if (typeof c.title !== 'string' || c.title.trim() === '') errors.push('Case title must be a non-empty string');
+  if (typeof c.id !== 'string' || !SAFE_SLUG_REGEX.test(c.id) || c.id.includes('.') || c.id.includes('/') || c.id.includes('\\')) {
+    errors.push(`Case id '${c.id}' must be a safe lowercase slug without path separators, dots, or control characters`);
+  }
+
+  if (typeof c.title !== 'string' || c.title.trim() === '' || /[\r\n]/.test(c.title)) {
+    errors.push('Case title must be a non-empty single-line string');
+  }
+
   if (!Array.isArray(c.suites) || c.suites.length === 0) {
     errors.push('Case suites must be a non-empty array');
   } else {
+    const suiteSet = new Set();
     for (const s of c.suites) {
-      if (!VALID_SUITES.includes(s)) errors.push(`Invalid suite reference '${s}'`);
+      if (!VALID_SUITES.includes(s)) {
+        errors.push(`Invalid suite reference '${s}'`);
+      }
+      if (suiteSet.has(s)) {
+        errors.push(`Duplicate suite reference '${s}'`);
+      }
+      suiteSet.add(s);
     }
   }
 
@@ -57,23 +81,90 @@ export function validateCaseDefinition(c) {
     errors.push(`Invalid creativeMode '${c.creativeMode}'`);
   }
 
+  if (!['showcase', 'base-showcase', 'fully-custom'].includes(c.path)) {
+    errors.push(`Invalid path '${c.path}'`);
+  }
+
+  // Mode & path combinations
+  if (c.creativeMode === 'proven') {
+    if (c.path !== 'showcase') errors.push('Proven mode path must be "showcase"');
+    if (c.creativeSpark !== null && c.creativeSpark !== undefined) errors.push('Proven mode must not have creativeSpark');
+  } else if (c.creativeMode === 'signature') {
+    if (c.path !== 'showcase') errors.push('Signature mode path must be "showcase"');
+    if (typeof c.creativeSpark !== 'string' || c.creativeSpark.trim() === '') errors.push('Signature mode requires non-empty creativeSpark');
+  } else if (c.creativeMode === 'experimental') {
+    if (c.path !== 'base-showcase' && c.path !== 'fully-custom') errors.push('Experimental mode path must be "base-showcase" or "fully-custom"');
+    if (typeof c.creativeSpark !== 'string' || c.creativeSpark.trim() === '') errors.push('Experimental mode requires non-empty creativeSpark');
+  }
+
+  if (c.changedAxes !== undefined && !Array.isArray(c.changedAxes)) {
+    errors.push('changedAxes must be an array');
+  }
+
+  if (c.signatureMoment !== undefined && c.signatureMoment !== null) {
+    if (typeof c.signatureMoment !== 'object' || Array.isArray(c.signatureMoment)) {
+      errors.push('signatureMoment must be an object');
+    } else {
+      const sigKeys = new Set(['enabled', 'text', 'reusedSystem', 'verificationPose']);
+      for (const k of Object.keys(c.signatureMoment)) {
+        if (!sigKeys.has(k)) errors.push(`Unknown field '${k}' in signatureMoment`);
+      }
+    }
+  }
+
+  if (typeof c.coverageNotes !== 'string' || c.coverageNotes.trim() === '') {
+    errors.push('coverageNotes must be a non-empty string');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+export function validateCasesRegistry(data) {
+  const errors = [];
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { valid: false, errors: ['Registry root must be a plain object'] };
+  }
+
+  const rootKeys = new Set(['schemaVersion', 'cases']);
+  for (const k of Object.keys(data)) {
+    if (!rootKeys.has(k)) {
+      errors.push(`Unknown root key '${k}'`);
+    }
+  }
+
+  if (data.schemaVersion !== 1) {
+    errors.push(`schemaVersion must be 1, got ${JSON.stringify(data.schemaVersion)}`);
+  }
+
+  if (!Array.isArray(data.cases)) {
+    errors.push('cases must be an array');
+  } else {
+    const idSet = new Set();
+    for (let i = 0; i < data.cases.length; i++) {
+      const caseDef = data.cases[i];
+      const val = validateCaseDefinition(caseDef);
+      if (!val.valid) {
+        errors.push(`Case [${i}] (${caseDef?.id || 'unknown'}): ${val.errors.join('; ')}`);
+      }
+      if (caseDef?.id) {
+        if (idSet.has(caseDef.id)) {
+          errors.push(`Duplicate case ID '${caseDef.id}' in registry`);
+        }
+        idSet.add(caseDef.id);
+      }
+    }
+  }
+
   return { valid: errors.length === 0, errors };
 }
 
 // Validate registry on load
-const idSet = new Set();
-for (const caseDef of rawCasesData.cases) {
-  const val = validateCaseDefinition(caseDef);
-  if (!val.valid) {
-    throw new Error(`Invalid benchmark case '${caseDef?.id}': ${val.errors.join('; ')}`);
-  }
-  if (idSet.has(caseDef.id)) {
-    throw new Error(`Duplicate case ID '${caseDef.id}' in registry`);
-  }
-  idSet.add(caseDef.id);
+const valRoot = validateCasesRegistry(rawCasesData);
+if (!valRoot.valid) {
+  throw new Error(`Invalid cases.json registry: ${valRoot.errors.join('; ')}`);
 }
 
-export const BENCHMARK_CASES = Object.freeze(rawCasesData.cases);
+export const BENCHMARK_CASES = deepFreeze(rawCasesData.cases);
 
 export function getBenchmarkCase(caseId) {
   const found = BENCHMARK_CASES.find((c) => c.id === caseId);

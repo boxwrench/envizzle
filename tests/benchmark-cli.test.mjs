@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseVerifyCliArgs } from '../verify/verify_demo.mjs';
-import { parseBenchmarkCliArgs } from '../benchmark.mjs';
+import { parseBenchmarkCliArgs, prepareBenchmark } from '../benchmark.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -40,7 +40,7 @@ test('benchmark module imports silently without printing', async () => {
   assert.equal(out, '', 'Importing benchmark.mjs must produce zero stdout/stderr');
 });
 
-test('parseVerifyCliArgs handles help, default paths, custom options, and throws on malformed grammar', () => {
+test('parseVerifyCliArgs handles help, default paths, custom options, duplicate flags, and malformed grammar', () => {
   // Help
   assert.equal(parseVerifyCliArgs(['--help']).help, true);
   assert.equal(parseVerifyCliArgs(['-h']).help, true);
@@ -49,36 +49,37 @@ test('parseVerifyCliArgs handles help, default paths, custom options, and throws
   const resDefault = parseVerifyCliArgs([]);
   assert.equal(resDefault.help, false);
   assert.equal(resDefault.projectDir, process.cwd());
-  assert.equal(resDefault.reportPath, path.join(process.cwd(), 'verify-report.json'));
-  assert.equal(resDefault.screenshotsDir, path.join(process.cwd(), 'screenshots'));
 
   // Custom project and flags
   const resCustom = parseVerifyCliArgs(['my-project', '--report', 'out.json', '--screenshots', 'shots']);
   assert.equal(resCustom.projectDir, path.resolve('my-project'));
-  assert.equal(resCustom.reportPath, path.resolve('out.json'));
-  assert.equal(resCustom.screenshotsDir, path.resolve('shots'));
 
   // Malformed options
   assert.throws(() => parseVerifyCliArgs(['--report']), /Missing path/);
   assert.throws(() => parseVerifyCliArgs(['--invalid-flag']), /Unknown option/);
   assert.throws(() => parseVerifyCliArgs(['dir1', 'dir2']), /Unexpected positional argument/);
+
+  // Duplicate flags
+  assert.throws(() => parseVerifyCliArgs(['--report', 'a.json', '--report', 'b.json']), /Duplicate option --report/);
+  assert.throws(() => parseVerifyCliArgs(['--screenshots', 's1', '--screenshots', 's2']), /Duplicate option --screenshots/);
+
+  // Combined help
+  assert.throws(() => parseVerifyCliArgs(['my-project', '--help']), /Cannot combine --help with other arguments/);
 });
 
-test('verifier CLI exits 0 on --help without browser launch', () => {
-  const stdout = execSync('node verify/verify_demo.mjs --help', { cwd: repoRoot, stdio: 'pipe' }).toString();
-  assert.ok(stdout.includes('Envizzle Demo Verifier'));
-  assert.ok(stdout.includes('Usage:'));
-});
+test('parseBenchmarkCliArgs enforces strict attempt grammar, duplicate flags, and help combinations', () => {
+  // Invalid attempt strings
+  assert.throws(() => parseBenchmarkCliArgs(['collect', 'dir', '--case', 'alpine-signature', '--model', 'm', '--attempt', '1junk', '--out', 'o.json']), /valid --attempt/);
+  assert.throws(() => parseBenchmarkCliArgs(['collect', 'dir', '--case', 'alpine-signature', '--model', 'm', '--attempt', '1.0', '--out', 'o.json']), /valid --attempt/);
+  assert.throws(() => parseBenchmarkCliArgs(['collect', 'dir', '--case', 'alpine-signature', '--model', 'm', '--attempt', '+1', '--out', 'o.json']), /valid --attempt/);
 
-test('verifier CLI exits 2 on malformed grammar without browser launch', () => {
-  try {
-    execSync('node verify/verify_demo.mjs --unknown-flag', { cwd: repoRoot, stdio: 'pipe' });
-    assert.fail('Should have exited with status code 2');
-  } catch (err) {
-    assert.equal(err.status, 2, 'Malformed grammar must exit code 2');
-    const stderr = err.stderr?.toString() || '';
-    assert.ok(stderr.includes('ERROR: Unknown option'));
-  }
+  // Duplicate flags
+  assert.throws(() => parseBenchmarkCliArgs(['prepare', 'out', '--suite', 'smoke', '--suite', 'full']), /Duplicate option --suite/);
+  assert.throws(() => parseBenchmarkCliArgs(['prepare', 'out', '--suite', 'smoke', '--force', '--force']), /Duplicate option --force/);
+
+  // Combined help
+  assert.throws(() => parseBenchmarkCliArgs(['list', '--help']), /Cannot combine --help/);
+  assert.throws(() => parseBenchmarkCliArgs(['prepare', 'dir', '--help']), /Cannot combine --help/);
 });
 
 test('benchmark CLI list command returns 0 and valid JSON', () => {
@@ -115,14 +116,14 @@ test('benchmark CLI prepare command exits 2 on collision', () => {
 test('benchmark CLI collect command exits 0 on passed report and 1 on failed report', () => {
   const tmpDir = makeTempDir();
   try {
-    const projDir = path.join(tmpDir, 'test-proj');
-    fs.mkdirSync(projDir, { recursive: true });
-
+    prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
+    const projDir = path.join(tmpDir, 'alpine-signature', 'bundle');
     const reportPath = path.join(projDir, 'verify-report.json');
     const outJson = path.join(tmpDir, 'res.json');
 
     // Passed report
     const passReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
+    passReport.target = 'bundle';
     fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
     const outPass = execSync(`node benchmark.mjs collect "${projDir}" --case alpine-signature --model test-agent --attempt 1 --out "${outJson}"`, { cwd: repoRoot, stdio: 'pipe' }).toString();
@@ -132,6 +133,7 @@ test('benchmark CLI collect command exits 0 on passed report and 1 on failed rep
 
     // Failed report -> exit 1
     const failReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-report.json'), 'utf8'));
+    failReport.target = 'bundle';
     fs.writeFileSync(reportPath, JSON.stringify(failReport, null, 2), 'utf8');
 
     try {

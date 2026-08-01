@@ -21,16 +21,24 @@ export function parseVerifyCliArgs(args) {
   let screenshotsDir = null;
   let help = false;
 
+  const seenFlags = new Set();
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--help' || arg === '-h') {
+      if (seenFlags.has('help')) throw new Error('Duplicate option --help');
+      seenFlags.add('help');
       help = true;
     } else if (arg === '--report') {
+      if (seenFlags.has('report')) throw new Error('Duplicate option --report');
+      seenFlags.add('report');
       if (i + 1 >= args.length || args[i + 1].startsWith('-')) {
         throw new Error('Missing path for --report option');
       }
       reportPath = args[++i];
     } else if (arg === '--screenshots') {
+      if (seenFlags.has('screenshots')) throw new Error('Duplicate option --screenshots');
+      seenFlags.add('screenshots');
       if (i + 1 >= args.length || args[i + 1].startsWith('-')) {
         throw new Error('Missing directory for --screenshots option');
       }
@@ -46,6 +54,9 @@ export function parseVerifyCliArgs(args) {
   }
 
   if (help) {
+    if (args.length > 1) {
+      throw new Error('Cannot combine --help with other arguments');
+    }
     return { help: true };
   }
 
@@ -137,6 +148,8 @@ export async function verifyDemo(projectDir, options = {}) {
 
   const failures = [];
   const logInfo = [];
+  const writtenCaptures = [];
+
   const fail = (m) => {
     failures.push(m);
     if (!options.silent) console.error(`FAIL: ${m}`);
@@ -222,9 +235,6 @@ export async function verifyDemo(projectDir, options = {}) {
       }
 
       if (hookReady) {
-        if (runtimeErrors.length === 0) pass('zero console/runtime errors');
-        else fail(`runtime errors: ${runtimeErrors.join(' | ')}`);
-
         const frames = [];
         fs.mkdirSync(shotDir, { recursive: true });
 
@@ -243,12 +253,25 @@ export async function verifyDemo(projectDir, options = {}) {
             image: toImage(withCharBuf),
             imageWithoutCharacter: toImage(withoutCharBuf),
           });
-          fs.writeFileSync(path.join(shotDir, `milestone_${pose}.png`), withCharBuf);
+          const shotName = `milestone_${pose}.png`;
+          fs.writeFileSync(path.join(shotDir, shotName), withCharBuf);
+          writtenCaptures.push(shotName);
+        }
+
+        if (runtimeErrors.length === 0) {
+          pass('zero console/runtime errors');
+        } else {
+          fail(`runtime errors: ${runtimeErrors.join(' | ')}`);
         }
 
         const cameraDepthM = await page.evaluate(() => window.__demo.cameraNearestDepth());
         const frameStats = await page.evaluate(() => window.__demo.frameStats());
         gateResult = evaluateGates({ frames, cameraDepthM, frameStats });
+
+        if (runtimeErrors.length > 0) {
+          gateResult.pass = false;
+          gateResult.failures = [...(gateResult.failures || []), ...runtimeErrors];
+        }
 
         gateResult.info.forEach((i) => {
           logInfo.push(i);
@@ -284,7 +307,7 @@ export async function verifyDemo(projectDir, options = {}) {
     requiredPaths: REQUIRED_PATHS.slice(),
     build: { ok: buildOk, error: buildError },
     runtime: { hookReady, errors: runtimeErrors },
-    captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+    captures: writtenCaptures,
     gates: {
       pass: gateResult.pass,
       failures: gateResult.failures || [],

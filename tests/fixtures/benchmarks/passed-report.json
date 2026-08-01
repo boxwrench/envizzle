@@ -39,6 +39,18 @@
           "meanLuminance": 0.42,
           "flatFrameRatio": 0.18,
           "characterAreaFraction": 0.08
+        },
+        {
+          "name": "locomotion",
+          "meanLuminance": 0.42,
+          "flatFrameRatio": 0.18,
+          "characterAreaFraction": 0.08
+        },
+        {
+          "name": "mechanic",
+          "meanLuminance": 0.42,
+          "flatFrameRatio": 0.18,
+          "characterAreaFraction": 0.08
         }
       ],
       "cameraNearestDepthM": 1.2,
