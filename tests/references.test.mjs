@@ -200,3 +200,77 @@ test('biomes.md distinguishes nineteen template tokens from FOOT_INTERACTION wit
   assert.match(content, /FOOT_INTERACTION/, 'biomes.md must mention FOOT_INTERACTION');
   assert.doesNotMatch(content, /twenty tokens/i, 'biomes.md must not claim twenty tokens');
 });
+
+function assertFollowsReferenceDocConvention(filePath) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  assert.match(content, /^# .+$/m, `${filePath} must have an H1 title`);
+  assert.match(content, /^## Contents\s*$/m, `${filePath} must have a ## Contents section`);
+  assert.match(content, /^---\s*$/m, `${filePath} must have a --- divider after Contents`);
+  assert.match(content, /^## (?!Contents\s*$).+$/m, `${filePath} must have at least one H2 section besides Contents`);
+  return content;
+}
+
+test('all three new staged-build reference files exist', () => {
+  const refs = ['implementation-planning.md', 'babylon-webgpu-patterns.md', 'visual-review.md'];
+  for (const f of refs) {
+    assert.ok(fs.existsSync(path.join('references', f)), `missing reference file: ${f}`);
+  }
+});
+
+test('the three new staged-build reference files follow the H1/Contents/---/H2 structural convention', () => {
+  for (const f of ['implementation-planning.md', 'babylon-webgpu-patterns.md', 'visual-review.md']) {
+    assertFollowsReferenceDocConvention(path.join('references', f));
+  }
+});
+
+test('the three new staged-build reference files contain no leftover template tokens or TODO markers', () => {
+  for (const f of ['implementation-planning.md', 'babylon-webgpu-patterns.md', 'visual-review.md']) {
+    const content = fs.readFileSync(path.join('references', f), 'utf8');
+    assert.doesNotMatch(content, /\{\{[A-Z0-9_]+\}\}/, `${f} must not contain unresolved {{TOKEN}} placeholders`);
+    assert.doesNotMatch(content, /\bTODO\b/, `${f} must not contain TODO markers`);
+    assert.doesNotMatch(content, /\bFIXME\b/, `${f} must not contain FIXME markers`);
+    assert.doesNotMatch(content, /\bTBD\b/, `${f} must not contain TBD markers`);
+  }
+});
+
+test('implementation-planning.md covers the builder role, all five stage IDs, and stop-and-report', () => {
+  const content = fs.readFileSync('references/implementation-planning.md', 'utf8');
+  for (const stageId of ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-polish']) {
+    assert.ok(content.includes(stageId), `implementation-planning.md missing stage id: ${stageId}`);
+  }
+  assert.match(content, /stop-and-report/i);
+  assert.match(content, /already-designed system/, 'implementation-planning.md must include the exact product-principle sentence');
+});
+
+test('babylon-webgpu-patterns.md covers the required ordered topics and binding-ownership constraints', () => {
+  const content = fs.readFileSync('references/babylon-webgpu-patterns.md', 'utf8');
+  const requiredSnippets = [
+    'BABYLON.WebGPUEngine',
+    'engine.initAsync()',
+    'BABYLON.Engine',
+    'BABYLON.ShaderLanguage.WGSL',
+    'BABYLON.ShaderStore.ShadersStoreWGSL',
+    'forceCompilationAsync',
+    'material.isReady(mesh)',
+    'onSubmittedWorkDone',
+    '@group',
+    '@binding',
+  ];
+  for (const snippet of requiredSnippets) {
+    assert.ok(content.includes(snippet), `babylon-webgpu-patterns.md missing required content: ${snippet}`);
+  }
+  assert.match(content, /^## Babylon Binding Ownership\s*$/m, 'babylon-webgpu-patterns.md must have an explicit Babylon binding ownership section');
+  assert.doesNotMatch(content, /arbitrary standalone raw WGSL/i, 'babylon-webgpu-patterns.md must not describe Babylon ShaderMaterial WGSL as arbitrary standalone raw WGSL');
+  assert.match(content, /```js/, 'babylon-webgpu-patterns.md must include a positive code example');
+});
+
+test('visual-review.md covers all twelve review categories', () => {
+  const content = fs.readFileSync('references/visual-review.md', 'utf8');
+  for (const category of [
+    'Biome Identity', 'Composition', 'Terrain Quality', 'LOD Continuity', 'Material Quality',
+    'Character Silhouette', 'Character Scale', 'Locomotion Readability', 'Mechanic Readability',
+    'Placeholder Detection', 'Visual Hierarchy', 'Scope Discipline',
+  ]) {
+    assert.ok(content.includes(category), `visual-review.md missing review category: ${category}`);
+  }
+});
