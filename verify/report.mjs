@@ -35,6 +35,10 @@ function isNonNegativeOrNull(val) {
   return val === null || (typeof val === 'number' && Number.isFinite(val) && val >= 0);
 }
 
+function isNonBlankString(val) {
+  return typeof val === 'string' && val.trim() !== '';
+}
+
 const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const REQUIRED_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
 export const REQUIRED_CAPTURE_FILENAMES = Object.freeze(['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png']);
@@ -172,6 +176,12 @@ export function validateVerificationReport(report) {
     }
     if (report.build.error !== null && typeof report.build.error !== 'string') {
       errors.push('build.error must be a string or null');
+    }
+    if (report.build.ok === true && report.build.error !== null) {
+      errors.push('build.ok true requires build.error to be null');
+    }
+    if (report.build.ok === false && !isNonBlankString(report.build.error)) {
+      errors.push('build.ok false requires a nonblank build.error');
     }
     if (containsLeak(report.build.error)) {
       errors.push('build.error contains path, stack, or credential leakage');
@@ -375,23 +385,24 @@ export function validateVerificationReport(report) {
       errors.push('Passed report missing finite non-negative frameStats.p99Ms');
     }
   } else if (report.status === 'failed') {
+    if (report.gates?.pass !== false) {
+      errors.push('Contradictory state: status is "failed" but gates.pass is not false');
+    }
     const hasFailureReason =
-      report.build?.ok === false ||
-      report.runtime?.hookReady === false ||
-      (Array.isArray(report.runtime?.errors) && report.runtime.errors.length > 0) ||
-      report.gates?.pass === false ||
-      (Array.isArray(report.gates?.failures) && report.gates.failures.length > 0);
+      isNonBlankString(report.build?.error) ||
+      (Array.isArray(report.runtime?.errors) && report.runtime.errors.some(isNonBlankString)) ||
+      (Array.isArray(report.gates?.failures) && report.gates.failures.some(isNonBlankString));
     if (!hasFailureReason) {
-      errors.push('Contradictory state: status is "failed" but build, runtime, and gates all passed without failures');
+      errors.push('Contradictory state: status is "failed" but no nonblank failure reason was recorded in build, runtime, or gates');
     }
   } else if (report.status === 'error') {
     if (report.gates?.pass !== false) {
       errors.push('Contradictory state: status is "error" but gates.pass is true');
     }
     const hasOperationalError =
-      (report.build?.error && typeof report.build.error === 'string') ||
-      (Array.isArray(report.runtime?.errors) && report.runtime.errors.length > 0) ||
-      (Array.isArray(report.gates?.failures) && report.gates.failures.length > 0);
+      isNonBlankString(report.build?.error) ||
+      (Array.isArray(report.runtime?.errors) && report.runtime.errors.some(isNonBlankString)) ||
+      (Array.isArray(report.gates?.failures) && report.gates.failures.some(isNonBlankString));
     if (!hasOperationalError) {
       errors.push('Contradictory state: status is "error" but no operational error recorded in build, runtime, or gates');
     }

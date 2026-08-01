@@ -237,6 +237,12 @@ export function validateBenchmarkResult(res) {
     if (typeof res.automated.hardGateFailureCount !== 'number' || res.automated.hardGateFailureCount !== (res.automated.hardGateFailures || []).length) {
       errors.push('automated.hardGateFailureCount must equal length of hardGateFailures array');
     }
+    if (res.automated.status === 'passed' && Array.isArray(res.automated.hardGateFailures) && res.automated.hardGateFailures.length > 0) {
+      errors.push('Passed benchmark result must contain zero hard gate failures');
+    }
+    if ((res.automated.status === 'failed' || res.automated.status === 'error') && Array.isArray(res.automated.hardGateFailures) && res.automated.hardGateFailures.length === 0) {
+      errors.push('Failed or error benchmark result must contain at least one hard gate failure');
+    }
 
     // Metrics shape must be exact and strictly typed regardless of pass/fail/error status.
     // Failed and error results may report null/empty evidence, but never a wrong-shaped
@@ -933,6 +939,18 @@ export function collectBenchmarkResult(projectDir, options = {}) {
   }
 
   const isPassed = rawReport.status === 'passed' && rawReport.gates?.pass === true && rawReport.build?.ok === true;
+  const hardGateFailures = [];
+  const seenHardGateFailures = new Set();
+  const addHardGateFailure = (failure) => {
+    const normalized = typeof failure === 'string' ? failure.trim() : '';
+    if (normalized !== '' && !seenHardGateFailures.has(normalized)) {
+      seenHardGateFailures.add(normalized);
+      hardGateFailures.push(normalized);
+    }
+  };
+  addHardGateFailure(rawReport.build?.error);
+  for (const error of rawReport.runtime?.errors || []) addHardGateFailure(error);
+  for (const failure of rawReport.gates?.failures || []) addHardGateFailure(failure);
 
   const normalizedResult = {
     schemaVersion: 1,
@@ -943,8 +961,8 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     automated: {
       status: rawReport.status,
       pass: isPassed,
-      hardGateFailures: rawReport.gates?.failures || [],
-      hardGateFailureCount: (rawReport.gates?.failures || []).length,
+      hardGateFailures,
+      hardGateFailureCount: hardGateFailures.length,
       metrics: rawReport.gates?.metrics || { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } },
     },
     humanReview,

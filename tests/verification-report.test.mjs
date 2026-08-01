@@ -303,6 +303,44 @@ test('validateVerificationReport accepts a failed report with zero or a subset o
   assert.equal(validateVerificationReport(samplePartial).valid, true, validateVerificationReport(samplePartial).errors.join('; '));
 });
 
+test('validateVerificationReport rejects failed report with build.ok false and build.error null', () => {
+  const sample = validReportSample();
+  sample.status = 'failed';
+  sample.build = { ok: false, error: null };
+  sample.gates.pass = false;
+  sample.gates.failures = ['build failed'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /build\.ok false requires a nonblank build\.error/.test(e)));
+});
+
+test('validateVerificationReport rejects a build.ok true report with a non-null build.error', () => {
+  const sample = validReportSample();
+  sample.build.error = 'unexpected build message';
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /build\.ok true requires build\.error to be null/.test(e)));
+});
+
+test('validateVerificationReport rejects failed report with gates.pass true', () => {
+  const sample = validReportSample();
+  sample.status = 'failed';
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /status is "failed" but gates\.pass is not false/.test(e)));
+});
+
+test('validateVerificationReport rejects failed report containing only blank failure strings', () => {
+  const sample = validReportSample();
+  sample.status = 'failed';
+  sample.runtime = { hookReady: true, errors: [' ', '\t'] };
+  sample.gates.pass = false;
+  sample.gates.failures = ['', '   '];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /no nonblank failure reason/.test(e)));
+});
+
 test('validateVerificationReport rejects a failed report with a negative camera depth', () => {
   const sample = validReportSample();
   sample.status = 'failed';
@@ -363,11 +401,19 @@ test('validateVerificationReport rejects error report with no operational reason
   sample.status = 'error';
   sample.gates.pass = false;
   sample.build = { ok: true, error: null };
-  sample.runtime = { hookReady: true, errors: [] };
-  sample.gates.failures = [];
+  sample.runtime = { hookReady: true, errors: ['  '] };
+  sample.gates.failures = ['\t'];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
   assert.ok(val.errors.some((e) => /no operational error recorded/.test(e)));
+});
+
+test('validateVerificationReport rejects passed report containing a failure message', () => {
+  const sample = validReportSample();
+  sample.gates.failures = ['unexpected failure'];
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /status is "passed" but gates\.failures is not empty/.test(e)));
 });
 
 test('writeVerificationReport performs atomic sibling write and rename', () => {

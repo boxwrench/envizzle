@@ -312,6 +312,94 @@ test('collectBenchmarkResult enforces real brief, metadata, report target, and S
   }
 });
 
+test('collectBenchmarkResult combines deterministic build, runtime, and gate failures', () => {
+  const tmpDir = makeTempDir();
+  try {
+    prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
+
+    const projDir = path.join(tmpDir, 'alpine-signature', 'bundle');
+    const reportPath = path.join(projDir, 'verify-report.json');
+    const passedTemplate = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
+    const promptFile = fs.readdirSync(projDir).find((file) => file.endsWith('_TECHDEMO_PROMPT.md'));
+    const promptSha256 = crypto.createHash('sha256').update(fs.readFileSync(path.join(projDir, promptFile))).digest('hex');
+    const clone = (value) => JSON.parse(JSON.stringify(value));
+    const emptyMetrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
+
+    const makeReport = ({
+      status = 'failed',
+      build = { ok: true, error: null },
+      runtime = { hookReady: true, errors: [] },
+      gatePass = false,
+      gateFailures = [],
+    } = {}) => {
+      const report = clone(passedTemplate);
+      report.status = status;
+      report.target = 'bundle';
+      report.build = build;
+      report.runtime = runtime;
+      report.captures = status === 'passed' ? clone(passedTemplate.captures) : [];
+      report.gates.pass = gatePass;
+      report.gates.failures = gateFailures;
+      report.gates.metrics = status === 'passed' ? clone(passedTemplate.gates.metrics) : emptyMetrics;
+      report.benchmark = { caseId: 'alpine-signature', briefSha256: promptSha256 };
+      return report;
+    };
+
+    const collect = (report) => {
+      fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf8');
+      return collectBenchmarkResult(projDir, {
+        caseId: 'alpine-signature',
+        model: 'claude-3-7-sonnet',
+        attempt: 1,
+      });
+    };
+
+    const runtimeOnly = collect(makeReport({
+      runtime: { hookReady: true, errors: ['  runtime stopped  '] },
+    }));
+    assert.deepEqual(runtimeOnly.automated.hardGateFailures, ['runtime stopped']);
+    assert.equal(runtimeOnly.automated.hardGateFailureCount, 1);
+    assert.equal(runtimeOnly.eligible, false);
+
+    const buildOnly = collect(makeReport({
+      build: { ok: false, error: '  build stopped  ' },
+      runtime: { hookReady: false, errors: [] },
+    }));
+    assert.deepEqual(buildOnly.automated.hardGateFailures, ['build stopped']);
+    assert.equal(buildOnly.automated.hardGateFailureCount, 1);
+    assert.equal(buildOnly.eligible, false);
+
+    const duplicates = collect(makeReport({
+      build: { ok: false, error: 'same failure' },
+      runtime: { hookReady: true, errors: ['same failure', '  runtime failure  ', ''] },
+      gateFailures: ['same failure', 'runtime failure', ' gate failure ', '  '],
+    }));
+    assert.deepEqual(duplicates.automated.hardGateFailures, ['same failure', 'runtime failure', 'gate failure']);
+    assert.equal(duplicates.automated.hardGateFailureCount, 3);
+
+    const errorResult = collect(makeReport({
+      status: 'error',
+      runtime: { hookReady: false, errors: ['operational failure'] },
+    }));
+    assert.equal(errorResult.eligible, false);
+    assert.ok(errorResult.automated.hardGateFailureCount > 0);
+
+    const blankStrings = collect(makeReport({
+      runtime: { hookReady: true, errors: [' ', '\t', 'runtime reason'] },
+      gateFailures: ['', '  ', 'gate reason'],
+    }));
+    assert.deepEqual(blankStrings.automated.hardGateFailures, ['runtime reason', 'gate reason']);
+    assert.equal(blankStrings.automated.hardGateFailureCount, 2);
+
+    const passed = collect(makeReport({ status: 'passed', gatePass: true }));
+    assert.deepEqual(passed.automated.hardGateFailures, []);
+    assert.equal(passed.automated.hardGateFailureCount, 0);
+    assert.equal(passed.eligible, true);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
 test('isPathInside rejects sibling-prefix paths that merely share a name prefix', () => {
   const sep = path.sep;
   assert.equal(isPathInside(`${sep}tmp${sep}case`, `${sep}tmp${sep}case-evil${sep}file`), false);
@@ -638,6 +726,24 @@ test('adversarial test: failed status with pass true rejected', () => {
   res.automated.pass = true;
   const val = validateBenchmarkResult(res);
   assert.equal(val.valid, false);
+});
+
+test('adversarial test: failed result with zero hard gate failures rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
+  res.automated.hardGateFailures = [];
+  res.automated.hardGateFailureCount = 0;
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /Failed or error benchmark result must contain at least one hard gate failure/.test(e)));
+});
+
+test('adversarial test: passed result with a hard gate failure rejected', () => {
+  const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'eligible-result.json'), 'utf8'));
+  res.automated.hardGateFailures = ['unexpected failure'];
+  res.automated.hardGateFailureCount = 1;
+  const val = validateBenchmarkResult(res);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /Passed benchmark result must contain zero hard gate failures/.test(e)));
 });
 
 test('adversarial test: submitted review containing visualAverage rejected', () => {
