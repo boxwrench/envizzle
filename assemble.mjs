@@ -926,6 +926,8 @@ export function assembleBrief(spec, options = {}) {
     throw new Error(`Brief/build-contract agreement failed: ${artifactAgreement.errors.join(' | ')}`);
   }
 
+  const evidenceTemplate = createEvidenceTemplate(briefSha256);
+
   return {
     projectName,
     fileName,
@@ -933,7 +935,7 @@ export function assembleBrief(spec, options = {}) {
     warnings: cohWarnings,
     assemblyModel: canonicalModel,
     buildContract,
-    evidenceTemplate: createEvidenceTemplate(),
+    evidenceTemplate,
   };
 }
 

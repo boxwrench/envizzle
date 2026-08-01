@@ -12,6 +12,7 @@ import {
   SHOWCASES,
   validateSelection,
 } from './selection.mjs';
+import { THRESHOLDS } from './verify/gates.mjs';
 
 export const BUILD_CONTRACT_SCHEMA_VERSION = 1;
 export const BUILD_CONTRACT_FILENAME = 'ENVIZZLE_BUILD.json';
@@ -20,6 +21,23 @@ export const HANDOFF_FILENAME = 'HANDOFF.md';
 export const ZERO_ASSET_STRATEGY_TEXT = '100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)';
 export const INCOMPLETE_VERIFICATION_STATUS = 'incomplete verification';
 export const COMPLETE_STATUS = 'complete';
+
+export const TERRAIN_ELEVATION_CONTRACT = Object.freeze({
+  renderOwner: 'gpu',
+  renderMeshBaseHeight: 0,
+  cpuHeightPurpose: Object.freeze(['physics', 'camera-clearance', 'foot-planting']),
+  forbidCpuPredisplacedRenderVertices: true,
+  requireCpuGpuParityTest: true,
+  parityToleranceM: 0.03,
+});
+
+export const RENDERER_DIAGNOSTICS_EXPECTED = Object.freeze({
+  'babylon-webgpu': Object.freeze({ backend: 'webgpu', shaderLanguage: 'wgsl', materialsReady: true, renderedFrames: 1, validationErrors: Object.freeze([]) }),
+  'three-webgl2': Object.freeze({ backend: 'webgl2', shaderLanguage: 'glsl-es-3.00', materialsReady: true, renderedFrames: 1, validationErrors: Object.freeze([]) }),
+});
+
+export const LIFECYCLE_STATUS_VALUES = Object.freeze(['initializing', 'ready', 'failed']);
+export const CAMERA_DIAGNOSTIC_METHODS = Object.freeze(['gpu-depth', 'cpu-height-with-gpu-parity']);
 
 export const NOVELTY_BUDGET_KEYS = Object.freeze([
   'addsEngine',
@@ -61,8 +79,26 @@ const ACCEPTANCE_GATES = Object.freeze({
   }),
   verificationHook: Object.freeze({
     required: true,
-    readiness: 'window.__demo is available and hookReady is true.',
-    requiredHooks: Object.freeze(['setPose', 'setCharacterVisible', 'cameraNearestDepth', 'frameStats']),
+    readiness: 'window.__demo starts initializing with ready false and becomes ready only after renderer, materials, validation, and one rendered frame succeed.',
+    requiredHooks: Object.freeze(['setPose', 'setCharacterVisible', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics', 'frameStats']),
+    lifecycle: Object.freeze({
+      initial: Object.freeze({ ready: false, status: 'initializing', error: null }),
+      statuses: LIFECYCLE_STATUS_VALUES,
+      success: Object.freeze({ ready: true, status: 'ready', error: null }),
+      failure: Object.freeze({ ready: false, status: 'failed' }),
+    }),
+  }),
+  renderer: Object.freeze({
+    required: true,
+    hook: 'window.__demo.rendererInfo()',
+    expectedByProfile: RENDERER_DIAGNOSTICS_EXPECTED,
+    requirement: 'The selected profile backend, shader language, material readiness, rendered frame count, and validation error list must be proven by the actual renderer.',
+  }),
+  terrain: Object.freeze({
+    required: true,
+    hook: 'window.__demo.terrainDiagnostics()',
+    expected: TERRAIN_ELEVATION_CONTRACT,
+    parity: Object.freeze({ method: 'gpu-readback', minimumSamples: 8, cpuToCpuForbidden: true }),
   }),
   runtime: Object.freeze({
     blockingBrowserOrConsoleErrors: 0,
@@ -81,8 +117,28 @@ const ACCEPTANCE_GATES = Object.freeze({
   }),
   camera: Object.freeze({
     required: true,
-    hook: 'window.__demo.cameraNearestDepth()',
-    requirement: 'The camera hook returns a finite non-negative nearest-scene depth.',
+    hook: 'window.__demo.cameraDiagnostics()',
+    allowedMethods: CAMERA_DIAGNOSTIC_METHODS,
+    clippingThresholdM: THRESHOLDS.cameraMinDepthM,
+    requirement: 'Camera distance is proven by GPU depth or by CPU height qualified by a successful GPU terrain parity test.',
+  }),
+  evidence: Object.freeze({
+    required: true,
+    buildContractFilename: BUILD_CONTRACT_FILENAME,
+    evidenceFilename: EVIDENCE_FILENAME,
+    requiredStatus: COMPLETE_STATUS,
+    requiredMilestones: Object.freeze(['first-runnable-scene', 'systems-complete', 'final-polish']),
+    requirement: 'Final verification requires complete milestone evidence, canonical current-run screenshots, console evidence, performance values, reviewed weaknesses, and corrections.',
+  }),
+  environmentVisuals: Object.freeze({
+    required: true,
+    metrics: Object.freeze(['localLuminanceVariation', 'edgeDensity']),
+    thresholds: Object.freeze({ localLuminanceVariationMin: THRESHOLDS.environmentLocalLuminanceVariationMin, edgeDensityMin: THRESHOLDS.environmentEdgeDensityMin }),
+  }),
+  poseDifferences: Object.freeze({
+    required: true,
+    comparisons: Object.freeze(['idle-locomotion', 'idle-mechanic']),
+    minimumChangedAreaFractions: Object.freeze({ idleLocomotion: THRESHOLDS.poseIdleLocomotionMinChangedArea, idleMechanic: THRESHOLDS.poseIdleMechanicMinChangedArea }),
   }),
   report: Object.freeze({
     required: true,
@@ -195,7 +251,7 @@ const MILESTONE_DEFINITIONS = Object.freeze([
   }),
 ]);
 
-const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'creative', 'acceptance', 'milestones'];
+const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'milestones'];
 const PROJECT_KEYS = ['name', 'briefFilename', 'briefSha256', 'renderingProfile', 'engine', 'shaderLanguage', 'shaderLanguageExtension', 'materialApi', 'renderingParadigm', 'assetStrategy', 'assetStrategyText', 'targetHardware', 'coreInteractionSentence'];
 const SELECTION_KEYS = ['creativeMode', 'path', 'baseShowcase', 'ambition', 'includedSections', 'omittedOptionalSections', 'extraSections', 'biome', 'archetype', 'mechanic', 'camera', 'renderingProfile', 'cameraAdjustments', 'changedAxes'];
 const STATE_CHANNEL_KEYS = ['enabled', 'omittedBehavior', 'channels'];
@@ -203,7 +259,7 @@ const STATE_ENTRY_KEYS = ['channel', 'nativeMeaning', 'owningSystem', 'writers',
 const BASELINE_KEYS = ['baseline', 'recoveryMechanism', 'recoveryOutcome'];
 const CREATIVE_KEYS = ['creativeSpark', 'signatureMoment', 'noveltyBudget', 'coherenceOverrides'];
 const SIGNATURE_KEYS = ['enabled', 'text', 'reusedSystem', 'verificationPose', 'instruction'];
-const ACCEPTANCE_KEYS = ['requiredProjectPaths', 'productionBuild', 'verificationHook', 'runtime', 'captures', 'imageGates', 'camera', 'report'];
+const ACCEPTANCE_KEYS = ['requiredProjectPaths', 'productionBuild', 'verificationHook', 'renderer', 'terrain', 'runtime', 'captures', 'imageGates', 'camera', 'evidence', 'environmentVisuals', 'poseDifferences', 'report'];
 const MILESTONE_KEYS = ['id', 'title', 'requiredChecks', 'requiredScreenshotEvidence', 'requiredConsoleEvidence', 'requiredPerformanceEvidence', 'requiredVisualSelfReview', 'completion'];
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -368,6 +424,7 @@ export function createCanonicalAssemblyModel({
       changedAxes: canonicalChangedAxes(selection.changedAxes),
     },
     stateChannels: canonicalStateChannels({ selection, biome }),
+    terrainElevation: clone(TERRAIN_ELEVATION_CONTRACT),
     creative: {
       creativeSpark,
       signatureMoment: {
@@ -395,9 +452,10 @@ export function createBuildContract(model) {
   };
 }
 
-export function createEvidenceTemplate() {
+export function createEvidenceTemplate(briefSha256 = '0'.repeat(64)) {
   return {
     schemaVersion: BUILD_CONTRACT_SCHEMA_VERSION,
+    briefSha256,
     status: INCOMPLETE_VERIFICATION_STATUS,
     milestones: MILESTONE_DEFINITIONS.map(({ id }) => ({
       id,
@@ -427,6 +485,18 @@ function validateProject(project, errors) {
   if (project.assetStrategy !== 'zero-asset' || project.assetStrategyText !== ZERO_ASSET_STRATEGY_TEXT) errors.push('project asset strategy must use the canonical zero-asset contract');
   if (!nonEmptyString(project.targetHardware)) errors.push('project.targetHardware must be non-empty');
   if (!nonEmptyString(project.coreInteractionSentence)) errors.push('project.coreInteractionSentence must be non-empty');
+}
+
+function validateTerrainElevation(contract, errors) {
+  if (!exactKeys(contract.terrainElevation, Object.keys(TERRAIN_ELEVATION_CONTRACT), 'terrainElevation', errors)) return;
+  if (JSON.stringify(Object.keys(contract.terrainElevation)) !== JSON.stringify(Object.keys(TERRAIN_ELEVATION_CONTRACT))) errors.push('terrainElevation keys must remain in canonical order');
+  compareCanonical(contract.terrainElevation, TERRAIN_ELEVATION_CONTRACT, 'terrainElevation', errors);
+  if (contract.terrainElevation.renderOwner !== 'gpu') errors.push('terrainElevation.renderOwner must be gpu');
+  if (contract.terrainElevation.renderMeshBaseHeight !== 0) errors.push('terrainElevation.renderMeshBaseHeight must be exactly 0');
+  if (!Array.isArray(contract.terrainElevation.cpuHeightPurpose) || JSON.stringify(contract.terrainElevation.cpuHeightPurpose) !== JSON.stringify(TERRAIN_ELEVATION_CONTRACT.cpuHeightPurpose)) errors.push('terrainElevation.cpuHeightPurpose must contain physics, camera-clearance, foot-planting in canonical order');
+  if (contract.terrainElevation.forbidCpuPredisplacedRenderVertices !== true) errors.push('terrainElevation.forbidCpuPredisplacedRenderVertices must be true');
+  if (contract.terrainElevation.requireCpuGpuParityTest !== true) errors.push('terrainElevation.requireCpuGpuParityTest must be true');
+  if (typeof contract.terrainElevation.parityToleranceM !== 'number' || !Number.isFinite(contract.terrainElevation.parityToleranceM) || contract.terrainElevation.parityToleranceM < 0) errors.push('terrainElevation.parityToleranceM must be finite and non-negative');
 }
 
 function contractSelectionForValidation(contract) {
@@ -538,6 +608,7 @@ export function validateBuildContract(contract) {
     errors.push('project.renderingProfile must equal selection.renderingProfile');
   }
   validateStateChannels(contract, errors);
+  validateTerrainElevation(contract, errors);
   validateCreative(contract, errors);
   compareCanonical(contract.acceptance, ACCEPTANCE_GATES, 'acceptance', errors);
   compareCanonical(contract.milestones, MILESTONE_DEFINITIONS, 'milestones', errors);
@@ -609,8 +680,9 @@ function validateEvidenceMilestone(milestone, index, errors) {
 export function validateMilestoneEvidence(evidence) {
   const errors = [];
   if (!isPlainObject(evidence)) return { valid: false, errors: ['Evidence record must be a plain object'] };
-  if (!exactKeys(evidence, ['schemaVersion', 'status', 'milestones'], 'evidence', errors)) return { valid: false, errors };
+  if (!exactKeys(evidence, ['schemaVersion', 'briefSha256', 'status', 'milestones'], 'evidence', errors)) return { valid: false, errors };
   if (evidence.schemaVersion !== BUILD_CONTRACT_SCHEMA_VERSION) errors.push(`evidence.schemaVersion must be ${BUILD_CONTRACT_SCHEMA_VERSION}`);
+  if (typeof evidence.briefSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(evidence.briefSha256)) errors.push('evidence.briefSha256 must be exactly 64 lowercase hexadecimal characters');
   if (![INCOMPLETE_VERIFICATION_STATUS, COMPLETE_STATUS].includes(evidence.status)) errors.push(`evidence.status must be '${INCOMPLETE_VERIFICATION_STATUS}' or '${COMPLETE_STATUS}'`);
   if (!Array.isArray(evidence.milestones)) {
     errors.push('evidence.milestones must be an array');
@@ -645,6 +717,9 @@ export function renderContractSummary(contract) {
 - **Creative mode and path:** \`${contract.selection.creativeMode}\` / \`${contract.selection.path}\` / base showcase \`${contract.selection.baseShowcase ?? 'none'}\`
 - **Selection:** ambition \`${contract.selection.ambition}\`; sections [${contract.selection.includedSections.join(', ')}]; omitted optional [${contract.selection.omittedOptionalSections.join(', ')}]; extra [${contract.selection.extraSections.join(', ')}]; biome \`${contract.selection.biome}\`; archetype \`${contract.selection.archetype}\`; mechanic \`${contract.selection.mechanic}\`; camera \`${contract.selection.camera}\`; camera adjustments [${contract.selection.cameraAdjustments.join(', ')}]; changed axes [${contract.selection.changedAxes.join(', ')}]
 - **State channels:** ${stateLines}
+- **Terrain elevation ownership:** Render terrain vertices enter the vertex shader at base height \`y = 0\`; the procedural elevation function is applied exactly once on the GPU. CPU height may be mirrored only for physics, camera clearance, and foot planting, with GPU parity readback.
+- **Renderer/readiness proof:** ${JSON.stringify(contract.acceptance.renderer.expectedByProfile[contract.project.renderingProfile])}; lifecycle starts initializing and cannot become ready before compilation, validation, bindings, and one rendered frame.
+- **Camera proof:** \`${contract.acceptance.camera.hook}\`; allowed methods ${contract.acceptance.camera.allowedMethods.join(', ')}; clipping threshold ${contract.acceptance.camera.clippingThresholdM} m.
 - **Creative constraints:** spark ${JSON.stringify(contract.creative.creativeSpark)}; Signature Moment ${JSON.stringify(contract.creative.signatureMoment)}; novelty budget ${JSON.stringify(contract.creative.noveltyBudget)}
 - **Acceptance gates:** ${JSON.stringify(contract.acceptance)}
 - **Milestones:** ${contract.milestones.map(({ id }) => id).join(', ')}; missing required evidence is recorded as \`${INCOMPLETE_VERIFICATION_STATUS}\`.
@@ -655,7 +730,7 @@ export function renderMilestoneInstructions(contract) {
   const lines = [
     '## Implementation Milestones and Visual Self-Review',
     '',
-    `Work through the three milestones in order. Preserve screenshots, console findings, performance values, visible weaknesses, and corrective actions in \`${EVIDENCE_FILENAME}\`. Missing screenshot capability or missing required evidence must be recorded exactly as **${INCOMPLETE_VERIFICATION_STATUS}** and must never be converted into a pass.`,
+    `Work through the three milestones in order. Preserve screenshots, console findings, performance values, visible weaknesses, and corrective actions in \`${EVIDENCE_FILENAME}\`. Missing screenshot capability or missing required evidence must be recorded exactly as **${INCOMPLETE_VERIFICATION_STATUS}** and must never be converted into a pass. The verifier overwrites canonical current-run screenshots before checking evidence existence.`,
     '',
   ];
   for (const [index, milestone] of contract.milestones.entries()) {
@@ -675,10 +750,11 @@ export function renderHandoff({ fileName, builderAgent, contract }) {
   const builderAgentLabel = builderAgent || 'the coding agent named by the user';
   return `# Handoff
 
-- **Brief:** \`${fileName}\` — give this file to the coding agent, whole. It needs nothing else.
+- **Complete bundle:** consume the entire generated bundle: \`${fileName}\`, \`${BUILD_CONTRACT_FILENAME}\`, \`${EVIDENCE_FILENAME}\`, \`${HANDOFF_FILENAME}\`, and \`verify/\`.
 - **Build contract:** \`${BUILD_CONTRACT_FILENAME}\` — machine-readable contract generated from the same validated assembly result as the brief.
 - **Evidence record:** \`${EVIDENCE_FILENAME}\` — preserve milestone screenshots, console findings, performance values, weaknesses, and corrections here.
 - **Agent:** ${builderAgentLabel}
+- **Coding-agent workflow:** consume the entire bundle; build the first terrain frame; run verification immediately; inspect and correct the idle screenshot; continue to systems-complete; run verification again; complete final polish; populate all evidence fields; run final verification; never claim completion while any failure or incomplete-verification reason remains.
 - **Milestone workflow:** complete \`first-runnable-scene\`, then \`systems-complete\`, then \`final-polish\`; inspect screenshots and correct visible weaknesses at every milestone.
 - **Incomplete verification:** missing screenshot capability or required evidence must be recorded exactly as \`${INCOMPLETE_VERIFICATION_STATUS}\`; it is never a pass.
 - **When the agent says it is done:** \`npm install -D playwright pngjs && node verify/verify_demo.mjs .\`

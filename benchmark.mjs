@@ -24,6 +24,7 @@ function computeSha256(str) {
 }
 
 const CONTROL_CHARS_REGEX = /[\x00-\x1F\x7F]/;
+const METRIC_KEYS = Object.freeze(['frames', 'cameraDiagnostics', 'rendererDiagnostics', 'terrainDiagnostics', 'poseDifferences', 'frameStats']);
 
 function isUnitRangeOrNull(val) {
   return val === null || (typeof val === 'number' && Number.isFinite(val) && val >= 0 && val <= 1);
@@ -252,8 +253,8 @@ export function validateBenchmarkResult(res) {
     } else {
       const m = res.automated.metrics;
       const mKeys = Object.keys(m);
-      if (mKeys.length !== 3 || !mKeys.includes('frames') || !mKeys.includes('cameraNearestDepthM') || !mKeys.includes('frameStats')) {
-        errors.push(`automated.metrics must contain exact keys ['frames', 'cameraNearestDepthM', 'frameStats'], got [${mKeys.join(', ')}]`);
+      if (JSON.stringify(mKeys) !== JSON.stringify(METRIC_KEYS)) {
+        errors.push(`automated.metrics must contain exact keys [${METRIC_KEYS.join(', ')}], got [${mKeys.join(', ')}]`);
       }
 
       const knownPoses = new Set(['idle', 'locomotion', 'mechanic']);
@@ -267,8 +268,8 @@ export function validateBenchmarkResult(res) {
             continue;
           }
           const fKeys = Object.keys(f);
-          if (fKeys.length !== 4 || !fKeys.includes('name') || !fKeys.includes('meanLuminance') || !fKeys.includes('flatFrameRatio') || !fKeys.includes('characterAreaFraction')) {
-            errors.push(`automated.metrics.frames entry must contain exact keys ['name', 'meanLuminance', 'flatFrameRatio', 'characterAreaFraction'], got [${fKeys.join(', ')}]`);
+          if (JSON.stringify(fKeys) !== JSON.stringify(['name', 'meanLuminance', 'flatFrameRatio', 'characterAreaFraction', 'localLuminanceVariation', 'edgeDensity'])) {
+            errors.push(`automated.metrics.frames entry must contain exact environment-aware keys, got [${fKeys.join(', ')}]`);
           }
           if (typeof f.name !== 'string') {
             errors.push('automated.metrics.frames entry name must be a string');
@@ -286,12 +287,15 @@ export function validateBenchmarkResult(res) {
           if (!isUnitRangeOrNull(f.characterAreaFraction)) {
             errors.push(`automated.metrics.frames entry '${f.name}' characterAreaFraction must be a finite number between 0 and 1, or null`);
           }
+          if (!isUnitRangeOrNull(f.localLuminanceVariation)) errors.push(`automated.metrics.frames entry '${f.name}' localLuminanceVariation must be a finite number between 0 and 1, or null`);
+          if (!isUnitRangeOrNull(f.edgeDensity)) errors.push(`automated.metrics.frames entry '${f.name}' edgeDensity must be a finite number between 0 and 1, or null`);
         }
       }
 
-      if (!isNonNegativeOrNull(m.cameraNearestDepthM)) {
-        errors.push('automated.metrics.cameraNearestDepthM must be a non-negative finite number or null');
-      }
+      if (!isPlainObject(m.cameraDiagnostics)) errors.push('automated.metrics.cameraDiagnostics must be a plain object');
+      if (!isPlainObject(m.rendererDiagnostics)) errors.push('automated.metrics.rendererDiagnostics must be a plain object');
+      if (!isPlainObject(m.terrainDiagnostics)) errors.push('automated.metrics.terrainDiagnostics must be a plain object');
+      if (!isPlainObject(m.poseDifferences) || !isUnitRangeOrNull(m.poseDifferences.idleLocomotion) || !isUnitRangeOrNull(m.poseDifferences.idleMechanic)) errors.push('automated.metrics.poseDifferences must contain finite [0, 1] idleLocomotion and idleMechanic values or null');
 
       if (!isPlainObject(m.frameStats)) {
         errors.push('automated.metrics.frameStats must be a plain object');
@@ -329,9 +333,10 @@ export function validateBenchmarkResult(res) {
           if (typeof f.characterAreaFraction !== 'number' || !Number.isFinite(f.characterAreaFraction)) errors.push(`Frame '${f.name}' missing finite characterAreaFraction`);
         }
       }
-      if (typeof m.cameraNearestDepthM !== 'number' || !Number.isFinite(m.cameraNearestDepthM) || m.cameraNearestDepthM < 0) {
-        errors.push('Passed benchmark result missing finite non-negative cameraNearestDepthM');
-      }
+      if (!isPlainObject(m.cameraDiagnostics) || typeof m.cameraDiagnostics.nearestDepthM !== 'number' || !Number.isFinite(m.cameraDiagnostics.nearestDepthM) || m.cameraDiagnostics.nearestDepthM < 0) errors.push('Passed benchmark result missing cameraDiagnostics');
+      if (!isPlainObject(m.rendererDiagnostics) || m.rendererDiagnostics.materialsReady !== true || typeof m.rendererDiagnostics.renderedFrames !== 'number' || m.rendererDiagnostics.renderedFrames < 1 || !Array.isArray(m.rendererDiagnostics.validationErrors) || m.rendererDiagnostics.validationErrors.length > 0) errors.push('Passed benchmark result missing valid rendererDiagnostics');
+      if (!isPlainObject(m.terrainDiagnostics) || typeof m.terrainDiagnostics.parityMaxErrorM !== 'number' || !Number.isFinite(m.terrainDiagnostics.parityMaxErrorM)) errors.push('Passed benchmark result missing valid terrainDiagnostics');
+      if (!isPlainObject(m.poseDifferences) || typeof m.poseDifferences.idleLocomotion !== 'number' || typeof m.poseDifferences.idleMechanic !== 'number') errors.push('Passed benchmark result missing pose-difference metrics');
       if (!isPlainObject(m.frameStats) || typeof m.frameStats.medianMs !== 'number' || !Number.isFinite(m.frameStats.medianMs) || typeof m.frameStats.p99Ms !== 'number' || !Number.isFinite(m.frameStats.p99Ms) || typeof m.frameStats.samples !== 'number' || !Number.isInteger(m.frameStats.samples) || m.frameStats.samples < 1) {
         errors.push('Passed benchmark result missing valid frameStats metrics');
       }
@@ -955,7 +960,7 @@ export function collectBenchmarkResult(projectDir, options = {}) {
       pass: isPassed,
       hardGateFailures,
       hardGateFailureCount: hardGateFailures.length,
-      metrics: rawReport.gates?.metrics || { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } },
+      metrics: rawReport.gates?.metrics || { frames: [], cameraDiagnostics: null, rendererDiagnostics: null, terrainDiagnostics: null, poseDifferences: { idleLocomotion: null, idleMechanic: null }, frameStats: { medianMs: null, p99Ms: null, samples: null } },
     },
     humanReview,
     eligible: isPassed,

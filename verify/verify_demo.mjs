@@ -4,8 +4,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
-import { evaluateGates } from './gates.mjs';
+import {
+  evaluateGates,
+  validateCameraDiagnostics,
+  validateRendererDiagnostics,
+  validateTerrainDiagnostics,
+} from './gates.mjs';
 import { createVerificationReport, writeVerificationReport } from './report.mjs';
+import {
+  BUILD_CONTRACT_FILENAME,
+  EVIDENCE_FILENAME,
+  RENDERER_DIAGNOSTICS_EXPECTED,
+  TERRAIN_ELEVATION_CONTRACT,
+  validateBuildContract,
+  validateMilestoneEvidence,
+} from '../build-contract.mjs';
 
 const REQUIRED_PATHS = Object.freeze([
   'index.html',
@@ -15,6 +28,10 @@ const REQUIRED_PATHS = Object.freeze([
   'PERF.md',
   'src/main.js',
 ]);
+
+const REQUIRED_ARTIFACT_PATHS = Object.freeze([BUILD_CONTRACT_FILENAME, EVIDENCE_FILENAME]);
+const BLOCKING_WARNING_PATTERN = /(GPUValidationError|uncaptured\s+WebGPU|duplicate\s+binding|bind\s*group|pipeline\s+creation|shader\s+compil|material\s+compil|no\s+available\s+adapter|backend\s+fallback|WebGPU\s+initialization\s+failure|device\s+lost)/i;
+const SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.ts', '.tsx', '.wgsl', '.glsl', '.vert', '.frag']);
 
 export function parseVerifyCliArgs(args) {
   let projectDir = null;
@@ -98,6 +115,90 @@ Exit codes:
 function toImage(buf) {
   const png = PNG.sync.read(buf);
   return { width: png.width, height: png.height, data: png.data };
+}
+
+function normalizedError(error) {
+  const text = error instanceof Error ? error.message : String(error ?? 'Initialization failed');
+  return text.replace(/\s+/g, ' ').trim() || 'Initialization failed';
+}
+
+function walkSourceFiles(rootDir) {
+  const files = [];
+  const visit = (dir) => {
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'screenshots') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else if (SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) files.push(full);
+    }
+  };
+  visit(rootDir);
+  return files;
+}
+
+/** Targeted Babylon WebGPU source-contract lint; this is not a general parser. */
+export function checkBabylonWebGpuSource(projectDir) {
+  const errors = [];
+  const files = walkSourceFiles(projectDir);
+  const contents = files.map((file) => ({ file, text: fs.readFileSync(file, 'utf8') }));
+  const joined = contents.map(({ text }) => text).join('\n');
+  const rel = (file) => path.relative(projectDir, file).replace(/\\/g, '/');
+  for (const { file, text } of contents) {
+    if (path.extname(file).toLowerCase() === '.glsl') errors.push(`${rel(file)} uses .glsl, which is forbidden for the babylon-webgpu profile`);
+    if (/@group\s*\(/.test(text) || /@binding\s*\(/.test(text)) errors.push(`${rel(file)} contains manual @group/@binding declarations in a Babylon-managed shader; Babylon assigns binding groups and binding numbers during shader processing`);
+  }
+  const forbidden = [
+    [/new\s+BABYLON\.Engine\s*\(/, 'new BABYLON.Engine( is a WebGL-capable fallback and is forbidden in a WebGPU-only project'],
+    [/BABYLON\.ShaderLanguage\.GLSL/, 'BABYLON.ShaderLanguage.GLSL is forbidden; use BABYLON.ShaderLanguage.WGSL'],
+    [/fallbackGlsl|fallback[-_]?glsl|glslFallback/i, 'fallback GLSL shader modules are forbidden for the babylon-webgpu profile'],
+    [/(?:WebGLRenderer|WebGLRenderingContext).*fallback|fallback.*(?:WebGLRenderer|WebGLRenderingContext)/is, 'explicit WebGL renderer fallback is forbidden for the babylon-webgpu profile'],
+    [/if\s*\([^)]*!?\s*navigator\.gpu[^)]*\)[\s\S]{0,240}(?:WebGL|BABYLON\.Engine)/i, 'a WebGL fallback branch is forbidden when WebGPU is unavailable'],
+  ];
+  for (const [pattern, message] of forbidden) if (pattern.test(joined)) errors.push(message);
+  if (!/new\s+BABYLON\.WebGPUEngine\s*\(/.test(joined)) errors.push('babylon-webgpu source must initialize BABYLON.WebGPUEngine');
+  if (!/\.initAsync\s*\(\s*\)/.test(joined)) errors.push('babylon-webgpu source must await WebGPUEngine.initAsync()');
+  if (!/forceCompilationAsync\s*\(/.test(joined)) errors.push('babylon-webgpu source must force compilation for every required material and representative mesh');
+  if (!/\.isReady\s*\(/.test(joined)) errors.push('babylon-webgpu source must require material.isReady(mesh) after forced compilation');
+  return { valid: errors.length === 0, errors, files: files.map(rel) };
+}
+
+export function validateReadinessState(value) {
+  const errors = [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ['window.__demo readiness state must be an object'];
+  if (!['initializing', 'ready', 'failed'].includes(value.status)) errors.push('window.__demo.status must be initializing, ready, or failed');
+  if (typeof value.ready !== 'boolean') errors.push('window.__demo.ready must be boolean');
+  if (value.status === 'ready' && value.ready !== true) errors.push('ready status requires ready === true');
+  if (value.status !== 'ready' && value.ready === true) errors.push('ready === true is forbidden while status is not ready');
+  if (value.status === 'failed' && (typeof value.error !== 'string' || value.error.trim() === '')) errors.push('failed readiness requires a nonblank error');
+  if (value.status === 'ready' && value.error !== null) errors.push('ready readiness requires error === null');
+  return errors;
+}
+
+export function validateEvidenceCompletion({ evidence, buildContract, projectDir, screenshotsDir, writtenCaptures = [] }) {
+  const errors = [];
+  const contractValidation = validateBuildContract(buildContract);
+  if (!contractValidation.valid) errors.push(...contractValidation.errors.map((error) => `build contract: ${error}`));
+  const evidenceValidation = validateMilestoneEvidence(evidence);
+  if (!evidenceValidation.valid) errors.push(...evidenceValidation.errors.map((error) => `evidence: ${error}`));
+  if (!buildContract || !evidence || evidence.briefSha256 !== buildContract?.project?.briefSha256) errors.push('briefSha256 mismatch between ENVIZZLE_EVIDENCE.json and ENVIZZLE_BUILD.json');
+  const allComplete = evidence?.status === 'complete' && Array.isArray(evidence?.milestones) && evidence.milestones.every((milestone) => milestone.status === 'complete');
+  const canonical = ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'];
+  const listed = new Set((evidence?.milestones || []).flatMap((milestone) => milestone.screenshots || []));
+  if (!canonical.every((file) => listed.has(file))) errors.push('required canonical screenshots are not all listed in complete milestone evidence');
+  if (!canonical.every((file) => writtenCaptures.includes(file) && fs.existsSync(path.join(screenshotsDir, file)))) errors.push('current verifier run did not produce every canonical screenshot filename');
+  if (!allComplete) errors.push('incomplete verification: milestone evidence is not complete');
+  return { complete: errors.length === 0, errors };
+}
+
+function readJsonArtifact(targetDir, filename) {
+  const file = path.join(targetDir, filename);
+  if (!fs.existsSync(file)) return { exists: false, value: null, errors: [`missing required artifact: ${filename}`] };
+  try {
+    return { exists: true, value: JSON.parse(fs.readFileSync(file, 'utf8')), errors: [] };
+  } catch (error) {
+    return { exists: true, value: null, errors: [`failed to parse ${filename}: ${normalizedError(error)}`] };
+  }
 }
 
 function killTree(child) {
@@ -255,18 +356,49 @@ export async function verifyDemo(projectDir, options = {}) {
     }
   }
 
+  const buildArtifact = readJsonArtifact(targetDir, BUILD_CONTRACT_FILENAME);
+  const evidenceArtifact = readJsonArtifact(targetDir, EVIDENCE_FILENAME);
+  let buildContract = buildArtifact.value;
+  let evidence = evidenceArtifact.value;
+  let contractProfile = null;
+  const artifactFailures = [...buildArtifact.errors, ...evidenceArtifact.errors];
+  if (buildContract) {
+    const contractValidation = validateBuildContract(buildContract);
+    if (!contractValidation.valid) artifactFailures.push(...contractValidation.errors.map((error) => `build contract: ${error}`));
+    else contractProfile = buildContract.project.renderingProfile;
+  }
+  if (evidence) {
+    const evidenceValidation = validateMilestoneEvidence(evidence);
+    if (!evidenceValidation.valid) artifactFailures.push(...evidenceValidation.errors.map((error) => `evidence: ${error}`));
+  }
+  artifactFailures.forEach(fail);
+
+  let sourceLintFailures = [];
+  if (contractProfile === 'babylon-webgpu') {
+    const sourceLint = checkBabylonWebGpuSource(targetDir);
+    sourceLintFailures = sourceLint.errors;
+    sourceLintFailures.forEach(fail);
+  }
+
   let hookReady = false;
   const runtimeErrors = [];
+  const runtimeWarnings = [];
+  let rendererDiagnostics = null;
+  let terrainDiagnostics = null;
+  let cameraDiagnostics = null;
   let navFailureMessage = null;
   let gateResult = {
     pass: false,
     failures: buildOk ? ['Runtime check failed'] : [buildError || 'Build check failed'],
-    info: [],
-    metrics: {
-      frames: [],
-      cameraNearestDepthM: null,
-      frameStats: { medianMs: null, p99Ms: null, samples: null },
-    },
+      info: [],
+      metrics: {
+        frames: [],
+        cameraDiagnostics: null,
+        rendererDiagnostics: null,
+        terrainDiagnostics: null,
+        poseDifferences: { idleLocomotion: null, idleMechanic: null },
+        frameStats: { medianMs: null, p99Ms: null, samples: null },
+      },
   };
 
   if (buildOk && !options.skipBrowser) {
@@ -320,6 +452,10 @@ export async function verifyDemo(projectDir, options = {}) {
       page.on('pageerror', (e) => runtimeErrors.push(e.message));
       page.on('console', (m) => {
         if (m.type() === 'error') runtimeErrors.push(m.text());
+        if (m.type() === 'warning') {
+          runtimeWarnings.push(m.text());
+          if (BLOCKING_WARNING_PATTERN.test(m.text())) runtimeErrors.push(`blocking console warning: ${m.text()}`);
+        }
       });
 
       try {
@@ -337,21 +473,53 @@ export async function verifyDemo(projectDir, options = {}) {
       }
 
       try {
-        await page.waitForFunction('window.__demo && window.__demo.ready === true', { timeout: 30000 });
-        hookReady = true;
-        pass('window.__demo hook present and ready');
+        if (contractProfile === 'babylon-webgpu') {
+          const capability = await page.evaluate(async () => {
+            if (!navigator.gpu) return { available: false, reason: 'navigator.gpu is missing' };
+            const adapter = await navigator.gpu.requestAdapter();
+            return adapter ? { available: true, reason: null } : { available: false, reason: 'no available WebGPU adapter' };
+          });
+          if (!capability?.available) {
+            fail(`incomplete verification: ${capability?.reason || 'WebGPU adapter acquisition failed'}`);
+          }
+        }
+        await page.waitForFunction('window.__demo && (window.__demo.status === "ready" || window.__demo.status === "failed")', { timeout: 30000 });
+        const readiness = await page.evaluate(() => ({ ready: window.__demo?.ready, status: window.__demo?.status, error: window.__demo?.error }));
+        const readinessErrors = validateReadinessState(readiness);
+        if (readinessErrors.length > 0) {
+          readinessErrors.forEach(fail);
+        } else if (readiness.status === 'failed') {
+          fail(`initialization failed: ${readiness.error}`);
+        } else {
+          hookReady = true;
+          pass('window.__demo hook present and ready');
+        }
       } catch (hookErr) {
         if (!browser.isConnected()) {
           isOperationalError = true;
           throw new Error(`Browser infrastructure disconnected while waiting for window.__demo hook readiness: ${hookErr.message}`);
         }
         hookReady = false;
-        fail('window.__demo hook missing or never became ready — see the brief\'s verification-hook section. Cannot verify.');
+        fail(`window.__demo hook missing or never became ready — ${normalizedError(hookErr)}. Cannot verify.`);
       }
 
       if (hookReady) {
         const frames = [];
         fs.mkdirSync(shotDir, { recursive: true });
+
+        let diagnosticsError = null;
+        try {
+          rendererDiagnostics = await page.evaluate(() => window.__demo.rendererInfo());
+          terrainDiagnostics = await page.evaluate(() => window.__demo.terrainDiagnostics());
+          const rendererExpected = RENDERER_DIAGNOSTICS_EXPECTED[contractProfile] || RENDERER_DIAGNOSTICS_EXPECTED['three-webgl2'];
+          const rendererErrors = validateRendererDiagnostics(rendererDiagnostics, rendererExpected);
+          const terrainErrors = validateTerrainDiagnostics(terrainDiagnostics, buildContract?.terrainElevation?.parityToleranceM ?? TERRAIN_ELEVATION_CONTRACT.parityToleranceM);
+          rendererErrors.forEach((error) => fail(error));
+          terrainErrors.forEach((error) => fail(error));
+        } catch (err) {
+          diagnosticsError = err;
+          fail(`renderer/terrain diagnostics hook failed: ${normalizedError(err)}`);
+        }
 
         let captureError = null;
         try {
@@ -397,26 +565,31 @@ export async function verifyDemo(projectDir, options = {}) {
             ...runtimeErrors,
           ];
         } else {
-          let cameraDepthM;
           let frameStats;
           let hookError = null;
           try {
-            cameraDepthM = await page.evaluate(() => window.__demo.cameraNearestDepth());
+            cameraDiagnostics = await page.evaluate(() => window.__demo.cameraDiagnostics());
             frameStats = await page.evaluate(() => window.__demo.frameStats());
+            const cameraErrors = validateCameraDiagnostics(cameraDiagnostics, {
+              terrainDiagnostics,
+              toleranceM: buildContract?.terrainElevation?.parityToleranceM ?? TERRAIN_ELEVATION_CONTRACT.parityToleranceM,
+              cameraMinDepthM: buildContract?.acceptance?.camera?.clippingThresholdM,
+            });
+            cameraErrors.forEach((error) => fail(error));
           } catch (err) {
             if (!browser.isConnected()) {
               isOperationalError = true;
               throw new Error(`Browser infrastructure disconnected during metrics collection: ${err.message}`);
             }
             hookError = err;
-            fail(`camera/frame-stat hook failed: ${err.message}`);
+            fail(`camera/frame-stat hook failed: ${normalizedError(err)}`);
           }
 
           if (hookError) {
             gateResult.pass = false;
             gateResult.failures = [...(gateResult.failures || []), `camera/frame-stat hook failed: ${hookError.message}`, ...runtimeErrors];
           } else {
-            gateResult = evaluateGates({ frames, cameraDepthM, frameStats });
+            gateResult = evaluateGates({ frames, cameraDiagnostics, terrainDiagnostics, frameStats });
 
             if (runtimeErrors.length > 0) {
               gateResult.pass = false;
@@ -432,6 +605,8 @@ export async function verifyDemo(projectDir, options = {}) {
             else gateResult.failures.forEach(fail);
           }
         }
+
+        if (diagnosticsError) gateResult.failures.push(`renderer/terrain diagnostics hook failed: ${normalizedError(diagnosticsError)}`);
       }
     } catch (err) {
       // Only genuine infrastructure failures reach here — see the comment above.
