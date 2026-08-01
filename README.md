@@ -88,19 +88,79 @@ npm install
 npm test
 ```
 
-Install as a personal skill, then invoke `/envizzle` in Claude Code. The repo root
-*is* the skill root, so installation is a clone or a symlink — there is nothing to
-build and nothing to copy:
+## Installing Envizzle as an Agent Skill
 
-```bash
-git clone https://github.com/boxwrench/envizzle ~/.claude/skills/envizzle
+The repository root is the canonical source of truth and the sole canonical skill directory. Do not maintain a duplicated `skills/envizzle/` tree inside this repository. Linking is recommended during development; copying or installing a snapshot is appropriate for stable installations. Generated demo projects must always be written outside the Envizzle source repository.
+
+### Gemini CLI
+
+Link the repository root to your Gemini CLI skills scope:
+
+```powershell
+gemini skills link C:\GitHub\envizzle --scope user
+gemini skills list --all
 ```
 
-```bash
-# or, to keep working in your own checkout
-ln -s "$PWD" ~/.claude/skills/envizzle          # macOS/Linux
-New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\envizzle" -Target "$PWD"   # Windows
+Workspace scope may be used instead of user scope. When supported by the installed Gemini CLI version, Git repository installation is also available:
+
+```powershell
+gemini skills install https://github.com/boxwrench/envizzle --scope user --consent
 ```
+
+### Claude Code
+
+Link or copy the complete repository root to either location:
+
+* Personal location: `~/.claude/skills/envizzle`
+* Project location: `.claude/skills/envizzle`
+
+```bash
+# Personal symbolic link (macOS/Linux)
+ln -s "$PWD" ~/.claude/skills/envizzle
+
+# Project symbolic link (macOS/Linux)
+ln -s "$PWD" .claude/skills/envizzle
+```
+
+On Windows PowerShell, a directory junction is a convenient development link:
+
+```powershell
+New-Item -ItemType Junction -Path "$HOME\.claude\skills\envizzle" -Target "C:\GitHub\envizzle"
+```
+
+Invoke Envizzle through `/envizzle` where available, or ask Claude naturally for an Envizzle graphics-demo brief.
+
+### Codex
+
+Link or copy the complete repository root to either location:
+
+* Personal location: `$HOME/.agents/skills/envizzle`
+* Project location: `.agents/skills/envizzle`
+
+On Windows PowerShell:
+
+```powershell
+New-Item -ItemType Junction -Path "$HOME\.agents\skills\envizzle" -Target "C:\GitHub\envizzle"
+```
+
+On macOS/Linux:
+
+```bash
+ln -s "$PWD" "$HOME/.agents/skills/envizzle"
+```
+
+Once installed, invoke Envizzle using `$envizzle` or discover it through `/skills`.
+
+### Antigravity
+
+Link or copy the complete repository root to either location:
+
+* Workspace location: `.agents/skills/envizzle`
+* User location: `~/.gemini/config/skills/envizzle`
+
+Envizzle currently ships as a standalone skill, not an Antigravity plugin.
+Add plugin packaging only if Envizzle later requires plugin-specific commands, hooks,
+agents, MCP servers, or marketplace distribution.
 
 Validate a selection object or list registered values:
 
@@ -235,7 +295,7 @@ image gates cannot run, and the verifier says so instead of passing.
 
 ## Status
 
-**Envizzle is in public alpha.** Progressive reference loading, central registries,
+**Envizzle v0.1.0 Public Alpha release candidate.** Progressive reference loading, central registries,
 operable selection CLI, coherence CLI, deterministic brief assembly, safe project-bundle output,
 machine-readable verification reports, deterministic build contracts and milestone evidence templates, 8-case benchmark registry, bundle preparation, result collection,
 deterministic Markdown/JSON comparative summaries, human visual rubric, test fixtures, cross-file contract verification,

@@ -8,8 +8,7 @@
     "selection": "node selection.mjs",
     "assemble": "node assemble.mjs",
     "verify": "node verify/verify_demo.mjs",
-    "benchmark": "node benchmark.mjs",
-    "sync-skill": "node sync-skill.mjs"
+    "benchmark": "node benchmark.mjs"
   },
   "devDependencies": {
     "pngjs": "^7.0.0",
