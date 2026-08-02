@@ -21,11 +21,24 @@ import {
   BUILD_CONTRACT_FORBIDDEN_PATTERNS,
   BUILD_CONTRACT_DIAGNOSTICS,
   BUILD_CONTRACT_REVIEW_CRITERIA_UNIVERSAL,
+  BUILD_CONTRACT_ACCEPTANCE,
+  PRODUCT_PRINCIPLE_SENTENCE,
+  TERRAIN_ELEVATION_OWNERSHIP_MEANING_TEXT,
+  HANDOFF_STAGE_WORKFLOW_TEXT,
   createEvidenceTemplate,
   validateAssemblyArtifacts,
   validateBuildContract,
   validateMilestoneEvidence,
   validateEvidenceContractBinding,
+  renderContractSummary,
+  renderMilestoneInstructions,
+  renderProductPrinciple,
+  renderArchitectureOwnership,
+  renderImplementationStages,
+  renderBabylonPatternGuidance,
+  renderForbiddenPatterns,
+  renderReviewCriteria,
+  renderHandoff,
 } from '../build-contract.mjs';
 import { prepareBenchmark } from '../benchmark.mjs';
 
@@ -995,4 +1008,278 @@ test('validateEvidenceContractBinding rejects a missing evidence briefSha256, re
   const evidenceMatchingHash = { ...createEvidenceTemplate(), briefSha256: contract.project.briefSha256 };
   validateEvidenceContractBinding(contract, evidenceMatchingHash, matchErrors);
   assert.equal(matchErrors.length, 0, matchErrors.join('; '));
+});
+
+// ---------------------------------------------------------------------------
+// Task 4: render*() functions for the 7 staged-build-supervisor sections,
+// the ACCEPTANCE_GATES hook-shape update, and the HANDOFF.md rewrite.
+// ---------------------------------------------------------------------------
+
+const babylonContract = () => assembleBrief(canonicalShowcaseSpec('Alpine Dawn'), { rootDir: repoRoot }).buildContract;
+const threeWebgl2Contract = () => assembleBrief(canonicalShowcaseSpec('Hoshi-no-Tani'), { rootDir: repoRoot }).buildContract;
+const duneContract = () => {
+  const duneShowcaseName = Object.keys(SHOWCASES).find((name) => SHOWCASES[name].biome === 'Dune Desert');
+  return assembleBrief(canonicalShowcaseSpec(duneShowcaseName), { rootDir: repoRoot }).buildContract;
+};
+const nonDuneContract = () => babylonContract();
+
+test('ACCEPTANCE_GATES.camera.hook and verificationHook.requiredHooks reference the new truthful window.__demo hook shape', () => {
+  assert.equal(BUILD_CONTRACT_ACCEPTANCE.camera.hook, 'window.__demo.cameraDiagnostics()');
+  assert.doesNotMatch(BUILD_CONTRACT_ACCEPTANCE.camera.hook, /cameraNearestDepth/);
+  assert.deepEqual(BUILD_CONTRACT_ACCEPTANCE.verificationHook.requiredHooks, [
+    'setPose', 'setCharacterVisible', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics', 'frameStats',
+  ]);
+  assert.doesNotMatch(BUILD_CONTRACT_ACCEPTANCE.verificationHook.requiredHooks.join(','), /cameraNearestDepth/);
+});
+
+test('assembled contract acceptance gates carry the new hook shape for every showcase', () => {
+  for (const name of Object.keys(SHOWCASES)) {
+    const assembled = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
+    assert.deepEqual(assembled.buildContract.acceptance, BUILD_CONTRACT_ACCEPTANCE);
+    assert.equal(assembled.buildContract.acceptance.camera.hook, 'window.__demo.cameraDiagnostics()');
+  }
+});
+
+test('adversarial contract mutation: reverting acceptance.camera.hook to the old cameraNearestDepth() shape is rejected', () => {
+  const errors = assertInvalidContractMutation('acceptance.camera.hook reverted to old shape', (contract) => {
+    contract.acceptance.camera.hook = 'window.__demo.cameraNearestDepth()';
+  });
+  assert.match(errors, /acceptance/i);
+});
+
+test('adversarial contract mutation: reverting acceptance.verificationHook.requiredHooks to the old hook list is rejected', () => {
+  const errors = assertInvalidContractMutation('acceptance.verificationHook.requiredHooks reverted to old shape', (contract) => {
+    contract.acceptance.verificationHook.requiredHooks = ['setPose', 'setCharacterVisible', 'cameraNearestDepth', 'frameStats'];
+  });
+  assert.match(errors, /acceptance/i);
+});
+
+test('renderProductPrinciple includes the exact verbatim product-principle sentence and sourceOfTruth fields', () => {
+  const contract = babylonContract();
+  const rendered = renderProductPrinciple(contract);
+  assert.match(rendered, /^## Product Principle/);
+  assert.ok(rendered.includes(PRODUCT_PRINCIPLE_SENTENCE), 'must include the exact product-principle sentence verbatim');
+  assert.match(rendered, /may not redesign the renderer, terrain ownership, shader integration, fallback strategy, module responsibilities, readiness lifecycle, verification interfaces, or stage order/);
+  assert.match(rendered, /`implementer`/);
+  assert.match(rendered, /`stop-and-report`/);
+  for (const input of contract.sourceOfTruth.requiredInputs) {
+    assert.ok(rendered.includes(`\`${input}\``), `missing required input ${input}`);
+  }
+});
+
+test('renderArchitectureOwnership includes the verbatim terrain elevation ownership meaning text and every file-ownership row', () => {
+  const contract = babylonContract();
+  const rendered = renderArchitectureOwnership(contract);
+  assert.match(rendered, /^## Architecture Ownership/);
+  assert.ok(rendered.includes(TERRAIN_ELEVATION_OWNERSHIP_MEANING_TEXT), 'must include the exact terrain elevation ownership meaning text verbatim');
+  for (const entry of contract.architecture.fileOwnership) {
+    assert.ok(rendered.includes(entry.path), `missing file ownership path ${entry.path}`);
+    assert.ok(rendered.includes(entry.responsibility), `missing file ownership responsibility for ${entry.path}`);
+  }
+  assert.match(rendered, /base height y = 0/);
+});
+
+test('renderArchitectureOwnership differs between rendering profiles but shares identical terrain elevation ownership text', () => {
+  const babylonRendered = renderArchitectureOwnership(babylonContract());
+  const threeRendered = renderArchitectureOwnership(threeWebgl2Contract());
+  assert.notEqual(babylonRendered, threeRendered);
+  assert.ok(babylonRendered.includes(TERRAIN_ELEVATION_OWNERSHIP_MEANING_TEXT));
+  assert.ok(threeRendered.includes(TERRAIN_ELEVATION_OWNERSHIP_MEANING_TEXT));
+  assert.match(babylonRendered, /WGSL/);
+  assert.match(threeRendered, /GLSL/);
+});
+
+test('renderImplementationStages iterates all five stages in canonical order with their full field set', () => {
+  const contract = babylonContract();
+  const rendered = renderImplementationStages(contract);
+  assert.match(rendered, /^## Implementation Stages/);
+  const stageOrder = ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-polish'];
+  let lastIndex = -1;
+  for (const id of stageOrder) {
+    const index = rendered.indexOf(`### ${stageOrder.indexOf(id) + 1}. ${id}`);
+    assert.ok(index > lastIndex, `stage ${id} missing or out of order`);
+    lastIndex = index;
+  }
+  for (const stage of contract.implementationPlan) {
+    for (const output of stage.requiredOutputs) assert.ok(rendered.includes(output), `missing requiredOutput "${output}" for stage ${stage.id}`);
+  }
+});
+
+test('renderImplementationStages surfaces profile-specific forbidden patterns under the backend-proof stage for babylon-webgpu', () => {
+  const rendered = renderImplementationStages(babylonContract());
+  const backendProofSection = rendered.slice(rendered.indexOf('### 1. backend-proof'), rendered.indexOf('### 2. terrain-kernel'));
+  for (const id of ['manual-babylon-bindings', 'wrong-babylon-shader-language', 'wrong-babylon-shader-store']) {
+    assert.ok(backendProofSection.includes(id), `backend-proof stage text missing profile-specific forbidden pattern ${id}`);
+  }
+  // These profile-specific IDs must not also leak into unrelated later stages.
+  const terrainKernelSection = rendered.slice(rendered.indexOf('### 2. terrain-kernel'), rendered.indexOf('### 3. environment-composition'));
+  assert.doesNotMatch(terrainKernelSection, /wrong-babylon-shader-language/);
+});
+
+test('renderImplementationStages surfaces profile-specific forbidden patterns under the backend-proof stage for three-webgl2', () => {
+  const rendered = renderImplementationStages(threeWebgl2Contract());
+  const backendProofSection = rendered.slice(rendered.indexOf('### 1. backend-proof'), rendered.indexOf('### 2. terrain-kernel'));
+  for (const id of ['wgsl-binding-syntax-in-webgl2', 'wrong-webgl2-shader-language', 'webgl1-fallback-context']) {
+    assert.ok(backendProofSection.includes(id), `backend-proof stage text missing profile-specific forbidden pattern ${id}`);
+  }
+});
+
+test('renderBabylonPatternGuidance splices the verbatim positive-pattern code example for babylon-webgpu only', () => {
+  const babylonRendered = renderBabylonPatternGuidance(babylonContract());
+  assert.match(babylonRendered, /### Positive Pattern Example: Minimal WGSL ShaderMaterial/);
+  assert.match(babylonRendered, /```js/);
+  assert.match(babylonRendered, /ShaderStore\.ShadersStoreWGSL\["envizzleTerrainVertexShader"\]/);
+  assert.match(babylonRendered, /forceCompilationAsync\(terrainMesh\)/);
+  // The spliced example itself contains no manual @group(N)/@binding(N) *declarations* (the only
+  // occurrences of those substrings are inside a comment explaining their absence) — confirm no
+  // WGSL attribute-style usage like "@group(0)" appears anywhere in the code fence.
+  const codeExampleBlock = babylonRendered.slice(babylonRendered.indexOf('```js'));
+  assert.doesNotMatch(codeExampleBlock, /@group\(\d/);
+  assert.doesNotMatch(codeExampleBlock, /@binding\(\d/);
+
+  const threeRendered = renderBabylonPatternGuidance(threeWebgl2Contract());
+  assert.doesNotMatch(threeRendered, /Positive Pattern Example/);
+  assert.doesNotMatch(threeRendered, /```js/);
+  assert.match(threeRendered, /three-webgl2/);
+});
+
+test('renderBabylonPatternGuidance lists every approved and forbidden pattern for the contract\'s own profile only', () => {
+  const babylonContractValue = babylonContract();
+  const rendered = renderBabylonPatternGuidance(babylonContractValue);
+  for (const pattern of babylonContractValue.approvedPatterns) assert.ok(rendered.includes(pattern.id), `missing approved pattern ${pattern.id}`);
+  for (const pattern of babylonContractValue.forbiddenPatterns) assert.ok(rendered.includes(pattern.id), `missing forbidden pattern ${pattern.id}`);
+  // Three-webgl2-only forbidden pattern IDs must not appear for a babylon-webgpu contract.
+  for (const pattern of BUILD_CONTRACT_FORBIDDEN_PATTERNS['three-webgl2']) {
+    if (!BUILD_CONTRACT_FORBIDDEN_PATTERNS['babylon-webgpu'].some((p) => p.id === pattern.id)) {
+      assert.doesNotMatch(rendered, new RegExp(pattern.id));
+    }
+  }
+});
+
+test('renderForbiddenPatterns lists every forbidden pattern and groups profile-specific ones under backend-proof for both profiles', () => {
+  const babylonRendered = renderForbiddenPatterns(babylonContract());
+  assert.match(babylonRendered, /^## Forbidden Patterns/);
+  assert.match(babylonRendered, /### Forbidden Patterns by Implementation Stage/);
+  assert.match(babylonRendered, /\*\*backend-proof:\*\*[^\n]*manual-babylon-bindings/);
+  assert.match(babylonRendered, /\*\*backend-proof:\*\*[^\n]*wrong-babylon-shader-language/);
+  assert.match(babylonRendered, /\*\*backend-proof:\*\*[^\n]*wrong-babylon-shader-store/);
+
+  const threeRendered = renderForbiddenPatterns(threeWebgl2Contract());
+  assert.match(threeRendered, /\*\*backend-proof:\*\*[^\n]*wgsl-binding-syntax-in-webgl2/);
+  assert.match(threeRendered, /\*\*backend-proof:\*\*[^\n]*wrong-webgl2-shader-language/);
+  assert.match(threeRendered, /\*\*backend-proof:\*\*[^\n]*webgl1-fallback-context/);
+});
+
+test('renderReviewCriteria includes all 12 universal categories and omits the Biome-Specific heading when biomeSpecific is empty', () => {
+  const contract = nonDuneContract();
+  assert.deepEqual(contract.reviewCriteria.biomeSpecific, []);
+  const rendered = renderReviewCriteria(contract);
+  assert.match(rendered, /^## Review Criteria/);
+  for (const entry of BUILD_CONTRACT_REVIEW_CRITERIA_UNIVERSAL) {
+    assert.ok(rendered.includes(entry.category), `missing universal category ${entry.category}`);
+  }
+  assert.doesNotMatch(rendered, /### Biome-Specific/);
+});
+
+test('renderReviewCriteria includes the verbatim Dune anti-pattern and positive-requirement text when biome is Dune Desert', () => {
+  const contract = duneContract();
+  const rendered = renderReviewCriteria(contract);
+  assert.match(rendered, /### Biome-Specific/);
+  // Source markdown hard-wraps long lines, so normalize whitespace before matching the
+  // verbatim sentence (same technique the existing biomeSpecific end-to-end test uses).
+  const normalizeWhitespace = (s) => s.replace(/\s+/g, ' ').trim();
+  const normalizedRendered = normalizeWhitespace(rendered);
+  assert.match(normalizedRendered, /Do not represent dunes as overlapping cones, pyramids, low-resolution square tiles, visibly independent LOD grids, or repeated isolated procedural primitives\./);
+  assert.match(normalizedRendered, /crescent-shaped barchan/);
+  assert.match(normalizedRendered, /surf\/carve mechanic/);
+});
+
+test('renderHandoff no longer contains the old "needs nothing else" sentence and contains the exact stop-and-report stage workflow text', () => {
+  const contract = babylonContract();
+  const rendered = renderHandoff({ fileName: 'X_TECHDEMO_PROMPT.md', builderAgent: 'Claude Code', contract });
+  assert.doesNotMatch(rendered, /needs nothing else/i);
+  assert.ok(rendered.includes(HANDOFF_STAGE_WORKFLOW_TEXT), 'must include the exact HANDOFF.md stage workflow text verbatim');
+  assert.match(rendered, /Read the entire bundle\. Implement one stage only\. Run that stage's automated checks\. Capture required evidence\. Inspect the screenshot\. Correct visible weaknesses\. Stop and report the result\. Do not start the next stage until the current stage passes\./);
+  assert.doesNotMatch(rendered, /Do not start the next stage until the current stage passes\.[\s\S]*Do not start the next stage until the current stage passes\./, 'workflow text must not be duplicated');
+  // Must not read as a single uninterrupted build-the-whole-demo instruction.
+  assert.doesNotMatch(rendered, /give this file to the coding agent, whole/i);
+  assert.match(rendered, /the build contract, the evidence record, this handoff, and the verifier/i);
+});
+
+test('checkStagedSections defaults to false so validateAssemblyArtifacts does not break assembleBrief before Task 8 wires the new sections in', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const withoutFlag = validateAssemblyArtifacts({ model: assembled.assemblyModel, contract: assembled.buildContract, brief: assembled.brief });
+  assert.equal(withoutFlag.valid, true, withoutFlag.errors.join('; '));
+
+  const withFlagOnRealBrief = validateAssemblyArtifacts({ model: assembled.assemblyModel, contract: assembled.buildContract, brief: assembled.brief, checkStagedSections: true });
+  assert.equal(withFlagOnRealBrief.valid, false, 'the real assembled brief does not yet contain the Task 4 sections (Task 8 wires them in)');
+  for (const message of [
+    'brief does not contain the canonical product principle',
+    'brief does not contain the canonical architecture ownership section',
+    'brief does not contain the canonical implementation stage instructions',
+    'brief does not contain the canonical rendering-profile pattern guidance',
+    'brief does not contain the canonical forbidden pattern list',
+    'brief does not contain the canonical review criteria',
+  ]) {
+    assert.ok(withFlagOnRealBrief.errors.includes(message), `expected error "${message}"`);
+  }
+});
+
+function buildSyntheticStagedBrief(contract) {
+  return [
+    renderContractSummary(contract),
+    renderMilestoneInstructions(contract),
+    renderProductPrinciple(contract),
+    renderArchitectureOwnership(contract),
+    renderImplementationStages(contract),
+    renderBabylonPatternGuidance(contract),
+    renderForbiddenPatterns(contract),
+    renderReviewCriteria(contract),
+  ].join('\n');
+}
+
+function syntheticAssembly(contract) {
+  // Build a self-consistent {model, contract, brief} triple: recompute the brief hash for a
+  // synthetic brief containing every render*() section, patch it onto a cloned contract, and
+  // derive `model` the same way createBuildContract expects (schemaVersion stripped).
+  const brief = buildSyntheticStagedBrief(contract);
+  const briefSha256 = crypto.createHash('sha256').update(brief, 'utf8').digest('hex');
+  const patchedContract = clone(contract);
+  patchedContract.project.briefSha256 = briefSha256;
+  const { schemaVersion, ...model } = clone(patchedContract);
+  return { model, contract: patchedContract, brief };
+}
+
+test('checkStagedSections:true validates a synthetic brief that contains every new render*() section', () => {
+  const contract = babylonContract();
+  const { model, contract: patchedContract, brief } = syntheticAssembly(contract);
+  const result = validateAssemblyArtifacts({ model, contract: patchedContract, brief, checkStagedSections: true });
+  assert.equal(result.valid, true, result.errors.join('; '));
+});
+
+test('checkStagedSections:true rejects a synthetic brief with one render*() section stripped out (proves drift detection works, not just exists)', () => {
+  const contract = babylonContract();
+  const { model, contract: patchedContract, brief } = syntheticAssembly(contract);
+
+  const strippedSection = renderForbiddenPatterns(patchedContract);
+  assert.ok(brief.includes(strippedSection), 'precondition: the synthetic brief must actually contain the section being stripped');
+  const strippedBrief = brief.replace(strippedSection, '');
+  assert.notEqual(strippedBrief, brief, 'stripping must actually change the brief');
+
+  const result = validateAssemblyArtifacts({ model, contract: patchedContract, brief: strippedBrief, checkStagedSections: true });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.includes('brief does not contain the canonical forbidden pattern list'));
+});
+
+test('checkStagedSections:true rejects a synthetic brief with the product principle section stripped out', () => {
+  const contract = threeWebgl2Contract();
+  const { model, contract: patchedContract, brief } = syntheticAssembly(contract);
+
+  const strippedSection = renderProductPrinciple(patchedContract);
+  const strippedBrief = brief.replace(strippedSection, '');
+  assert.notEqual(strippedBrief, brief);
+
+  const result = validateAssemblyArtifacts({ model, contract: patchedContract, brief: strippedBrief, checkStagedSections: true });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.includes('brief does not contain the canonical product principle'));
 });

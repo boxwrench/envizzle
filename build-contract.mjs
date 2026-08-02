@@ -1,4 +1,7 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ARCHETYPES,
   BIOME_CHANNELS,
@@ -1148,15 +1151,225 @@ export function renderMilestoneInstructions(contract) {
   return lines.join('\n');
 }
 
+export const PRODUCT_PRINCIPLE_SENTENCE = 'The builder implements an already-designed system. It may make bounded implementation decisions inside each approved stage, but it may not redesign the renderer, terrain ownership, shader integration, fallback strategy, module responsibilities, readiness lifecycle, verification interfaces, or stage order.';
+
+export const TERRAIN_ELEVATION_OWNERSHIP_MEANING_TEXT = 'Render terrain vertices must enter the terrain vertex shader at base height y = 0. Apply procedural elevation exactly once, on the GPU. The CPU may mirror the same height function only for physics, camera clearance, and foot planting. CPU-built render vertices must not be pre-displaced.';
+
+export const HANDOFF_STAGE_WORKFLOW_TEXT = "Read the entire bundle. Implement one stage only. Run that stage's automated checks. Capture required evidence. Inspect the screenshot. Correct visible weaknesses. Stop and report the result. Do not start the next stage until the current stage passes.";
+
+const BABYLON_PATTERNS_DOC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'references', 'babylon-webgpu-patterns.md');
+const BABYLON_PATTERN_EXAMPLE_HEADING = '## Positive Pattern Example: Minimal WGSL ShaderMaterial';
+
+let cachedBabylonPatternExample = null;
+
+// Deliberately simple: locate the stable marker heading and grab the single fenced ```js
+// block underneath it, verbatim. Not a general Markdown parser by design (Task 4 brief).
+function extractBabylonPatternExample() {
+  if (cachedBabylonPatternExample !== null) return cachedBabylonPatternExample;
+  const docText = fs.readFileSync(BABYLON_PATTERNS_DOC_PATH, 'utf8');
+  const headingIndex = docText.indexOf(BABYLON_PATTERN_EXAMPLE_HEADING);
+  if (headingIndex === -1) {
+    throw new Error(`renderBabylonPatternGuidance: could not find heading "${BABYLON_PATTERN_EXAMPLE_HEADING}" in references/babylon-webgpu-patterns.md`);
+  }
+  const afterHeading = docText.slice(headingIndex + BABYLON_PATTERN_EXAMPLE_HEADING.length);
+  const fenceMatch = afterHeading.match(/```js\r?\n([\s\S]*?)```/);
+  if (!fenceMatch) {
+    throw new Error(`renderBabylonPatternGuidance: could not find a fenced js code example under "${BABYLON_PATTERN_EXAMPLE_HEADING}"`);
+  }
+  cachedBabylonPatternExample = fenceMatch[1].replace(/\r\n/g, '\n').trimEnd();
+  return cachedBabylonPatternExample;
+}
+
+// The 5-entry IMPLEMENTATION_PLAN's forbiddenPatternIds only list the universal (profile-shared)
+// IDs — a stage doesn't know which forbidden patterns are profile-specific. Compute that here by
+// intersecting FORBIDDEN_PATTERNS_BY_PROFILE across all profiles: anything present in every
+// profile's list is universal; everything else is profile-specific.
+function universalForbiddenPatternIds() {
+  const profileIdSets = Object.values(FORBIDDEN_PATTERNS_BY_PROFILE).map((list) => new Set(list.map((pattern) => pattern.id)));
+  const [first, ...rest] = profileIdSets;
+  if (!first) return [];
+  return [...first].filter((id) => rest.every((set) => set.has(id)));
+}
+
+function profileSpecificForbiddenPatterns(contract) {
+  const universal = new Set(universalForbiddenPatternIds());
+  return contract.forbiddenPatterns.filter((pattern) => !universal.has(pattern.id));
+}
+
+function forbiddenPatternsById(contract) {
+  const byId = new Map();
+  for (const pattern of contract.forbiddenPatterns) byId.set(pattern.id, pattern);
+  return byId;
+}
+
+// Resolves the full forbidden-pattern objects relevant to one implementation stage. For
+// backend-proof specifically, this also surfaces every profile-specific forbidden pattern
+// (e.g. wrong-babylon-shader-language, manual-babylon-bindings, wrong-babylon-shader-store for
+// babylon-webgpu) even though IMPLEMENTATION_PLAN's own forbiddenPatternIds only lists the
+// universal IDs — backend-proof is where engine/shader-language/binding choices get proven, so
+// a builder reading that stage's rendered instructions needs to see the profile-specific
+// violations too, not just the profile-neutral universal list.
+function stageForbiddenPatterns(contract, stage) {
+  const byId = forbiddenPatternsById(contract);
+  const declared = stage.forbiddenPatternIds.map((id) => byId.get(id)).filter(Boolean);
+  if (stage.id !== 'backend-proof') return declared;
+  const declaredIds = new Set(stage.forbiddenPatternIds);
+  const profileSpecific = profileSpecificForbiddenPatterns(contract).filter((pattern) => !declaredIds.has(pattern.id));
+  return [...declared, ...profileSpecific];
+}
+
+export function renderProductPrinciple(contract) {
+  const sot = contract.sourceOfTruth;
+  return `## Product Principle
+
+${PRODUCT_PRINCIPLE_SENTENCE}
+
+The builder works one stage at a time and must not continue after a failed checkpoint.
+
+- **Builder role:** \`${sot.builderRole}\`
+- **May redesign architecture:** ${sot.builderMayRedesignArchitecture}
+- **May add fallbacks:** ${sot.builderMayAddFallbacks}
+- **May skip stages:** ${sot.builderMaySkipStages}
+- **May ignore failed checks:** ${sot.builderMayIgnoreFailedChecks}
+- **Conflict policy:** \`${sot.conflictPolicy}\` — stop and report instead of resolving the conflict independently.
+- **Required inputs:** ${sot.requiredInputs.map((input) => `\`${input}\``).join(', ')}
+`;
+}
+
+export function renderArchitectureOwnership(contract) {
+  const arch = contract.architecture;
+  const lines = [
+    '## Architecture Ownership',
+    '',
+    `Rendering profile: \`${contract.project.renderingProfile}\`. ${arch.deviationPolicy}`,
+    '',
+    '### File Ownership',
+    '',
+  ];
+  for (const entry of arch.fileOwnership) {
+    lines.push(`- \`${entry.path}\` — ${entry.responsibility}`);
+  }
+  lines.push('', '### Terrain Elevation Ownership', '', TERRAIN_ELEVATION_OWNERSHIP_MEANING_TEXT, '');
+  const teo = arch.terrainElevationOwnership;
+  lines.push(`- **Render owner:** \`${teo.renderOwner}\`; render mesh base height: ${teo.renderMeshBaseHeight}`);
+  lines.push(`- **CPU height purpose:** ${teo.cpuHeightPurpose.join(', ')}`);
+  lines.push(`- **Forbid CPU pre-displaced render vertices:** ${teo.forbidCpuPredisplacedRenderVertices}`);
+  lines.push(`- **Require CPU/GPU parity test:** ${teo.requireCpuGpuParityTest}; tolerance ${teo.parityToleranceM} m`);
+  lines.push('');
+  return lines.join('\n');
+}
+
+export function renderImplementationStages(contract) {
+  const lines = [
+    '## Implementation Stages',
+    '',
+    'Implement these five stages strictly in order. Each stage has a required goal, an allowed scope, required outputs, approved and forbidden patterns, automated and visual checks, stop conditions, and required evidence. Do not proceed to the next stage until the current stage has passed every automated check, every visual check, and every stop condition.',
+    '',
+  ];
+  for (const stage of contract.implementationPlan) {
+    lines.push(`### ${stage.order}. ${stage.id}`, '');
+    lines.push(`- **Goal:** ${stage.goal}`);
+    lines.push(`- **Allowed scope:** ${stage.allowedScope.join('; ')}.`);
+    lines.push(`- **Required outputs:** ${stage.requiredOutputs.join('; ')}.`);
+    lines.push(`- **Approved patterns:** ${stage.approvedPatternIds.length > 0 ? stage.approvedPatternIds.join(', ') : 'none beyond the profile defaults'}.`);
+    const stagePatterns = stageForbiddenPatterns(contract, stage);
+    lines.push(`- **Forbidden patterns:** ${stagePatterns.map((pattern) => `\`${pattern.id}\` (${pattern.reason})`).join(' ')}`);
+    lines.push(`- **Automated checks:** ${stage.automatedChecks.join('; ')}.`);
+    lines.push(`- **Visual checks:** ${stage.visualChecks.join('; ')}.`);
+    lines.push(`- **Stop conditions:** ${stage.stopConditions.join('; ')}.`);
+    lines.push(`- **Required evidence:** ${stage.requiredEvidence.join('; ')}.`);
+    lines.push(`- **Do not proceed until passed:** ${stage.doNotProceedUntilPassed}.`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+export function renderBabylonPatternGuidance(contract) {
+  const lines = [
+    '## Rendering-Profile Pattern Guidance',
+    '',
+    `Rendering profile: \`${contract.project.renderingProfile}\`. These approved and forbidden patterns are canonical for this profile; do not redesign around them.`,
+    '',
+    '### Approved Patterns',
+    '',
+  ];
+  for (const pattern of contract.approvedPatterns) {
+    lines.push(`- \`${pattern.id}\` (${pattern.detection}): ${pattern.requirement}`);
+  }
+  lines.push('', '### Forbidden Patterns', '');
+  for (const pattern of contract.forbiddenPatterns) {
+    lines.push(`- \`${pattern.id}\` (${pattern.detection}): ${pattern.reason}`);
+  }
+  if (contract.project.renderingProfile === 'babylon-webgpu') {
+    lines.push(
+      '',
+      '### Positive Pattern Example: Minimal WGSL ShaderMaterial',
+      '',
+      'Canonical worked example from `references/babylon-webgpu-patterns.md` — a ShaderMaterial configured for WGSL, registered on `ShaderStore.ShadersStoreWGSL`, with no manual `@group`/`@binding` anywhere; Babylon owns the generated binding layout:',
+      '',
+      '```js',
+      extractBabylonPatternExample(),
+      '```',
+    );
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+export function renderForbiddenPatterns(contract) {
+  const lines = [
+    '## Forbidden Patterns',
+    '',
+    `The following patterns are forbidden for the \`${contract.project.renderingProfile}\` rendering profile. Every entry is blocking unless noted otherwise.`,
+    '',
+  ];
+  for (const pattern of contract.forbiddenPatterns) {
+    lines.push(`- \`${pattern.id}\` — ${pattern.reason} (detection: ${pattern.detection}; blocking: ${pattern.blocking}).`);
+  }
+  lines.push('', '### Forbidden Patterns by Implementation Stage', '');
+  for (const stage of contract.implementationPlan) {
+    const stagePatterns = stageForbiddenPatterns(contract, stage);
+    lines.push(`- **${stage.id}:** ${stagePatterns.length > 0 ? stagePatterns.map((pattern) => `\`${pattern.id}\``).join(', ') : 'none'}.`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+export function renderReviewCriteria(contract) {
+  const rc = contract.reviewCriteria;
+  const lines = [
+    '## Review Criteria',
+    '',
+    'Independent visual review evaluates the captured evidence against these categories. This is the check applied after implementation, not the builder self-report.',
+    '',
+    '### Universal',
+    '',
+  ];
+  for (const entry of rc.universal) {
+    lines.push(`- **${entry.category}:** ${entry.questions.join(' ')}`);
+  }
+  if (rc.biomeSpecific.length > 0) {
+    lines.push('', '### Biome-Specific', '');
+    for (const entry of rc.biomeSpecific) {
+      lines.push(`- **${entry.category}:** ${entry.questions.join(' ')}`);
+    }
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
 export function renderHandoff({ fileName, builderAgent, contract }) {
   const builderAgentLabel = builderAgent || 'the coding agent named by the user';
   return `# Handoff
 
 - **Complete bundle:** consume the entire generated bundle: \`${fileName}\`, \`${BUILD_CONTRACT_FILENAME}\`, \`${EVIDENCE_FILENAME}\`, \`${HANDOFF_FILENAME}\`, and \`verify/\`.
+- **Brief:** \`${fileName}\` — consume this brief together with the build contract, the evidence record, this handoff, and the verifier; no single file stands alone.
 - **Build contract:** \`${BUILD_CONTRACT_FILENAME}\` — machine-readable contract generated from the same validated assembly result as the brief.
 - **Evidence record:** \`${EVIDENCE_FILENAME}\` — preserve milestone screenshots, console findings, performance values, weaknesses, and corrections here.
+- **Verifier:** \`verify/\` — run it after each stage; it is part of the required bundle, not an optional extra.
 - **Agent:** ${builderAgentLabel}
 - **Coding-agent workflow:** consume the entire bundle; build the first terrain frame; run verification immediately; inspect and correct the idle screenshot; continue to systems-complete; run verification again; complete final polish; populate all evidence fields; run final verification; never claim completion while any failure or incomplete-verification reason remains.
+- **Workflow:** ${HANDOFF_STAGE_WORKFLOW_TEXT}
 - **Milestone workflow:** complete \`first-runnable-scene\`, then \`systems-complete\`, then \`final-polish\`; inspect screenshots and correct visible weaknesses at every milestone.
 - **Incomplete verification:** missing screenshot capability or required evidence must be recorded exactly as \`${INCOMPLETE_VERIFICATION_STATUS}\`; it is never a pass.
 - **When the agent says it is done:** \`npm install -D playwright pngjs && node verify/verify_demo.mjs .\`
@@ -1167,7 +1380,15 @@ export function renderHandoff({ fileName, builderAgent, contract }) {
 `;
 }
 
-export function validateAssemblyArtifacts({ model, contract, brief }) {
+// `checkStagedSections` is opt-in (default false) rather than always-on: `assemble.mjs`'s
+// `assembleBrief()` calls this function as a hard gate (throws on failure), and the Task 4
+// render*() functions for the 7 staged-build-supervisor sections are not yet appended to the
+// assembled brief body — that wiring is Task 8's job. Turning these checks on unconditionally
+// today would make every assembled brief fail its own self-check. Task 8 should pass
+// `checkStagedSections: true` once it appends the new render*() output to `result`; until then,
+// tests exercise these checks directly by passing `checkStagedSections: true` against synthetic
+// briefs to prove the drift-detection logic itself is correct.
+export function validateAssemblyArtifacts({ model, contract, brief, checkStagedSections = false }) {
   const errors = [];
   if (typeof brief !== 'string') {
     errors.push('brief must be a string');
@@ -1198,6 +1419,26 @@ export function validateAssemblyArtifacts({ model, contract, brief }) {
   }
   if (!brief.includes(renderMilestoneInstructions(contract))) {
     errors.push('brief does not contain the canonical milestone instructions');
+  }
+  if (checkStagedSections) {
+    if (!brief.includes(renderProductPrinciple(contract))) {
+      errors.push('brief does not contain the canonical product principle');
+    }
+    if (!brief.includes(renderArchitectureOwnership(contract))) {
+      errors.push('brief does not contain the canonical architecture ownership section');
+    }
+    if (!brief.includes(renderImplementationStages(contract))) {
+      errors.push('brief does not contain the canonical implementation stage instructions');
+    }
+    if (!brief.includes(renderBabylonPatternGuidance(contract))) {
+      errors.push('brief does not contain the canonical rendering-profile pattern guidance');
+    }
+    if (!brief.includes(renderForbiddenPatterns(contract))) {
+      errors.push('brief does not contain the canonical forbidden pattern list');
+    }
+    if (!brief.includes(renderReviewCriteria(contract))) {
+      errors.push('brief does not contain the canonical review criteria');
+    }
   }
 
   return { valid: errors.length === 0, errors };
