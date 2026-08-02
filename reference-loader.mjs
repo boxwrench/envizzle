@@ -41,6 +41,14 @@ export const EXPECTED_BIOME_TOKENS = [
   ...EXPECTED_BIOME_LABELED_TOKENS,
 ];
 
+// Optional per-biome labeled tokens: tolerated if present, never required. They feed
+// build-contract.mjs's reviewCriteria.biomeSpecific slice rather than TEMPLATE.md
+// substitution, so a biome may omit them entirely without failing validation.
+export const OPTIONAL_BIOME_LABELED_TOKENS = [
+  'MORPHOLOGY_ANTI_PATTERNS',
+  'VISUAL_REVIEW_QUESTIONS',
+];
+
 export const EXPECTED_MECHANIC_TOKENS = [
   'CENTREPIECE_MECHANIC',
   'CENTREPIECE_INPUT',
@@ -153,13 +161,44 @@ export function loadReferenceCatalog(options = {}) {
     }
 
     // 2. Labeled tokens & FOOT_INTERACTION
-    const allowedBiomeLabeledMarkers = [...EXPECTED_BIOME_LABELED_TOKENS, 'FOOT_INTERACTION'];
+    const allowedBiomeLabeledMarkers = [
+      ...EXPECTED_BIOME_LABELED_TOKENS,
+      ...OPTIONAL_BIOME_LABELED_TOKENS,
+      'FOOT_INTERACTION',
+    ];
     const foundLabeledMarkers = [...body.matchAll(/\*\*`([A-Z0-9_]+)`\*\*/g)].map((m) => m[1]);
     for (const markerKey of foundLabeledMarkers) {
       if (!allowedBiomeLabeledMarkers.includes(markerKey)) {
         throw new Error(`Unknown labeled token '${markerKey}' in biome '${name}' of references/biomes.md`);
       }
     }
+
+    // Boundary markers used to bound each labeled token's content, shared by both the
+    // required and optional labeled-token passes below.
+    const labeledMarkers = [
+      ...EXPECTED_BIOME_LABELED_TOKENS.map((k) => `**\`${k}\`**`),
+      ...OPTIONAL_BIOME_LABELED_TOKENS.map((k) => `**\`${k}\`**`),
+      '**`FOOT_INTERACTION`**',
+      '```json',
+    ];
+
+    const extractLabeledContent = (marker) => {
+      const idx = body.indexOf(marker);
+      const startPos = idx + marker.length;
+      let endPos = body.length;
+      for (const nm of labeledMarkers) {
+        if (nm === marker) continue;
+        const nIdx = body.indexOf(nm, startPos);
+        if (nIdx !== -1 && nIdx < endPos) {
+          endPos = nIdx;
+        }
+      }
+      let content = body.substring(startPos, endPos).trim();
+      if (content.startsWith('—')) {
+        content = content.substring(1).trim();
+      }
+      return content;
+    };
 
     for (const key of EXPECTED_BIOME_LABELED_TOKENS) {
       const marker = `**\`${key}\`**`;
@@ -171,25 +210,23 @@ export function loadReferenceCatalog(options = {}) {
         throw new Error(`Duplicate labeled-token marker '${key}' in biome '${name}' of references/biomes.md`);
       }
 
-      const idx = body.indexOf(marker);
-      const startPos = idx + marker.length;
-      let endPos = body.length;
-      const nextMarkers = [
-        ...EXPECTED_BIOME_LABELED_TOKENS.map((k) => `**\`${k}\`**`),
-        '**`FOOT_INTERACTION`**',
-        '```json',
-      ];
-      for (const nm of nextMarkers) {
-        if (nm === marker) continue;
-        const nIdx = body.indexOf(nm, startPos);
-        if (nIdx !== -1 && nIdx < endPos) {
-          endPos = nIdx;
-        }
+      const content = extractLabeledContent(marker);
+      if (!content) {
+        throw new Error(`Empty content for token '${key}' in biome '${name}' of references/biomes.md`);
       }
-      let content = body.substring(startPos, endPos).trim();
-      if (content.startsWith('—')) {
-        content = content.substring(1).trim();
+      tokens[key] = content;
+    }
+
+    // 2b. Optional labeled tokens: tolerated if present, never required.
+    for (const key of OPTIONAL_BIOME_LABELED_TOKENS) {
+      const marker = `**\`${key}\`**`;
+      const occurrences = countOccurrences(body, marker);
+      if (occurrences === 0) continue;
+      if (occurrences > 1) {
+        throw new Error(`Duplicate labeled-token marker '${key}' in biome '${name}' of references/biomes.md`);
       }
+
+      const content = extractLabeledContent(marker);
       if (!content) {
         throw new Error(`Empty content for token '${key}' in biome '${name}' of references/biomes.md`);
       }
@@ -301,9 +338,12 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Coherence check failed for biome '${name}' of references/biomes.md: ${err.message}`);
     }
 
-    // Cross-check tokens count
-    if (Object.keys(tokens).length !== 19) {
-      throw new Error(`Expected exactly 19 tokens in biome '${name}', found ${Object.keys(tokens).length}`);
+    // Cross-check tokens count: 19 required table+labeled tokens, plus however many of
+    // the optional labeled tokens this biome chose to define.
+    const presentOptionalCount = OPTIONAL_BIOME_LABELED_TOKENS.filter((key) => tokens[key] !== undefined).length;
+    const expectedTokenCount = 19 + presentOptionalCount;
+    if (Object.keys(tokens).length !== expectedTokenCount) {
+      throw new Error(`Expected exactly ${expectedTokenCount} tokens in biome '${name}', found ${Object.keys(tokens).length}`);
     }
 
     biomes[name] = {

@@ -4,7 +4,7 @@
 
 ## Contract
 
-The top-level keys are exactly `schemaVersion`, `project`, `selection`, `stateChannels`, `creative`, `acceptance`, and `milestones`.
+The top-level keys are exactly `schemaVersion`, `project`, `selection`, `stateChannels`, `creative`, `acceptance`, `milestones`, `sourceOfTruth`, `architecture`, `approvedPatterns`, `forbiddenPatterns`, `implementationPlan`, `diagnostics`, and `reviewCriteria` — fourteen keys in that order.
 
 `project` records the safe project name, deterministic brief filename, deterministic SHA-256 brief hash (`briefSha256`), complete rendering-profile tuple, rendering paradigm, exact zero-asset wording, target hardware, and core interaction sentence. `selection` records the mode, route, base showcase, ambition, canonical section lists, biome, archetype, mechanic, camera, camera adjustments, and changed axes.
 
@@ -13,6 +13,12 @@ The top-level keys are exactly `schemaVersion`, `project`, `selection`, `stateCh
 `creative` records the creative spark, bounded Signature Moment, all novelty budget flags, and any deliberate coherence overrides. Proven mode has no independent Signature Moment and every novelty flag is false.
 
 `acceptance` records the existing required project paths, production build, verification hook, runtime, capture, image-gate, camera, and report expectations. It does not introduce new image thresholds.
+
+`sourceOfTruth` is the frozen builder-role declaration: the builder implements an already-designed system, may not redesign architecture, add fallbacks, skip stages, or ignore failed checks, and must stop and report on conflict. It lists the required bundle inputs (`<PROJECT>_TECHDEMO_PROMPT.md`, `ENVIZZLE_BUILD.json`, `ENVIZZLE_EVIDENCE.json`, `HANDOFF.md`, `verify/`) the builder must consume together. `architecture` records the per-rendering-profile file-ownership map (which source file owns which responsibility) and the terrain elevation ownership rules — GPU owns render elevation at base height 0, the CPU height mirror exists only for physics/camera-clearance/foot-planting, and a required CPU/GPU parity test with its tolerance.
+
+`approvedPatterns` and `forbiddenPatterns` are per-rendering-profile registries of implementation patterns, each entry an `{id, requirement/reason, detection}` triple (`forbiddenPatterns` entries also carry `blocking`). `detection` is a human-readable classification (`source-only`, `source-and-runtime`, `runtime-only`, `visual-review`, `evidence-record`, `process`); the executable regex for the source-checkable forbidden patterns lives only in `verify/patternScan.mjs`, keyed by the same `id`. `implementationPlan` is the ordered list of five build stages (`backend-proof`, `terrain-kernel`, `environment-composition`, `character-locomotion`, `mechanic-polish`); each stage records its goal, allowed scope, required outputs, the approved/forbidden pattern IDs that apply to it, automated and visual checks, stop conditions, required evidence, and `doNotProceedUntilPassed: true`.
+
+`diagnostics` is the per-rendering-profile shape of the `window.__demo` runtime hook: its lifecycle statuses, the exact keys and accepted values for `rendererInfo()`, and the terrain/camera diagnostics contracts (render ownership, parity method and tolerance, allowed camera-depth methods and minimum depth). `reviewCriteria` pairs a frozen, always-present `universal` list of twelve visual-review categories (biome identity, composition, terrain quality, LOD continuity, material quality, character silhouette/scale, locomotion and mechanic readability, placeholder detection, visual hierarchy, scope discipline) with a `biomeSpecific` array sourced from the selected biome's optional `MORPHOLOGY_ANTI_PATTERNS`/`VISUAL_REVIEW_QUESTIONS` tokens in `references/biomes.md`; it is an empty array for biomes that do not yet define those tokens.
 
 ## Milestones
 

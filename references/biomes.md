@@ -18,6 +18,13 @@ Each entry gives drop-in text for nineteen template tokens plus `FOOT_INTERACTIO
 palette. Values
 are written in the register of the brief, so they can be pasted without rewriting.
 
+A biome may optionally add `MORPHOLOGY_ANTI_PATTERNS` and `VISUAL_REVIEW_QUESTIONS`
+labeled tokens beyond the nineteen. Neither feeds `TEMPLATE.md` substitution; both flow
+into the generated `ENVIZZLE_BUILD.json` contract's `reviewCriteria.biomeSpecific` slice
+so the biome's own visual-defect language becomes machine-readable review criteria.
+Dune Desert defines both today; the other five biomes leave them absent until they need
+the same treatment.
+
 `TERRAIN_NOISE_LAYERS` states a wavelength in metres **and** an amplitude for every
 layer. That specificity is exactly why terrain came back good in the predecessor while
 the character did not, so it is non-negotiable: four layers, macro to micro, each with a
@@ -329,6 +336,16 @@ sine drone at 55 Hz under the dune ridges.
 **`ATMOSPHERIC_LIFE_SPEC`** — low sand haze at 6000 particles below 1.2 m, 2–5 dust
 devils per minute rising to 18 m, and a single distant raptor circling at 120–200 m. No
 insect life in frame; emptiness is the point of a dune sea.
+
+**`MORPHOLOGY_ANTI_PATTERNS`** — Do not represent dunes as overlapping cones, pyramids,
+low-resolution square tiles, visibly independent LOD grids, or repeated isolated
+procedural primitives.
+
+**`VISUAL_REVIEW_QUESTIONS`** — Do the dunes show recognizable crescent-shaped barchan forms
+with shallow windward slopes, steeper slip faces, and multiple dune scales, joined by
+continuous ridges with a readable wind direction, seamless LOD boundaries, and a layered
+dune horizon with natural elevation continuity, and is there a visible locomotion wake
+and a clearly readable surf/carve mechanic?
 
 **`FOOT_INTERACTION`** — sink 4–7 cm, collapse a slump ring at the print edge, and kick a
 puff of 25–40 dust particles that drift downwind rather than falling straight.

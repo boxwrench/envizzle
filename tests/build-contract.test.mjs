@@ -871,12 +871,57 @@ test('reviewCriteria universal slice matches the canonical frozen 12-category se
   ]);
 });
 
-test('reviewCriteria biomeSpecific is tolerant of absent biome tokens and defaults to an empty array today', () => {
+test('reviewCriteria biomeSpecific is tolerant of absent biome tokens and defaults to an empty array for biomes without them', () => {
   for (const name of Object.keys(SHOWCASES)) {
+    if (SHOWCASES[name].biome === 'Dune Desert') continue;
     const assembled = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
     assert.deepEqual(assembled.buildContract.reviewCriteria.biomeSpecific, []);
     assert.equal(validateBuildContract(assembled.buildContract).valid, true);
   }
+});
+
+test('reviewCriteria biomeSpecific is populated end-to-end for a Dune-based showcase from references/biomes.md tokens', () => {
+  // This is the cross-task wiring proof: Task 1 added the biomeReviewCriteria() plumbing
+  // reading biome.tokens.MORPHOLOGY_ANTI_PATTERNS / VISUAL_REVIEW_QUESTIONS, and this task
+  // is the first to actually populate those tokens (Dune Desert only, in biomes.md). This
+  // test proves the full path — reference-loader.mjs parsing through createBuildContract —
+  // actually produces non-empty content, not just that the markdown file has the right text.
+  const duneShowcaseName = Object.keys(SHOWCASES).find((name) => SHOWCASES[name].biome === 'Dune Desert');
+  assert.ok(duneShowcaseName, 'expected at least one canonical showcase built on the Dune Desert biome');
+
+  const assembled = assembleBrief(canonicalShowcaseSpec(duneShowcaseName), { rootDir: repoRoot });
+  const { biomeSpecific } = assembled.buildContract.reviewCriteria;
+
+  assert.equal(Array.isArray(biomeSpecific), true);
+  assert.equal(biomeSpecific.length, 2);
+
+  const normalizeWhitespace = (s) => s.replace(/\s+/g, ' ').trim();
+
+  const morphology = biomeSpecific.find((entry) => entry.category === 'morphology-anti-patterns');
+  assert.ok(morphology, 'expected a morphology-anti-patterns entry');
+  assert.equal(morphology.questions.length, 1);
+  assert.equal(
+    normalizeWhitespace(morphology.questions[0]),
+    'Do not represent dunes as overlapping cones, pyramids, low-resolution square tiles, visibly independent LOD grids, or repeated isolated procedural primitives.',
+  );
+
+  const visualReview = biomeSpecific.find((entry) => entry.category === 'biome-visual-review-questions');
+  assert.ok(visualReview, 'expected a biome-visual-review-questions entry');
+  assert.equal(visualReview.questions.length, 1);
+  const normalizedVisualReview = normalizeWhitespace(visualReview.questions[0]);
+  assert.match(normalizedVisualReview, /crescent-shaped barchan/);
+  assert.match(normalizedVisualReview, /surf\/carve mechanic/);
+
+  assert.equal(validateBuildContract(assembled.buildContract).valid, true);
+
+  // Also prove it via the raw fixture path used for the Proven-mode Dune showcase, so the
+  // wiring is proven under a second, independently authored entry point (not just the
+  // canonicalShowcaseSpec helper above).
+  const proven = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'proven-dune.json'), 'utf8'));
+  const provenAssembled = assembleBrief(proven, { rootDir: repoRoot });
+  assert.equal(provenAssembled.buildContract.selection.biome, 'Dune Desert');
+  assert.equal(provenAssembled.buildContract.reviewCriteria.biomeSpecific.length, 2);
+  assert.equal(validateBuildContract(provenAssembled.buildContract).valid, true);
 });
 
 test('adversarial contract mutation: reviewCriteria universal question text mutated is rejected', () => {
