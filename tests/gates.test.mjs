@@ -668,6 +668,28 @@ function tinyPngBuffer() {
   return PNG.sync.write(png);
 }
 
+/**
+ * Sane "everything is fine" defaults for the new Task 7 window.__demo probes
+ * (navigator.gpu availability, window.__demo.status/ready/error, rendererInfo(),
+ * cameraDiagnostics(), terrainDiagnostics(), frameStats()). Individual tests below call this
+ * as their evaluateImpl fallback after handling whatever specific call they care about
+ * (setPose, cameraDiagnostics, etc.), so a fake only needs to special-case the exact call it
+ * wants to intercept without having to re-describe the entire hook surface every time.
+ */
+function defaultHookEvaluate(src) {
+  if (src.includes('navigator.gpu')) return { available: true, reason: null };
+  if (src.includes('window.__demo.status')) return { status: 'ready', ready: true, error: null };
+  if (src.includes('rendererInfo')) {
+    return { backend: 'webgpu', shaderLanguage: 'wgsl', materialsReady: true, renderedFrames: 1, validationErrors: [] };
+  }
+  if (src.includes('cameraDiagnostics')) return validCameraDiagnostics();
+  if (src.includes('terrainDiagnostics')) {
+    return { renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'gpu-readback', paritySamples: 8, parityMaxErrorM: 0.012 };
+  }
+  if (src.includes('frameStats')) return okStats;
+  return undefined;
+}
+
 function makeFakePlaywright({ evaluateImpl, isConnected = () => true, waitForFunctionImpl, gotoImpl }) {
   const page = {
     on() {},
@@ -738,9 +760,7 @@ function makeGatePassingPlaywright({ gotoImpl } = {}) {
         return undefined;
       }
       if (src.includes('setPose')) return undefined;
-      if (src.includes('cameraNearestDepth')) return 5;
-      if (src.includes('frameStats')) return { medianMs: 10, p99Ms: 15, samples: 100 };
-      return undefined;
+      return defaultHookEvaluate(src);
     },
     async waitForTimeout() {},
     async screenshot() {
@@ -843,9 +863,7 @@ test('adversarial test: setPose throwing is a demo defect (status: failed), not 
       evaluateImpl(src) {
         if (src.includes('setPose')) throw new Error('Injected: window.__demo.setPose threw');
         if (src.includes('setCharacterVisible')) return undefined;
-        if (src.includes('cameraNearestDepth')) return 5;
-        if (src.includes('frameStats')) return { medianMs: 10, p99Ms: 15, samples: 100 };
-        return undefined;
+        return defaultHookEvaluate(src);
       },
     });
 
@@ -879,9 +897,8 @@ test('adversarial test: camera/frame-stat hook throwing is a demo defect (status
       evaluateImpl(src) {
         if (src.includes('setPose')) return undefined;
         if (src.includes('setCharacterVisible')) return undefined;
-        if (src.includes('cameraNearestDepth')) throw new Error('Injected: window.__demo.cameraNearestDepth threw');
-        if (src.includes('frameStats')) return { medianMs: 10, p99Ms: 15, samples: 100 };
-        return undefined;
+        if (src.includes('cameraDiagnostics')) throw new Error('Injected: window.__demo.cameraDiagnostics threw');
+        return defaultHookEvaluate(src);
       },
     });
 
@@ -917,7 +934,7 @@ test('adversarial test: browser disconnecting mid-capture is classified as statu
       isConnected: () => false, // simulate a genuinely crashed/disconnected browser
       evaluateImpl(src) {
         if (src.includes('setPose')) throw new Error('Target closed');
-        return undefined;
+        return defaultHookEvaluate(src);
       },
     });
 
@@ -1007,8 +1024,8 @@ test('adversarial test: disconnected browser during hook readiness is classified
       waitForFunctionImpl: async () => {
         throw new Error('Target closed');
       },
-      evaluateImpl() {
-        return undefined;
+      evaluateImpl(src) {
+        return defaultHookEvaluate(src);
       },
     });
 
@@ -1039,8 +1056,8 @@ test('adversarial test: connected browser with hook readiness timeout is classif
       waitForFunctionImpl: async () => {
         throw new Error('Timeout 30000ms exceeded');
       },
-      evaluateImpl() {
-        return undefined;
+      evaluateImpl(src) {
+        return defaultHookEvaluate(src);
       },
     });
 

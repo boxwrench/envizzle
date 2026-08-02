@@ -404,7 +404,7 @@ test('output collision leaves every existing bundle file byte-identical', () => 
   }
 });
 
-test('generated bundle contains all four verifier files', () => {
+test('generated bundle contains all verifier files', () => {
   const tmpDir = makeTempDir();
   try {
     const spec = validSignature();
@@ -413,6 +413,8 @@ test('generated bundle contains all four verifier files', () => {
       'README.md',
       'gates.mjs',
       'report.mjs',
+      'patternScan.mjs',
+      'contractSchema.mjs',
       'verify_demo.mjs',
     ];
     for (const file of expectedFiles) {

@@ -947,7 +947,7 @@ export function writeBundle(spec, outDir, options = {}) {
   const verifySrc = path.join(rootDir, 'verify');
 
   // Preflight 1: Read all verifier files into memory before creating/modifying targets
-  const verifierFiles = ['README.md', 'gates.mjs', 'report.mjs', 'verify_demo.mjs'];
+  const verifierFiles = ['README.md', 'gates.mjs', 'report.mjs', 'patternScan.mjs', 'contractSchema.mjs', 'verify_demo.mjs'];
   const cachedVerifierFiles = {};
   for (const vf of verifierFiles) {
     const srcPath = path.join(verifySrc, vf);
@@ -995,6 +995,8 @@ export function writeBundle(spec, outDir, options = {}) {
     path.join(targetDir, 'verify', 'README.md'),
     path.join(targetDir, 'verify', 'gates.mjs'),
     path.join(targetDir, 'verify', 'report.mjs'),
+    path.join(targetDir, 'verify', 'patternScan.mjs'),
+    path.join(targetDir, 'verify', 'contractSchema.mjs'),
     path.join(targetDir, 'verify', 'verify_demo.mjs'),
   ];
 

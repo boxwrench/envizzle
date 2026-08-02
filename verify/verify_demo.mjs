@@ -4,21 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
-import {
-  evaluateGates,
-  validateCameraDiagnostics,
-  validateRendererDiagnostics,
-  validateTerrainDiagnostics,
-} from './gates.mjs';
+import { evaluateGates } from './gates.mjs';
 import { createVerificationReport, writeVerificationReport } from './report.mjs';
 import {
-  BUILD_CONTRACT_FILENAME,
-  EVIDENCE_FILENAME,
-  RENDERER_DIAGNOSTICS_EXPECTED,
-  TERRAIN_ELEVATION_CONTRACT,
-  validateBuildContract,
-  validateMilestoneEvidence,
-} from '../build-contract.mjs';
+  validateBuildContractStandalone,
+  validateEvidenceStandalone,
+  validateEvidenceContractBinding,
+} from './contractSchema.mjs';
+import { scanForForbiddenPatterns } from './patternScan.mjs';
 
 const REQUIRED_PATHS = Object.freeze([
   'index.html',
@@ -29,15 +22,90 @@ const REQUIRED_PATHS = Object.freeze([
   'src/main.js',
 ]);
 
-const REQUIRED_ARTIFACT_PATHS = Object.freeze([BUILD_CONTRACT_FILENAME, EVIDENCE_FILENAME]);
-const BLOCKING_WARNING_PATTERN = /(GPUValidationError|uncaptured\s+WebGPU|duplicate\s+binding|bind\s*group|pipeline\s+creation|shader\s+compil|material\s+compil|no\s+available\s+adapter|backend\s+fallback|WebGPU\s+initialization\s+failure|device\s+lost)/i;
-const SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.ts', '.tsx', '.wgsl', '.glsl', '.vert', '.frag']);
+const ALLOWED_BROWSER_CHANNELS = Object.freeze(['chrome']);
 
+// Mirrors contractSchema.mjs's (unexported) RENDERER_INFO_BY_PROFILE backend/shaderLanguage
+// tuple. Small/stable/2-entry, so it is vendored locally rather than exporting a private
+// const across module boundaries — same tradeoff contractSchema.mjs itself documents.
+const RENDERER_TUPLE_BY_PROFILE = Object.freeze({
+  'babylon-webgpu': { backend: 'webgpu', shaderLanguage: 'wgsl' },
+  'three-webgl2': { backend: 'webgl2', shaderLanguage: 'glsl-es-300' },
+});
+
+const RENDERER_INFO_KEYS = Object.freeze(['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors']);
+const TERRAIN_DIAGNOSTICS_KEYS = Object.freeze(['renderOwner', 'renderMeshBaseHeight', 'parityMethod', 'paritySamples', 'parityMaxErrorM']);
+const MIN_PARITY_SAMPLES = 8;
+const TERRAIN_PARITY_MAX_ERROR_M = 0.03;
+
+const EVIDENCE_INCOMPLETE_MESSAGE = 'incomplete verification: milestone or stage evidence is not complete';
+
+// GPU-validation blocking-concept matcher (verbatim keyword list, global-constraints.md
+// "GPU validation blocking-concept matcher"). Case-insensitive substring match. Everything
+// that doesn't match one of these stays informational — it is recorded but never fails a run.
+const BLOCKING_GPU_KEYWORDS = Object.freeze([
+  'gpuvalidationerror',
+  'duplicate binding',
+  'bind group',
+  'pipeline creation',
+  'shader compilation',
+  'material compilation',
+  'adapter unavailable',
+  'backend fallback',
+  'webgpu initialization failure',
+  'device lost',
+  'missing vertex buffer',
+  'incompatible vertex input',
+  'incompatible varying',
+  'incompatible output structure',
+  'invalid entry point',
+]);
+
+/** Case-insensitive keyword match against the exact Global Constraints blocking list. */
+export function isBlockingGpuMessage(text) {
+  if (typeof text !== 'string') return false;
+  const lower = text.toLowerCase();
+  if (lower.includes('uncaptured') && lower.includes('error')) return true;
+  return BLOCKING_GPU_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/** Strict runtime validation for the terrain ownership/parity proof consumed by camera gates. */
+function validateTerrainDiagnostics(value) {
+  const errors = [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return ['window.__demo.terrainDiagnostics() must return an object.'];
+  }
+
+  const actualKeys = Object.keys(value);
+  const missingKeys = TERRAIN_DIAGNOSTICS_KEYS.filter((key) => !actualKeys.includes(key));
+  const unknownKeys = actualKeys.filter((key) => !TERRAIN_DIAGNOSTICS_KEYS.includes(key));
+  if (missingKeys.length > 0 || unknownKeys.length > 0) {
+    errors.push(`window.__demo.terrainDiagnostics() has the wrong keys — missing [${missingKeys.join(', ')}], unknown [${unknownKeys.join(', ')}].`);
+  }
+
+  if (value.renderOwner !== 'gpu') {
+    errors.push(`window.__demo.terrainDiagnostics().renderOwner is ${JSON.stringify(value.renderOwner)}, expected "gpu".`);
+  }
+  if (typeof value.renderMeshBaseHeight !== 'number' || !Number.isFinite(value.renderMeshBaseHeight) || value.renderMeshBaseHeight !== 0) {
+    errors.push(`window.__demo.terrainDiagnostics().renderMeshBaseHeight is ${JSON.stringify(value.renderMeshBaseHeight)}, expected the flat render-mesh base height 0 (CPU pre-displacement is forbidden).`);
+  }
+  if (value.parityMethod !== 'gpu-readback') {
+    errors.push(`window.__demo.terrainDiagnostics().parityMethod is ${JSON.stringify(value.parityMethod)}, expected "gpu-readback"; CPU-to-CPU parity is not proof of GPU parity.`);
+  }
+  if (typeof value.paritySamples !== 'number' || !Number.isInteger(value.paritySamples) || value.paritySamples < MIN_PARITY_SAMPLES) {
+    errors.push(`window.__demo.terrainDiagnostics().paritySamples is ${JSON.stringify(value.paritySamples)}, expected an integer >= ${MIN_PARITY_SAMPLES}.`);
+  }
+  if (typeof value.parityMaxErrorM !== 'number' || !Number.isFinite(value.parityMaxErrorM) || value.parityMaxErrorM < 0 || value.parityMaxErrorM > TERRAIN_PARITY_MAX_ERROR_M) {
+    errors.push(`window.__demo.terrainDiagnostics().parityMaxErrorM is ${JSON.stringify(value.parityMaxErrorM)}, expected a finite value in [0, ${TERRAIN_PARITY_MAX_ERROR_M}] m.`);
+  }
+  return errors;
+}
 export function parseVerifyCliArgs(args) {
   let projectDir = null;
   let reportPath = null;
   let screenshotsDir = null;
   let help = false;
+  let browserChannel = null;
+  let headed = false;
 
   const seenFlags = new Set();
 
@@ -61,6 +129,21 @@ export function parseVerifyCliArgs(args) {
         throw new Error('Missing directory for --screenshots option');
       }
       screenshotsDir = args[++i];
+    } else if (arg === '--browser-channel') {
+      if (seenFlags.has('browserChannel')) throw new Error('Duplicate option --browser-channel');
+      seenFlags.add('browserChannel');
+      if (i + 1 >= args.length || args[i + 1].startsWith('-')) {
+        throw new Error('Missing name for --browser-channel option');
+      }
+      const value = args[++i];
+      if (!ALLOWED_BROWSER_CHANNELS.includes(value)) {
+        throw new Error(`Unsupported --browser-channel '${value}'. Allowed values: ${ALLOWED_BROWSER_CHANNELS.join(', ')}`);
+      }
+      browserChannel = value;
+    } else if (arg === '--headed') {
+      if (seenFlags.has('headed')) throw new Error('Duplicate option --headed');
+      seenFlags.add('headed');
+      headed = true;
     } else if (arg.startsWith('-')) {
       throw new Error(`Unknown option '${arg}'`);
     } else {
@@ -91,6 +174,8 @@ export function parseVerifyCliArgs(args) {
     projectDir: resolvedTarget,
     reportPath: resolvedReport,
     screenshotsDir: resolvedScreenshots,
+    browserChannel,
+    headed,
   };
 }
 
@@ -103,6 +188,8 @@ Usage:
 Options:
   --report <report.json>       Path to write machine-readable verification report (default: <project-directory>/verify-report.json)
   --screenshots <directory>   Directory to save captured PNG screenshots (default: <project-directory>/screenshots/)
+  --browser-channel <name>    Launch a specific Chromium channel instead of the bundled build (allowed: chrome)
+  --headed                    Launch the browser headed instead of headless
   --help, -h                  Show this help menu
 
 Exit codes:
@@ -115,90 +202,6 @@ Exit codes:
 function toImage(buf) {
   const png = PNG.sync.read(buf);
   return { width: png.width, height: png.height, data: png.data };
-}
-
-function normalizedError(error) {
-  const text = error instanceof Error ? error.message : String(error ?? 'Initialization failed');
-  return text.replace(/\s+/g, ' ').trim() || 'Initialization failed';
-}
-
-function walkSourceFiles(rootDir) {
-  const files = [];
-  const visit = (dir) => {
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'screenshots') continue;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) visit(full);
-      else if (SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) files.push(full);
-    }
-  };
-  visit(rootDir);
-  return files;
-}
-
-/** Targeted Babylon WebGPU source-contract lint; this is not a general parser. */
-export function checkBabylonWebGpuSource(projectDir) {
-  const errors = [];
-  const files = walkSourceFiles(projectDir);
-  const contents = files.map((file) => ({ file, text: fs.readFileSync(file, 'utf8') }));
-  const joined = contents.map(({ text }) => text).join('\n');
-  const rel = (file) => path.relative(projectDir, file).replace(/\\/g, '/');
-  for (const { file, text } of contents) {
-    if (path.extname(file).toLowerCase() === '.glsl') errors.push(`${rel(file)} uses .glsl, which is forbidden for the babylon-webgpu profile`);
-    if (/@group\s*\(/.test(text) || /@binding\s*\(/.test(text)) errors.push(`${rel(file)} contains manual @group/@binding declarations in a Babylon-managed shader; Babylon assigns binding groups and binding numbers during shader processing`);
-  }
-  const forbidden = [
-    [/new\s+BABYLON\.Engine\s*\(/, 'new BABYLON.Engine( is a WebGL-capable fallback and is forbidden in a WebGPU-only project'],
-    [/BABYLON\.ShaderLanguage\.GLSL/, 'BABYLON.ShaderLanguage.GLSL is forbidden; use BABYLON.ShaderLanguage.WGSL'],
-    [/fallbackGlsl|fallback[-_]?glsl|glslFallback/i, 'fallback GLSL shader modules are forbidden for the babylon-webgpu profile'],
-    [/(?:WebGLRenderer|WebGLRenderingContext).*fallback|fallback.*(?:WebGLRenderer|WebGLRenderingContext)/is, 'explicit WebGL renderer fallback is forbidden for the babylon-webgpu profile'],
-    [/if\s*\([^)]*!?\s*navigator\.gpu[^)]*\)[\s\S]{0,240}(?:WebGL|BABYLON\.Engine)/i, 'a WebGL fallback branch is forbidden when WebGPU is unavailable'],
-  ];
-  for (const [pattern, message] of forbidden) if (pattern.test(joined)) errors.push(message);
-  if (!/new\s+BABYLON\.WebGPUEngine\s*\(/.test(joined)) errors.push('babylon-webgpu source must initialize BABYLON.WebGPUEngine');
-  if (!/\.initAsync\s*\(\s*\)/.test(joined)) errors.push('babylon-webgpu source must await WebGPUEngine.initAsync()');
-  if (!/forceCompilationAsync\s*\(/.test(joined)) errors.push('babylon-webgpu source must force compilation for every required material and representative mesh');
-  if (!/\.isReady\s*\(/.test(joined)) errors.push('babylon-webgpu source must require material.isReady(mesh) after forced compilation');
-  return { valid: errors.length === 0, errors, files: files.map(rel) };
-}
-
-export function validateReadinessState(value) {
-  const errors = [];
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return ['window.__demo readiness state must be an object'];
-  if (!['initializing', 'ready', 'failed'].includes(value.status)) errors.push('window.__demo.status must be initializing, ready, or failed');
-  if (typeof value.ready !== 'boolean') errors.push('window.__demo.ready must be boolean');
-  if (value.status === 'ready' && value.ready !== true) errors.push('ready status requires ready === true');
-  if (value.status !== 'ready' && value.ready === true) errors.push('ready === true is forbidden while status is not ready');
-  if (value.status === 'failed' && (typeof value.error !== 'string' || value.error.trim() === '')) errors.push('failed readiness requires a nonblank error');
-  if (value.status === 'ready' && value.error !== null) errors.push('ready readiness requires error === null');
-  return errors;
-}
-
-export function validateEvidenceCompletion({ evidence, buildContract, projectDir, screenshotsDir, writtenCaptures = [] }) {
-  const errors = [];
-  const contractValidation = validateBuildContract(buildContract);
-  if (!contractValidation.valid) errors.push(...contractValidation.errors.map((error) => `build contract: ${error}`));
-  const evidenceValidation = validateMilestoneEvidence(evidence);
-  if (!evidenceValidation.valid) errors.push(...evidenceValidation.errors.map((error) => `evidence: ${error}`));
-  if (!buildContract || !evidence || evidence.briefSha256 !== buildContract?.project?.briefSha256) errors.push('briefSha256 mismatch between ENVIZZLE_EVIDENCE.json and ENVIZZLE_BUILD.json');
-  const allComplete = evidence?.status === 'complete' && Array.isArray(evidence?.milestones) && evidence.milestones.every((milestone) => milestone.status === 'complete');
-  const canonical = ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'];
-  const listed = new Set((evidence?.milestones || []).flatMap((milestone) => milestone.screenshots || []));
-  if (!canonical.every((file) => listed.has(file))) errors.push('required canonical screenshots are not all listed in complete milestone evidence');
-  if (!canonical.every((file) => writtenCaptures.includes(file) && fs.existsSync(path.join(screenshotsDir, file)))) errors.push('current verifier run did not produce every canonical screenshot filename');
-  if (!allComplete) errors.push('incomplete verification: milestone evidence is not complete');
-  return { complete: errors.length === 0, errors };
-}
-
-function readJsonArtifact(targetDir, filename) {
-  const file = path.join(targetDir, filename);
-  if (!fs.existsSync(file)) return { exists: false, value: null, errors: [`missing required artifact: ${filename}`] };
-  try {
-    return { exists: true, value: JSON.parse(fs.readFileSync(file, 'utf8')), errors: [] };
-  } catch (error) {
-    return { exists: true, value: null, errors: [`failed to parse ${filename}: ${normalizedError(error)}`] };
-  }
 }
 
 function killTree(child) {
@@ -296,6 +299,110 @@ function discoverBenchmarkContext(targetDir) {
   };
 }
 
+/** Reads and JSON.parses a file, never throwing — failures are reported as {data:null, error}. */
+function loadJsonFile(filePath) {
+  const base = path.basename(filePath);
+  if (!fs.existsSync(filePath)) {
+    return { data: null, error: `${base} not found in target directory` };
+  }
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    return { data: null, error: `Failed to read ${base}: ${err.message}` };
+  }
+  try {
+    return { data: JSON.parse(raw), error: null };
+  } catch (err) {
+    return { data: null, error: `Failed to parse ${base} as JSON: ${err.message}` };
+  }
+}
+
+/** SHA-256 of the actual brief file on disk named by contract.project.briefFilename, or null. */
+function computeActualBriefSha256(targetDir, contract) {
+  if (!contract || typeof contract !== 'object') return null;
+  const project = contract.project;
+  if (!project || typeof project.briefFilename !== 'string' || project.briefFilename.trim() === '') return null;
+  const briefPath = path.join(targetDir, project.briefFilename);
+  if (!fs.existsSync(briefPath)) return null;
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(briefPath)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Evidence final-pass gate (global-constraints.md "Evidence final-pass gate"). Verifier may
+ * still run early and produce screenshots when evidence is incomplete — this function is only
+ * ever consulted at the very end, to decide the FINAL pass/fail status. Whenever it rejects,
+ * `reasons` always begins with the exact canonical incomplete-verification string so callers
+ * can surface it verbatim regardless of which specific sub-condition tripped.
+ */
+function evaluateEvidenceFinalGate({
+  contract,
+  contractValidation,
+  evidence,
+  evidenceValidation,
+  actualBriefSha256,
+  writtenCaptures,
+  shotDir,
+  blockingConsoleErrors,
+}) {
+  const reasons = [];
+
+  if (!contract) {
+    reasons.push('ENVIZZLE_BUILD.json is missing');
+  } else if (!contractValidation.valid) {
+    reasons.push(`ENVIZZLE_BUILD.json failed validation: ${contractValidation.errors.join('; ')}`);
+  }
+
+  if (!evidence) {
+    reasons.push('ENVIZZLE_EVIDENCE.json is missing');
+  } else if (!evidenceValidation.valid) {
+    reasons.push(`ENVIZZLE_EVIDENCE.json failed validation: ${evidenceValidation.errors.join('; ')}`);
+  } else if (evidence.status !== 'complete') {
+    reasons.push(`evidence.status is '${evidence.status}', not complete`);
+  }
+
+  if (contract && evidence) {
+    const bindingValidation = validateEvidenceContractBinding(contract, evidence);
+    if (!bindingValidation.valid) {
+      reasons.push(`evidence/contract binding failed: ${bindingValidation.errors.join('; ')}`);
+    }
+  }
+
+  const contractBriefSha = contract && contract.project ? contract.project.briefSha256 : undefined;
+  const evidenceBriefSha = evidence ? evidence.briefSha256 : undefined;
+  const allHashesPresent =
+    typeof contractBriefSha === 'string' && typeof evidenceBriefSha === 'string' && typeof actualBriefSha256 === 'string';
+  if (!allHashesPresent || contractBriefSha !== evidenceBriefSha || evidenceBriefSha !== actualBriefSha256) {
+    reasons.push('evidence.briefSha256, contract.project.briefSha256, and the actual brief file hash do not all match');
+  }
+
+  if (evidence && Array.isArray(evidence.milestones)) {
+    for (const milestone of evidence.milestones) {
+      if (!milestone || typeof milestone !== 'object' || !Array.isArray(milestone.screenshots)) continue;
+      for (const shot of milestone.screenshots) {
+        if (!writtenCaptures.includes(shot)) {
+          reasons.push(`screenshot '${shot}' listed in evidence milestone '${milestone.id}' was not generated by this verification run`);
+        } else if (!fs.existsSync(path.join(shotDir, shot))) {
+          reasons.push(`screenshot '${shot}' listed in evidence milestone '${milestone.id}' does not exist on disk`);
+        }
+      }
+    }
+  }
+
+  if (blockingConsoleErrors.length > 0) {
+    reasons.push(`blocking console/GPU-validation errors present: ${blockingConsoleErrors.join(' | ')}`);
+  }
+
+  if (reasons.length === 0) {
+    return { pass: true, reasons: [] };
+  }
+  return { pass: false, reasons: [EVIDENCE_INCOMPLETE_MESSAGE, ...reasons] };
+}
+
 export async function verifyDemo(projectDir, options = {}) {
   const startedAt = new Date().toISOString();
   const startTime = Date.now();
@@ -307,11 +414,14 @@ export async function verifyDemo(projectDir, options = {}) {
   const shotDir = options.screenshotsDir
     ? path.resolve(options.screenshotsDir)
     : path.join(targetDir, 'screenshots');
+  const browserChannel = typeof options.browserChannel === 'string' ? options.browserChannel : null;
+  const headed = Boolean(options.headed);
 
   const failures = [];
   const logInfo = [];
   const writtenCaptures = [];
   let isOperationalError = false;
+  let webgpuCapable = false;
 
   const fail = (m) => {
     failures.push(m);
@@ -329,6 +439,26 @@ export async function verifyDemo(projectDir, options = {}) {
     fail(`Benchmark discovery error: ${err.message}`);
   }
 
+  // Item 1: load and validate ENVIZZLE_BUILD.json / ENVIZZLE_EVIDENCE.json early. A missing or
+  // invalid contract/evidence is a genuine demo/bundle defect, not an infra problem — it must
+  // NOT hard-abort the run here. It feeds the same evidence-gate logic evaluated at the very
+  // end (see evaluateEvidenceFinalGate below), so the verifier can still build, launch, and
+  // capture screenshots even when evidence starts incomplete (the normal, expected state before
+  // a human completes the visual self-review).
+  const buildContractLoad = loadJsonFile(path.join(targetDir, 'ENVIZZLE_BUILD.json'));
+  const contract = buildContractLoad.data;
+  const contractValidation = contract !== null
+    ? validateBuildContractStandalone(contract)
+    : { valid: false, errors: [buildContractLoad.error] };
+
+  const evidenceLoad = loadJsonFile(path.join(targetDir, 'ENVIZZLE_EVIDENCE.json'));
+  const evidence = evidenceLoad.data;
+  const evidenceValidation = evidence !== null
+    ? validateEvidenceStandalone(evidence)
+    : { valid: false, errors: [evidenceLoad.error] };
+
+  const actualBriefSha256 = computeActualBriefSha256(targetDir, contract);
+
   // Check required paths
   const missingPaths = [];
   for (const rel of REQUIRED_PATHS) {
@@ -337,6 +467,26 @@ export async function verifyDemo(projectDir, options = {}) {
     } else {
       missingPaths.push(rel);
       fail(`missing required path: ${rel}`);
+    }
+  }
+
+  // Item 2: static forbidden-pattern scan, right after the required-paths check, before the
+  // production build. Only runs when the contract loaded (its forbiddenPatterns array is
+  // already profile-filtered per Task 1). A hit is a non-operational demo-source defect — it
+  // feeds `failures` via `fail()` but never blocks the build/browser stages by itself.
+  if (contract && Array.isArray(contract.forbiddenPatterns)) {
+    let patternHits = [];
+    try {
+      patternHits = scanForForbiddenPatterns(targetDir, contract.forbiddenPatterns);
+    } catch (err) {
+      fail(`forbidden-pattern scan crashed: ${err.message}`);
+    }
+    if (patternHits.length > 0) {
+      for (const hit of patternHits) {
+        fail(`forbidden pattern '${hit.id}' detected at ${hit.file}:${hit.line} — ${hit.reason}`);
+      }
+    } else {
+      pass('forbidden-pattern scan found no hits');
     }
   }
 
@@ -356,49 +506,32 @@ export async function verifyDemo(projectDir, options = {}) {
     }
   }
 
-  const buildArtifact = readJsonArtifact(targetDir, BUILD_CONTRACT_FILENAME);
-  const evidenceArtifact = readJsonArtifact(targetDir, EVIDENCE_FILENAME);
-  let buildContract = buildArtifact.value;
-  let evidence = evidenceArtifact.value;
-  let contractProfile = null;
-  const artifactFailures = [...buildArtifact.errors, ...evidenceArtifact.errors];
-  if (buildContract) {
-    const contractValidation = validateBuildContract(buildContract);
-    if (!contractValidation.valid) artifactFailures.push(...contractValidation.errors.map((error) => `build contract: ${error}`));
-    else contractProfile = buildContract.project.renderingProfile;
-  }
-  if (evidence) {
-    const evidenceValidation = validateMilestoneEvidence(evidence);
-    if (!evidenceValidation.valid) artifactFailures.push(...evidenceValidation.errors.map((error) => `evidence: ${error}`));
-  }
-  artifactFailures.forEach(fail);
-
-  let sourceLintFailures = [];
-  if (contractProfile === 'babylon-webgpu') {
-    const sourceLint = checkBabylonWebGpuSource(targetDir);
-    sourceLintFailures = sourceLint.errors;
-    sourceLintFailures.forEach(fail);
-  }
-
   let hookReady = false;
   const runtimeErrors = [];
-  const runtimeWarnings = [];
-  let rendererDiagnostics = null;
-  let terrainDiagnostics = null;
-  let cameraDiagnostics = null;
+  const consoleWarnings = [];
+  let blockingConsoleErrors = [];
+  let informationalConsoleMessages = [];
   let navFailureMessage = null;
+  let rendererInfo = null;
+
+  // Reclassify after each asynchronous phase so delayed validation/device-loss messages are
+  // included while non-blocking diagnostics remain informational.
+  const refreshConsoleClassification = () => {
+    const previousBlocking = new Set(blockingConsoleErrors);
+    const allConsoleMessages = [...runtimeErrors, ...consoleWarnings];
+    blockingConsoleErrors = allConsoleMessages.filter(isBlockingGpuMessage);
+    informationalConsoleMessages = allConsoleMessages.filter((m) => !isBlockingGpuMessage(m));
+    return blockingConsoleErrors.filter((m) => !previousBlocking.has(m));
+  };
   let gateResult = {
     pass: false,
     failures: buildOk ? ['Runtime check failed'] : [buildError || 'Build check failed'],
-      info: [],
-      metrics: {
-        frames: [],
-        cameraDiagnostics: null,
-        rendererDiagnostics: null,
-        terrainDiagnostics: null,
-        poseDifferences: { idleLocomotion: null, idleMechanic: null },
-        frameStats: { medianMs: null, p99Ms: null, samples: null },
-      },
+    info: [],
+    metrics: {
+      frames: [],
+      cameraNearestDepthM: null,
+      frameStats: { medianMs: null, p99Ms: null, samples: null },
+    },
   };
 
   if (buildOk && !options.skipBrowser) {
@@ -407,8 +540,9 @@ export async function verifyDemo(projectDir, options = {}) {
     // Demo-level defects (setPose/setCharacterVisible/camera/frame-stat hooks throwing,
     // or malformed hook return values) are recorded here and never rethrown to the outer
     // catch below — only genuine infrastructure failures (Playwright load, server spawn,
-    // server unreachable, browser launch, or the browser/page actually disconnecting)
-    // reach the outer catch and set isOperationalError.
+    // server unreachable, browser launch, or the browser/page actually disconnecting, or
+    // the verifier's own environment lacking WebGPU) reach the outer catch and set
+    // isOperationalError.
     try {
       let playwright;
       try {
@@ -440,7 +574,8 @@ export async function verifyDemo(projectDir, options = {}) {
 
       try {
         browser = await playwright.chromium.launch({
-          headless: true,
+          headless: !headed,
+          ...(browserChannel ? { channel: browserChannel } : {}),
           args: ['--enable-unsafe-webgpu', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
         });
       } catch (launchErr) {
@@ -452,10 +587,7 @@ export async function verifyDemo(projectDir, options = {}) {
       page.on('pageerror', (e) => runtimeErrors.push(e.message));
       page.on('console', (m) => {
         if (m.type() === 'error') runtimeErrors.push(m.text());
-        if (m.type() === 'warning') {
-          runtimeWarnings.push(m.text());
-          if (BLOCKING_WARNING_PATTERN.test(m.text())) runtimeErrors.push(`blocking console warning: ${m.text()}`);
-        }
+        else if (m.type() === 'warning') consoleWarnings.push(m.text());
       });
 
       try {
@@ -472,54 +604,150 @@ export async function verifyDemo(projectDir, options = {}) {
         fail(navFailureMessage);
       }
 
+      // Item 7: WebGPU-unavailable vs. forbidden-fallback distinction. If the browser
+      // environment itself lacks WebGPU (or adapter acquisition fails), that is an
+      // operational/infrastructure limitation of the verifier, not a demo defect — it must
+      // never be reported as a "failed" (demo defect) result. A demo that has WebGPU
+      // available but still renders on a non-webgpu backend is caught separately below,
+      // as a genuine (non-operational) rendererInfo() mismatch.
+      let gpuCheck;
       try {
-        if (contractProfile === 'babylon-webgpu') {
-          const capability = await page.evaluate(async () => {
-            if (!navigator.gpu) return { available: false, reason: 'navigator.gpu is missing' };
-            const adapter = await navigator.gpu.requestAdapter();
-            return adapter ? { available: true, reason: null } : { available: false, reason: 'no available WebGPU adapter' };
-          });
-          if (!capability?.available) {
-            fail(`incomplete verification: ${capability?.reason || 'WebGPU adapter acquisition failed'}`);
+        gpuCheck = await page.evaluate(async () => {
+          if (!window.navigator || !window.navigator.gpu) {
+            return { available: false, reason: 'navigator.gpu is undefined' };
           }
-        }
-        await page.waitForFunction('window.__demo && (window.__demo.status === "ready" || window.__demo.status === "failed")', { timeout: 30000 });
-        const readiness = await page.evaluate(() => ({ ready: window.__demo?.ready, status: window.__demo?.status, error: window.__demo?.error }));
-        const readinessErrors = validateReadinessState(readiness);
-        if (readinessErrors.length > 0) {
-          readinessErrors.forEach(fail);
-        } else if (readiness.status === 'failed') {
-          fail(`initialization failed: ${readiness.error}`);
-        } else {
-          hookReady = true;
-          pass('window.__demo hook present and ready');
-        }
-      } catch (hookErr) {
+          try {
+            const adapter = await window.navigator.gpu.requestAdapter();
+            if (!adapter) return { available: false, reason: 'navigator.gpu.requestAdapter() returned null' };
+            return { available: true, reason: null };
+          } catch (err) {
+            return { available: false, reason: `navigator.gpu.requestAdapter() threw: ${err && err.message}` };
+          }
+        });
+      } catch (gpuErr) {
         if (!browser.isConnected()) {
           isOperationalError = true;
-          throw new Error(`Browser infrastructure disconnected while waiting for window.__demo hook readiness: ${hookErr.message}`);
+          throw new Error(`Browser infrastructure disconnected while checking WebGPU availability: ${gpuErr.message}`);
         }
+        isOperationalError = true;
+        throw new Error(`Failed to evaluate WebGPU availability: ${gpuErr.message}`);
+      }
+
+      webgpuCapable = Boolean(gpuCheck && gpuCheck.available);
+      if (!webgpuCapable) {
+        isOperationalError = true;
+        throw new Error(
+          `WebGPU is not available in this browser environment (${gpuCheck && gpuCheck.reason ? gpuCheck.reason : 'navigator.gpu unavailable'}) — this is a verifier infrastructure limitation, not a demo defect. Verification is incomplete.`,
+        );
+      }
+
+      // Item 3: status-aware readiness poll. Wait for a terminal status ('ready' or
+      // 'failed'), then read the actual state — never accept the old bare `ready === true`
+      // signal on its own.
+      let hookTimedOut = false;
+      try {
+        await page.waitForFunction(
+          "window.__demo && (window.__demo.status === 'ready' || window.__demo.status === 'failed')",
+          { timeout: options.hookReadyTimeoutMs ?? 30000 },
+        );
+      } catch (waitErr) {
+        if (!browser.isConnected()) {
+          isOperationalError = true;
+          throw new Error(`Browser infrastructure disconnected while waiting for window.__demo hook readiness: ${waitErr.message}`);
+        }
+        hookTimedOut = true;
+      }
+
+      if (hookTimedOut) {
         hookReady = false;
-        fail(`window.__demo hook missing or never became ready — ${normalizedError(hookErr)}. Cannot verify.`);
+        fail('window.__demo hook missing or never became ready — see the brief\'s verification-hook section. Cannot verify.');
+      } else {
+        let demoState;
+        try {
+          demoState = await page.evaluate(() => ({
+            status: window.__demo ? window.__demo.status : null,
+            ready: window.__demo ? window.__demo.ready : null,
+            error: window.__demo ? window.__demo.error : null,
+          }));
+        } catch (readErr) {
+          if (!browser.isConnected()) {
+            isOperationalError = true;
+            throw new Error(`Browser infrastructure disconnected while reading window.__demo status: ${readErr.message}`);
+          }
+          demoState = null;
+          fail(`window.__demo status read failed: ${readErr.message}`);
+        }
+        demoState = demoState || {};
+
+        if (demoState.status === 'ready' && demoState.ready === true) {
+          hookReady = true;
+          pass('window.__demo hook present and ready');
+        } else if (demoState.status === 'failed') {
+          hookReady = false;
+          const normalizedError = typeof demoState.error === 'string' ? demoState.error.trim() : '';
+          if (normalizedError === '') {
+            fail('window.__demo reported status "failed" with a blank error — initialization failures must set a nonblank, normalized error message.');
+          } else {
+            fail(`window.__demo reported initialization failure: ${normalizedError}`);
+          }
+        } else {
+          hookReady = false;
+          fail('window.__demo hook missing or never became ready — see the brief\'s verification-hook section. Cannot verify.');
+        }
+      }
+
+      // Item 4: rendererInfo() validation, right after hook-ready.
+      if (hookReady) {
+        try {
+          rendererInfo = await page.evaluate(() => window.__demo.rendererInfo());
+        } catch (riErr) {
+          if (!browser.isConnected()) {
+            isOperationalError = true;
+            throw new Error(`Browser infrastructure disconnected while reading window.__demo.rendererInfo(): ${riErr.message}`);
+          }
+          fail(`window.__demo.rendererInfo() failed: ${riErr.message}`);
+          rendererInfo = null;
+        }
+
+        if (rendererInfo === null || typeof rendererInfo !== 'object' || Array.isArray(rendererInfo)) {
+          if (rendererInfo !== null) {
+            fail(`window.__demo.rendererInfo() returned ${JSON.stringify(rendererInfo)} instead of an object.`);
+          }
+          rendererInfo = null;
+        } else {
+          const actualKeys = Object.keys(rendererInfo);
+          const missingKeys = RENDERER_INFO_KEYS.filter((k) => !actualKeys.includes(k));
+          const unknownKeys = actualKeys.filter((k) => !RENDERER_INFO_KEYS.includes(k));
+          if (missingKeys.length > 0 || unknownKeys.length > 0) {
+            fail(`window.__demo.rendererInfo() has the wrong keys — missing [${missingKeys.join(', ')}], unknown [${unknownKeys.join(', ')}].`);
+          }
+
+          const expectedTuple = contractValidation.valid && contract?.project?.renderingProfile
+            ? RENDERER_TUPLE_BY_PROFILE[contract.project.renderingProfile]
+            : null;
+          if (expectedTuple) {
+            if (rendererInfo.backend !== expectedTuple.backend) {
+              fail(`window.__demo.rendererInfo().backend is ${JSON.stringify(rendererInfo.backend)}, expected ${JSON.stringify(expectedTuple.backend)} for renderingProfile '${contract.project.renderingProfile}' — a non-matching backend means a forbidden fallback renderer was used.`);
+            }
+            if (rendererInfo.shaderLanguage !== expectedTuple.shaderLanguage) {
+              fail(`window.__demo.rendererInfo().shaderLanguage is ${JSON.stringify(rendererInfo.shaderLanguage)}, expected ${JSON.stringify(expectedTuple.shaderLanguage)} for renderingProfile '${contract.project.renderingProfile}'.`);
+            }
+          }
+          if (rendererInfo.materialsReady !== true) {
+            fail(`window.__demo.rendererInfo().materialsReady is ${JSON.stringify(rendererInfo.materialsReady)}, expected true.`);
+          }
+          if (typeof rendererInfo.renderedFrames !== 'number' || !Number.isInteger(rendererInfo.renderedFrames) || rendererInfo.renderedFrames < 1) {
+            fail(`window.__demo.rendererInfo().renderedFrames is ${JSON.stringify(rendererInfo.renderedFrames)}, expected an integer >= 1.`);
+          }
+          if (!Array.isArray(rendererInfo.validationErrors) || rendererInfo.validationErrors.length > 0) {
+            fail(`window.__demo.rendererInfo().validationErrors is ${JSON.stringify(rendererInfo.validationErrors)}, expected an empty array.`);
+          }
+        }
       }
 
       if (hookReady) {
         const frames = [];
         fs.mkdirSync(shotDir, { recursive: true });
-
-        let diagnosticsError = null;
-        try {
-          rendererDiagnostics = await page.evaluate(() => window.__demo.rendererInfo());
-          terrainDiagnostics = await page.evaluate(() => window.__demo.terrainDiagnostics());
-          const rendererExpected = RENDERER_DIAGNOSTICS_EXPECTED[contractProfile] || RENDERER_DIAGNOSTICS_EXPECTED['three-webgl2'];
-          const rendererErrors = validateRendererDiagnostics(rendererDiagnostics, rendererExpected);
-          const terrainErrors = validateTerrainDiagnostics(terrainDiagnostics, buildContract?.terrainElevation?.parityToleranceM ?? TERRAIN_ELEVATION_CONTRACT.parityToleranceM);
-          rendererErrors.forEach((error) => fail(error));
-          terrainErrors.forEach((error) => fail(error));
-        } catch (err) {
-          diagnosticsError = err;
-          fail(`renderer/terrain diagnostics hook failed: ${normalizedError(err)}`);
-        }
 
         let captureError = null;
         try {
@@ -551,62 +779,111 @@ export async function verifyDemo(projectDir, options = {}) {
           fail(`demo pose/visibility hook failed: ${err.message}`);
         }
 
-        if (runtimeErrors.length === 0) {
-          pass('zero console/runtime errors');
-        } else {
-          fail(`runtime errors: ${runtimeErrors.join(' | ')}`);
+        // Item 8: allow a bounded drain after the last render submission so delayed validation
+        // errors and device-loss messages cannot arrive after the verifier has already decided
+        // that the run is clean.
+        let validationDrainError = null;
+        try {
+          await page.waitForTimeout(options.validationDrainMs ?? 250);
+        } catch (err) {
+          if (!browser.isConnected()) {
+            isOperationalError = true;
+            throw new Error(`Browser infrastructure disconnected during validation drain: ${err.message}`);
+          }
+          validationDrainError = err;
+          fail(`validation-error drain failed: ${err.message}`);
         }
 
-        if (captureError || writtenCaptures.length !== 3) {
+        let drainedRendererInfo = null;
+        try {
+          drainedRendererInfo = await page.evaluate(() => window.__demo.rendererInfo());
+        } catch (err) {
+          if (!browser.isConnected()) {
+            isOperationalError = true;
+            throw new Error(`Browser infrastructure disconnected while checking delayed renderer validation errors: ${err.message}`);
+          }
+          validationDrainError = validationDrainError || err;
+          fail(`delayed renderer validation check failed: ${err.message}`);
+        }
+        if (drainedRendererInfo && typeof drainedRendererInfo === 'object') {
+          rendererInfo = drainedRendererInfo;
+          if (Array.isArray(drainedRendererInfo.validationErrors) && drainedRendererInfo.validationErrors.length > 0) {
+            fail(`window.__demo.rendererInfo().validationErrors became nonempty during the bounded validation drain: ${JSON.stringify(drainedRendererInfo.validationErrors)}`);
+          }
+        }
+
+        refreshConsoleClassification();
+        if (blockingConsoleErrors.length === 0) {
+          pass('zero blocking GPU-validation/console errors');
+        } else {
+          fail(`blocking console/GPU-validation errors: ${blockingConsoleErrors.join(' | ')}`);
+        }
+        if (validationDrainError || captureError || writtenCaptures.length !== 3) {
           gateResult.pass = false;
           gateResult.failures = [
             ...(gateResult.failures || []),
-            captureError ? `demo pose/visibility hook failed: ${captureError.message}` : 'Incomplete capture evidence after pose loop',
-            ...runtimeErrors,
+            validationDrainError ? `validation-error drain failed: ${validationDrainError.message}` : (captureError ? `demo pose/visibility hook failed: ${captureError.message}` : 'Incomplete capture evidence after pose loop'),
+            ...blockingConsoleErrors,
           ];
         } else {
+          let cameraDiagnostics;
           let frameStats;
+          let terrainDiagnostics = null;
+          let terrainValidationErrors = [];
           let hookError = null;
           try {
             cameraDiagnostics = await page.evaluate(() => window.__demo.cameraDiagnostics());
             frameStats = await page.evaluate(() => window.__demo.frameStats());
-            const cameraErrors = validateCameraDiagnostics(cameraDiagnostics, {
-              terrainDiagnostics,
-              toleranceM: buildContract?.terrainElevation?.parityToleranceM ?? TERRAIN_ELEVATION_CONTRACT.parityToleranceM,
-              cameraMinDepthM: buildContract?.acceptance?.camera?.clippingThresholdM,
-            });
-            cameraErrors.forEach((error) => fail(error));
+            // Item 5: collect and validate the complete terrain ownership/parity proof. The
+            // hook is required even for gpu-depth camera diagnostics because it is the source
+            // of truth that rules out CPU pre-displacement and CPU-only parity claims.
+            terrainDiagnostics = await page.evaluate(() => window.__demo.terrainDiagnostics());
+            terrainValidationErrors = validateTerrainDiagnostics(terrainDiagnostics);
           } catch (err) {
             if (!browser.isConnected()) {
               isOperationalError = true;
               throw new Error(`Browser infrastructure disconnected during metrics collection: ${err.message}`);
             }
             hookError = err;
-            fail(`camera/frame-stat hook failed: ${normalizedError(err)}`);
+            fail(`camera/frame-stat hook failed: ${err.message}`);
           }
 
           if (hookError) {
             gateResult.pass = false;
-            gateResult.failures = [...(gateResult.failures || []), `camera/frame-stat hook failed: ${hookError.message}`, ...runtimeErrors];
+            gateResult.failures = [...(gateResult.failures || []), `camera/frame-stat hook failed: ${hookError.message}`, ...blockingConsoleErrors];
           } else {
-            gateResult = evaluateGates({ frames, cameraDiagnostics, terrainDiagnostics, frameStats });
+            gateResult = evaluateGates({ frames, cameraDiagnostics, frameStats });
+            gateResult.metrics = {
+              ...gateResult.metrics,
+              rendererInfo,
+              rendererDiagnostics: rendererInfo,
+              terrainDiagnostics,
+            };
 
-            if (runtimeErrors.length > 0) {
+            if (blockingConsoleErrors.length > 0) {
               gateResult.pass = false;
-              gateResult.failures = [...(gateResult.failures || []), ...runtimeErrors];
+              gateResult.failures = [...(gateResult.failures || []), ...blockingConsoleErrors];
             }
 
+            if (terrainValidationErrors.length > 0) {
+              gateResult.pass = false;
+              gateResult.failures = [...(gateResult.failures || []), ...terrainValidationErrors];
+              terrainValidationErrors.forEach(fail);
+            }
             gateResult.info.forEach((i) => {
               logInfo.push(i);
               if (!options.silent) console.log(`INFO: ${i}`);
+            });
+            informationalConsoleMessages.forEach((m) => {
+              const msg = `non-blocking console/runtime message: ${m}`;
+              logInfo.push(msg);
+              if (!options.silent) console.log(`INFO: ${msg}`);
             });
 
             if (gateResult.pass) pass('all image gates passed');
             else gateResult.failures.forEach(fail);
           }
         }
-
-        if (diagnosticsError) gateResult.failures.push(`renderer/terrain diagnostics hook failed: ${normalizedError(diagnosticsError)}`);
       }
     } catch (err) {
       // Only genuine infrastructure failures reach here — see the comment above.
@@ -636,10 +913,66 @@ export async function verifyDemo(projectDir, options = {}) {
     };
   }
 
+  // Re-check after metric collection because page errors can be delivered asynchronously.
+  const lateBlockingMessages = refreshConsoleClassification();
+  if (lateBlockingMessages.length > 0) {
+    gateResult = {
+      ...gateResult,
+      pass: false,
+      failures: [...(gateResult.failures || []), ...lateBlockingMessages],
+    };
+    lateBlockingMessages.forEach((message) => fail(`blocking console/GPU-validation error: ${message}`));
+  }
+
+  // Item 9: evidence final-pass gate, evaluated unconditionally at the very end so the exact
+  // canonical incomplete-verification message surfaces whenever contract/evidence binding,
+  // screenshot provenance, or blocking console/GPU errors are not fully clean — even when
+  // every earlier image/renderer gate happened to pass. Skipped only when the run is already
+  // an operational error (that status is already unambiguous and already carries its own
+  // operational failure reason).
+  const evidenceGate = evaluateEvidenceFinalGate({
+    contract,
+    contractValidation,
+    evidence,
+    evidenceValidation,
+    actualBriefSha256,
+    writtenCaptures,
+    shotDir,
+    blockingConsoleErrors,
+  });
+  if (!evidenceGate.pass && !isOperationalError) {
+    gateResult = {
+      ...gateResult,
+      pass: false,
+      failures: [...(gateResult.failures || []), ...evidenceGate.reasons],
+    };
+    evidenceGate.reasons.forEach(fail);
+  }
+
+  // Keep the machine-readable gate result aligned with every recorded demo defect. This is
+  // especially important for rendererInfo/readiness failures discovered before image gates run.
+  if (failures.length > 0) {
+    const existingGateFailures = new Set(gateResult.failures || []);
+    const unrepresentedFailures = failures.filter((failure) => !existingGateFailures.has(failure));
+    if (unrepresentedFailures.length > 0) {
+      gateResult = {
+        ...gateResult,
+        pass: false,
+        failures: [...(gateResult.failures || []), ...unrepresentedFailures],
+      };
+    }
+  }
+
   const finishedAt = new Date().toISOString();
   const durationMs = Date.now() - startTime;
-  const overallPass = buildOk && hookReady && runtimeErrors.length === 0 && gateResult.pass && !isOperationalError && failures.length === 0;
+  const overallPass = buildOk && hookReady && blockingConsoleErrors.length === 0 && gateResult.pass && !isOperationalError && failures.length === 0;
   const status = isOperationalError ? 'error' : (overallPass ? 'passed' : 'failed');
+
+  const environment = {
+    browserChannel,
+    headed,
+    webgpuCapable,
+  };
 
   const report = createVerificationReport({
     target: targetName,
@@ -648,8 +981,9 @@ export async function verifyDemo(projectDir, options = {}) {
     durationMs,
     requiredPaths: REQUIRED_PATHS.slice(),
     build: { ok: buildOk, error: buildError },
-    runtime: { hookReady, errors: runtimeErrors },
+    runtime: { hookReady, errors: blockingConsoleErrors },
     captures: writtenCaptures,
+    environment,
     gates: {
       pass: gateResult.pass,
       failures: gateResult.failures || [],
@@ -707,6 +1041,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   verifyDemo(parsed.projectDir, {
     reportPath: parsed.reportPath,
     screenshotsDir: parsed.screenshotsDir,
+    browserChannel: parsed.browserChannel,
+    headed: parsed.headed,
   })
     .then((result) => {
       console.log('\n' + '='.repeat(50));
