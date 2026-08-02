@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { validateCameraDiagnostics, validateRendererDiagnostics, validateTerrainDiagnostics } from './gates.mjs';
 
 export const SCHEMA_VERSION = 1;
 export const ALLOWED_STATUSES = Object.freeze(['passed', 'failed', 'error']);
 
-const ALLOWED_TOP_KEYS = new Set([
+// Top-level keys that MUST be present on every report (unchanged since before Task 6).
+const REQUIRED_TOP_KEYS = [
   'schemaVersion',
   'status',
   'target',
@@ -18,7 +18,15 @@ const ALLOWED_TOP_KEYS = new Set([
   'captures',
   'gates',
   'benchmark',
-]);
+];
+
+// Top-level keys that MAY be present (Task 6+). `environment` is populated by
+// Task 7's verify_demo.mjs wiring, which does not exist yet, and older/simpler
+// report shapes (e.g. the static benchmark fixtures on disk) never had it —
+// so it is allowed, strictly validated when present, but not mandatory.
+const OPTIONAL_TOP_KEYS = ['environment'];
+
+const ALLOWED_TOP_KEYS = new Set([...REQUIRED_TOP_KEYS, ...OPTIONAL_TOP_KEYS]);
 
 function isPlainObject(val) {
   return typeof val === 'object' && val !== null && !Array.isArray(val);
@@ -40,13 +48,24 @@ function isNonBlankString(val) {
   return typeof val === 'string' && val.trim() !== '';
 }
 
+/** Reports a required-vs-optional key mismatch the same way for every fixed-shape object. */
+function keySetError(obj, requiredKeys, optionalKeys, label) {
+  const keys = Object.keys(obj);
+  const allowed = new Set([...requiredKeys, ...optionalKeys]);
+  const missing = requiredKeys.filter((k) => !keys.includes(k));
+  const unknown = keys.filter((k) => !allowed.has(k));
+  if (missing.length > 0 || unknown.length > 0) {
+    return optionalKeys.length > 0
+      ? `${label} must contain required keys [${requiredKeys.join(', ')}] and only optional keys from [${optionalKeys.join(', ')}]; missing [${missing.join(', ')}], unknown [${unknown.join(', ')}]`
+      : `${label} must contain exact keys [${requiredKeys.join(', ')}], got [${keys.join(', ')}]`;
+  }
+  return null;
+}
+
 const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const REQUIRED_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
 export const REQUIRED_CAPTURE_FILENAMES = Object.freeze(['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png']);
-const METRIC_KEYS = Object.freeze(['frames', 'cameraDiagnostics', 'rendererDiagnostics', 'terrainDiagnostics', 'poseDifferences', 'frameStats']);
-const EMPTY_RENDERER_DIAGNOSTICS = Object.freeze({ backend: 'webgl2', shaderLanguage: 'glsl-es-3.00', materialsReady: true, renderedFrames: 1, validationErrors: Object.freeze([]) });
-const EMPTY_TERRAIN_DIAGNOSTICS = Object.freeze({ renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'gpu-readback', paritySamples: 8, parityMaxErrorM: 0.012 });
-const EMPTY_CAMERA_DIAGNOSTICS = Object.freeze({ method: 'gpu-depth', nearestDepthM: 1, terrainClearanceM: 1 });
+const ALLOWED_CAMERA_METHODS = Object.freeze(['gpu-depth', 'cpu-height-with-gpu-parity']);
 
 export function containsLeak(str) {
   if (typeof str !== 'string') return false;
@@ -123,7 +142,7 @@ export function validateVerificationReport(report) {
     }
   }
 
-  for (const reqKey of ALLOWED_TOP_KEYS) {
+  for (const reqKey of REQUIRED_TOP_KEYS) {
     if (!(reqKey in report)) {
       errors.push(`Missing required top-level key '${reqKey}'`);
     }
@@ -231,6 +250,29 @@ export function validateVerificationReport(report) {
     }
   }
 
+  // Task 6: environment is optional (see OPTIONAL_TOP_KEYS comment above). When
+  // present it must be null or a strictly-shaped {browserChannel, headed, webgpuCapable}.
+  if ('environment' in report && report.environment !== null) {
+    if (!isPlainObject(report.environment)) {
+      errors.push('environment must be null or a plain object');
+    } else {
+      const envErr = keySetError(report.environment, ['browserChannel', 'headed', 'webgpuCapable'], [], 'environment');
+      if (envErr) errors.push(envErr);
+      if (report.environment.browserChannel !== null && typeof report.environment.browserChannel !== 'string') {
+        errors.push('environment.browserChannel must be a string or null');
+      }
+      if (typeof report.environment.browserChannel === 'string' && containsLeak(report.environment.browserChannel)) {
+        errors.push('environment.browserChannel contains path, stack, or credential leakage');
+      }
+      if (typeof report.environment.headed !== 'boolean') {
+        errors.push('environment.headed must be a boolean');
+      }
+      if (typeof report.environment.webgpuCapable !== 'boolean') {
+        errors.push('environment.webgpuCapable must be a boolean');
+      }
+    }
+  }
+
   if (!isPlainObject(report.gates)) {
     errors.push('gates must be a plain object');
   } else {
@@ -264,10 +306,18 @@ export function validateVerificationReport(report) {
       errors.push('gates.metrics must be a plain object');
     } else {
       const m = report.gates.metrics;
-      const mKeys = Object.keys(m);
-      if (JSON.stringify(mKeys) !== JSON.stringify(METRIC_KEYS)) {
-        errors.push(`gates.metrics must contain exact keys [${METRIC_KEYS.join(', ')}], got [${mKeys.join(', ')}]`);
-      }
+      const REQUIRED_METRIC_KEYS = ['frames', 'cameraNearestDepthM', 'frameStats'];
+      // Task 6: cameraDiagnostics/poseComparison are computed by gates.mjs itself;
+      // terrainDiagnostics/rendererInfo come from window.__demo hooks Task 7 wires
+      // up separately. All four are optional here — older/simpler reports (e.g.
+      // tests/fixtures/benchmarks/*.json, written before this task) never had them,
+      // and must keep validating.
+      const OPTIONAL_METRIC_KEYS = ['cameraDiagnostics', 'poseComparison', 'terrainDiagnostics', 'rendererInfo', 'rendererDiagnostics', 'poseDifferences'];
+      const metricsErr = keySetError(m, REQUIRED_METRIC_KEYS, OPTIONAL_METRIC_KEYS, 'gates.metrics');
+      if (metricsErr) errors.push(metricsErr);
+
+      const REQUIRED_FRAME_KEYS = ['name', 'meanLuminance', 'flatFrameRatio', 'characterAreaFraction'];
+      const OPTIONAL_FRAME_KEYS = ['environmentTileVariance', 'environmentEdgeDensity', 'characterFillRatio', 'characterEdgeDensity', 'localLuminanceVariation', 'edgeDensity'];
 
       if (!Array.isArray(m.frames)) {
         errors.push('gates.metrics.frames must be an array');
@@ -277,29 +327,38 @@ export function validateVerificationReport(report) {
           if (!isPlainObject(f)) {
             errors.push(`gates.metrics.frames[${i}] must be an object`);
           } else {
-            const fKeys = Object.keys(f);
-            if (fKeys.length !== 6 || JSON.stringify(fKeys) !== JSON.stringify(['name', 'meanLuminance', 'flatFrameRatio', 'characterAreaFraction', 'localLuminanceVariation', 'edgeDensity'])) {
-              errors.push(`gates.metrics.frames[${i}] must contain exact environment-aware keys, got [${fKeys.join(', ')}]`);
-            }
+            const frameErr = keySetError(f, REQUIRED_FRAME_KEYS, OPTIONAL_FRAME_KEYS, `gates.metrics.frames[${i}]`);
+            if (frameErr) errors.push(frameErr);
+
             if (typeof f.name !== 'string') errors.push(`gates.metrics.frames[${i}].name must be string`);
             if (!isUnitRangeOrNull(f.meanLuminance)) errors.push(`gates.metrics.frames[${i}].meanLuminance must be a finite number between 0 and 1, or null`);
             if (!isUnitRangeOrNull(f.flatFrameRatio)) errors.push(`gates.metrics.frames[${i}].flatFrameRatio must be a finite number between 0 and 1, or null`);
             if (!isUnitRangeOrNull(f.characterAreaFraction)) errors.push(`gates.metrics.frames[${i}].characterAreaFraction must be a finite number between 0 and 1, or null`);
-            if (!isUnitRangeOrNull(f.localLuminanceVariation)) errors.push(`gates.metrics.frames[${i}].localLuminanceVariation must be a finite number between 0 and 1, or null`);
-            if (!isUnitRangeOrNull(f.edgeDensity)) errors.push(`gates.metrics.frames[${i}].edgeDensity must be a finite number between 0 and 1, or null`);
+
+            if (f.environmentTileVariance !== undefined && !isNonNegativeOrNull(f.environmentTileVariance)) {
+              errors.push(`gates.metrics.frames[${i}].environmentTileVariance must be a non-negative finite number or null`);
+            }
+            if (f.environmentEdgeDensity !== undefined && !isNonNegativeOrNull(f.environmentEdgeDensity)) {
+              errors.push(`gates.metrics.frames[${i}].environmentEdgeDensity must be a non-negative finite number or null`);
+            }
+            if (f.characterFillRatio !== undefined && !isUnitRangeOrNull(f.characterFillRatio)) {
+              errors.push(`gates.metrics.frames[${i}].characterFillRatio must be a finite number between 0 and 1, or null`);
+            }
+            if (f.characterEdgeDensity !== undefined && !isUnitRangeOrNull(f.characterEdgeDensity)) {
+              errors.push(`gates.metrics.frames[${i}].characterEdgeDensity must be a finite number between 0 and 1, or null`);
+            }
+            if (f.localLuminanceVariation !== undefined && !isUnitRangeOrNull(f.localLuminanceVariation)) {
+              errors.push(`gates.metrics.frames[${i}].localLuminanceVariation must be a finite number between 0 and 1, or null`);
+            }
+            if (f.edgeDensity !== undefined && !isUnitRangeOrNull(f.edgeDensity)) {
+              errors.push(`gates.metrics.frames[${i}].edgeDensity must be a finite number between 0 and 1, or null`);
+            }
           }
         }
       }
 
-      if (m.cameraDiagnostics !== null) errors.push(...validateCameraDiagnostics(m.cameraDiagnostics).map((e) => `gates.metrics.${e}`));
-      if (m.rendererDiagnostics !== null) errors.push(...validateRendererDiagnostics(m.rendererDiagnostics, { backend: m.rendererDiagnostics?.backend, shaderLanguage: m.rendererDiagnostics?.shaderLanguage }).map((e) => `gates.metrics.${e}`));
-      if (m.terrainDiagnostics !== null) errors.push(...validateTerrainDiagnostics(m.terrainDiagnostics).map((e) => `gates.metrics.${e}`));
-      if (!isPlainObject(m.poseDifferences)) {
-        errors.push('gates.metrics.poseDifferences must be a plain object');
-      } else {
-        const poseKeys = Object.keys(m.poseDifferences);
-        if (JSON.stringify(poseKeys) !== JSON.stringify(['idleLocomotion', 'idleMechanic'])) errors.push('gates.metrics.poseDifferences must contain exact keys idleLocomotion and idleMechanic');
-        for (const key of ['idleLocomotion', 'idleMechanic']) if (!isUnitRangeOrNull(m.poseDifferences[key])) errors.push(`gates.metrics.poseDifferences.${key} must be finite and in [0, 1], or null`);
+      if (!isNonNegativeOrNull(m.cameraNearestDepthM)) {
+        errors.push('gates.metrics.cameraNearestDepthM must be a non-negative finite number or null');
       }
 
       if (!isPlainObject(m.frameStats)) {
@@ -314,6 +373,144 @@ export function validateVerificationReport(report) {
         if (!isFiniteOrNull(m.frameStats.samples)) errors.push('gates.metrics.frameStats.samples must be finite number or null');
         if (m.frameStats.samples !== null && (typeof m.frameStats.samples !== 'number' || !Number.isInteger(m.frameStats.samples) || m.frameStats.samples < 0)) {
           errors.push('gates.metrics.frameStats.samples must be a non-negative integer or null');
+        }
+      }
+
+      // Task 6: cameraDiagnostics, present only when supplied (see OPTIONAL_METRIC_KEYS above).
+      if ('cameraDiagnostics' in m && m.cameraDiagnostics !== null) {
+        if (!isPlainObject(m.cameraDiagnostics)) {
+          errors.push('gates.metrics.cameraDiagnostics must be null or a plain object');
+        } else {
+          const cdErr = keySetError(m.cameraDiagnostics, ['method', 'nearestDepthM', 'terrainClearanceM'], [], 'gates.metrics.cameraDiagnostics');
+          if (cdErr) errors.push(cdErr);
+          if (m.cameraDiagnostics.method !== null && !ALLOWED_CAMERA_METHODS.includes(m.cameraDiagnostics.method)) {
+            errors.push(`gates.metrics.cameraDiagnostics.method must be null or one of [${ALLOWED_CAMERA_METHODS.join(', ')}]`);
+          }
+          if (!isNonNegativeOrNull(m.cameraDiagnostics.nearestDepthM)) {
+            errors.push('gates.metrics.cameraDiagnostics.nearestDepthM must be a non-negative finite number or null');
+          }
+          if (m.cameraDiagnostics.terrainClearanceM !== null && !(typeof m.cameraDiagnostics.terrainClearanceM === 'number' && Number.isFinite(m.cameraDiagnostics.terrainClearanceM) && m.cameraDiagnostics.terrainClearanceM > 0)) {
+            errors.push('gates.metrics.cameraDiagnostics.terrainClearanceM must be a positive finite number or null');
+          }
+        }
+      }
+
+      // Task 6: poseComparison, present only when supplied.
+      if ('poseComparison' in m && m.poseComparison !== null) {
+        if (!isPlainObject(m.poseComparison)) {
+          errors.push('gates.metrics.poseComparison must be null or a plain object');
+        } else {
+          const pcErr = keySetError(m.poseComparison, ['idleVsLocomotionChangedFraction', 'idleVsMechanicChangedFraction'], [], 'gates.metrics.poseComparison');
+          if (pcErr) errors.push(pcErr);
+          if (!isUnitRangeOrNull(m.poseComparison.idleVsLocomotionChangedFraction)) {
+            errors.push('gates.metrics.poseComparison.idleVsLocomotionChangedFraction must be a finite number between 0 and 1, or null');
+          }
+          if (!isUnitRangeOrNull(m.poseComparison.idleVsMechanicChangedFraction)) {
+            errors.push('gates.metrics.poseComparison.idleVsMechanicChangedFraction must be a finite number between 0 and 1, or null');
+          }
+        }
+      }
+
+
+      if ('rendererDiagnostics' in m && m.rendererDiagnostics !== null) {
+        if (!isPlainObject(m.rendererDiagnostics)) {
+          errors.push('gates.metrics.rendererDiagnostics must be null or a plain object');
+        } else {
+          const rd = m.rendererDiagnostics;
+          const rdErr = keySetError(rd, ['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors'], [], 'gates.metrics.rendererDiagnostics');
+          if (rdErr) errors.push(rdErr);
+          if (typeof rd.backend !== 'string' || rd.backend.trim() === '') errors.push('gates.metrics.rendererDiagnostics.backend must be a non-empty string');
+          if (typeof rd.shaderLanguage !== 'string' || rd.shaderLanguage.trim() === '') errors.push('gates.metrics.rendererDiagnostics.shaderLanguage must be a non-empty string');
+          if (typeof rd.materialsReady !== 'boolean') errors.push('gates.metrics.rendererDiagnostics.materialsReady must be a boolean');
+          if (typeof rd.renderedFrames !== 'number' || !Number.isInteger(rd.renderedFrames) || rd.renderedFrames < 0) errors.push('gates.metrics.rendererDiagnostics.renderedFrames must be a non-negative integer');
+          if (!Array.isArray(rd.validationErrors) || rd.validationErrors.some((e) => typeof e !== 'string')) errors.push('gates.metrics.rendererDiagnostics.validationErrors must be an array of strings');
+          else if (rd.validationErrors.some((e) => containsLeak(e))) errors.push('gates.metrics.rendererDiagnostics.validationErrors contains path, stack, or credential leakage');
+        }
+      }
+
+
+      if ('poseDifferences' in m && m.poseDifferences !== null) {
+        if (!isPlainObject(m.poseDifferences)) {
+          errors.push('gates.metrics.poseDifferences must be null or a plain object');
+        } else {
+          const pdErr = keySetError(m.poseDifferences, ['idleLocomotion', 'idleMechanic'], [], 'gates.metrics.poseDifferences');
+          if (pdErr) errors.push(pdErr);
+          for (const key of ['idleLocomotion', 'idleMechanic']) {
+            if (!isUnitRangeOrNull(m.poseDifferences[key])) errors.push(`gates.metrics.poseDifferences.${key} must be a finite number between 0 and 1, or null`);
+          }
+        }
+      }
+
+      // Task 6: terrainDiagnostics, present only when supplied; null or strictly shaped.
+      // parityMethod/renderOwner correctness (e.g. "must be a real GPU readback, not a
+      // relabeled CPU computation") is a doc/contract requirement, not machine-checkable
+      // from JSON shape alone (see Global Constraints) — only the shape is validated here.
+      if ('terrainDiagnostics' in m && m.terrainDiagnostics !== null) {
+        if (!isPlainObject(m.terrainDiagnostics)) {
+          errors.push('gates.metrics.terrainDiagnostics must be null or a plain object');
+        } else {
+          const td = m.terrainDiagnostics;
+          const tdErr = keySetError(td, ['renderOwner', 'renderMeshBaseHeight', 'parityMethod', 'paritySamples', 'parityMaxErrorM'], [], 'gates.metrics.terrainDiagnostics');
+          if (tdErr) errors.push(tdErr);
+          if (typeof td.renderOwner !== 'string' || td.renderOwner.trim() === '') {
+            errors.push('gates.metrics.terrainDiagnostics.renderOwner must be a non-empty string');
+          } else if (containsLeak(td.renderOwner)) {
+            errors.push('gates.metrics.terrainDiagnostics.renderOwner contains path, stack, or credential leakage');
+          }
+          if (typeof td.renderMeshBaseHeight !== 'number' || !Number.isFinite(td.renderMeshBaseHeight)) {
+            errors.push('gates.metrics.terrainDiagnostics.renderMeshBaseHeight must be a finite number');
+          }
+          if (typeof td.parityMethod !== 'string' || td.parityMethod.trim() === '') {
+            errors.push('gates.metrics.terrainDiagnostics.parityMethod must be a non-empty string');
+          } else if (containsLeak(td.parityMethod)) {
+            errors.push('gates.metrics.terrainDiagnostics.parityMethod contains path, stack, or credential leakage');
+          }
+          if (typeof td.paritySamples !== 'number' || !Number.isInteger(td.paritySamples) || td.paritySamples < 0) {
+            errors.push('gates.metrics.terrainDiagnostics.paritySamples must be a non-negative integer');
+          }
+          if (typeof td.parityMaxErrorM !== 'number' || !Number.isFinite(td.parityMaxErrorM) || td.parityMaxErrorM < 0) {
+            errors.push('gates.metrics.terrainDiagnostics.parityMaxErrorM must be a non-negative finite number');
+          }
+        }
+      }
+
+      // Task 6: rendererInfo, present only when supplied; null or strictly shaped.
+      // Enforcing backend==="webgpu"/shaderLanguage==="wgsl" here would bake a single
+      // rendering profile into a profile-agnostic report schema; that enforcement
+      // belongs to Task 7's verify_demo.mjs lifecycle gate, which knows which profile
+      // is in play. This validates shape/types and (for "passed", below) cleanliness.
+      if ('rendererInfo' in m && m.rendererInfo !== null) {
+        if (!isPlainObject(m.rendererInfo)) {
+          errors.push('gates.metrics.rendererInfo must be null or a plain object');
+        } else {
+          const ri = m.rendererInfo;
+          const riErr = keySetError(ri, ['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors'], [], 'gates.metrics.rendererInfo');
+          if (riErr) errors.push(riErr);
+          if (typeof ri.backend !== 'string' || ri.backend.trim() === '') {
+            errors.push('gates.metrics.rendererInfo.backend must be a non-empty string');
+          } else if (containsLeak(ri.backend)) {
+            errors.push('gates.metrics.rendererInfo.backend contains path, stack, or credential leakage');
+          }
+          if (typeof ri.shaderLanguage !== 'string' || ri.shaderLanguage.trim() === '') {
+            errors.push('gates.metrics.rendererInfo.shaderLanguage must be a non-empty string');
+          } else if (containsLeak(ri.shaderLanguage)) {
+            errors.push('gates.metrics.rendererInfo.shaderLanguage contains path, stack, or credential leakage');
+          }
+          if (typeof ri.materialsReady !== 'boolean') {
+            errors.push('gates.metrics.rendererInfo.materialsReady must be a boolean');
+          }
+          if (typeof ri.renderedFrames !== 'number' || !Number.isInteger(ri.renderedFrames) || ri.renderedFrames < 0) {
+            errors.push('gates.metrics.rendererInfo.renderedFrames must be a non-negative integer');
+          }
+          if (!Array.isArray(ri.validationErrors) || ri.validationErrors.some((e) => typeof e !== 'string')) {
+            errors.push('gates.metrics.rendererInfo.validationErrors must be an array of strings');
+          } else {
+            for (const ve of ri.validationErrors) {
+              if (containsLeak(ve)) {
+                errors.push(`gates.metrics.rendererInfo.validationErrors entry contains path, stack, or credential leakage: '${ve}'`);
+              }
+            }
+          }
         }
       }
     }
@@ -387,17 +584,72 @@ export function validateVerificationReport(report) {
         errors.push(`Passed frame '${f.name}' missing finite characterAreaFraction`);
       }
     }
-    if (!report.gates?.metrics?.cameraDiagnostics) errors.push('Passed report missing cameraDiagnostics');
-    if (!report.gates?.metrics?.rendererDiagnostics) errors.push('Passed report missing rendererDiagnostics');
-    if (!report.gates?.metrics?.terrainDiagnostics) errors.push('Passed report missing terrainDiagnostics');
-    const poseDifferences = report.gates?.metrics?.poseDifferences;
-    if (!isPlainObject(poseDifferences) || typeof poseDifferences.idleLocomotion !== 'number' || typeof poseDifferences.idleMechanic !== 'number') errors.push('Passed report missing finite pose-difference metrics');
+    const depth = report.gates?.metrics?.cameraNearestDepthM;
+    if (typeof depth !== 'number' || !Number.isFinite(depth) || depth < 0) {
+      errors.push('Passed report missing finite non-negative cameraNearestDepthM');
+    }
     const fs = report.gates?.metrics?.frameStats;
     if (typeof fs?.medianMs !== 'number' || !Number.isFinite(fs.medianMs) || fs.medianMs < 0) {
       errors.push('Passed report missing finite non-negative frameStats.medianMs');
     }
     if (typeof fs?.p99Ms !== 'number' || !Number.isFinite(fs.p99Ms) || fs.p99Ms < 0) {
       errors.push('Passed report missing finite non-negative frameStats.p99Ms');
+    }
+
+    // Task 6: cameraDiagnostics/poseComparison, mandatory-when-present (see the
+    // OPTIONAL_METRIC_KEYS comment above for why they cannot be unconditionally
+    // required). gates.mjs always emits them now, so any report actually produced
+    // by the current evaluateGates() will have them populated when passing; a
+    // report that omits them entirely (e.g. an older fixture) is not penalized.
+    const m = report.gates?.metrics;
+    if (m && 'cameraDiagnostics' in m && isPlainObject(m.cameraDiagnostics)) {
+      const cd = m.cameraDiagnostics;
+      if (!ALLOWED_CAMERA_METHODS.includes(cd.method)) {
+        errors.push('Passed report gates.metrics.cameraDiagnostics.method must be a valid method');
+      }
+      if (typeof cd.nearestDepthM !== 'number' || !Number.isFinite(cd.nearestDepthM) || cd.nearestDepthM < 0) {
+        errors.push('Passed report gates.metrics.cameraDiagnostics.nearestDepthM must be a finite non-negative number');
+      }
+      if (typeof cd.terrainClearanceM !== 'number' || !Number.isFinite(cd.terrainClearanceM) || cd.terrainClearanceM <= 0) {
+        errors.push('Passed report gates.metrics.cameraDiagnostics.terrainClearanceM must be a finite positive number');
+      }
+    }
+    if (m && 'poseComparison' in m && isPlainObject(m.poseComparison)) {
+      const pc = m.poseComparison;
+      if (typeof pc.idleVsLocomotionChangedFraction !== 'number' || !Number.isFinite(pc.idleVsLocomotionChangedFraction)) {
+        errors.push('Passed report gates.metrics.poseComparison.idleVsLocomotionChangedFraction must be a finite number');
+      }
+      if (typeof pc.idleVsMechanicChangedFraction !== 'number' || !Number.isFinite(pc.idleVsMechanicChangedFraction)) {
+        errors.push('Passed report gates.metrics.poseComparison.idleVsMechanicChangedFraction must be a finite number');
+      }
+    }
+    // Task 6: rendererInfo, mandatory-when-present. When Task 7 populates it, a
+    // "passed" report must be unambiguously clean — consistent with "no blocking
+    // console/GPU errors" already being part of the pass bar.
+    if (m && 'rendererInfo' in m && m.rendererInfo !== null && isPlainObject(m.rendererInfo)) {
+      const ri = m.rendererInfo;
+      if (Array.isArray(ri.validationErrors) && ri.validationErrors.length > 0) {
+        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererInfo.validationErrors is not empty');
+      }
+      if (ri.materialsReady !== true) {
+        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererInfo.materialsReady is not true');
+      }
+      if (typeof ri.renderedFrames !== 'number' || ri.renderedFrames < 1) {
+        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererInfo.renderedFrames is not at least 1');
+      }
+    }
+
+    if (m && 'rendererDiagnostics' in m && m.rendererDiagnostics !== null && isPlainObject(m.rendererDiagnostics)) {
+      const rd = m.rendererDiagnostics;
+      if (Array.isArray(rd.validationErrors) && rd.validationErrors.length > 0) {
+        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererDiagnostics.validationErrors is not empty');
+      }
+      if (rd.materialsReady !== true) {
+        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererDiagnostics.materialsReady is not true');
+      }
+      if (typeof rd.renderedFrames !== 'number' || rd.renderedFrames < 1) {
+        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererDiagnostics.renderedFrames is not at least 1');
+      }
     }
   } else if (report.status === 'failed') {
     if (report.gates?.pass !== false) {
@@ -447,6 +699,85 @@ export function normalizeVerificationReport(report) {
     };
   }
 
+  let environmentNorm = null;
+  if (isPlainObject(report.environment)) {
+    environmentNorm = {
+      browserChannel: typeof report.environment.browserChannel === 'string'
+        ? sanitizePathOrString(report.environment.browserChannel)
+        : null,
+      headed: Boolean(report.environment.headed),
+      webgpuCapable: Boolean(report.environment.webgpuCapable),
+    };
+  }
+
+  let cameraDiagnosticsNorm = null;
+  const rawCameraDiagnostics = report.gates?.metrics?.cameraDiagnostics;
+  if (isPlainObject(rawCameraDiagnostics)) {
+    cameraDiagnosticsNorm = {
+      method: ALLOWED_CAMERA_METHODS.includes(rawCameraDiagnostics.method) ? rawCameraDiagnostics.method : null,
+      nearestDepthM: isFiniteOrNull(rawCameraDiagnostics.nearestDepthM) ? rawCameraDiagnostics.nearestDepthM : null,
+      terrainClearanceM: isFiniteOrNull(rawCameraDiagnostics.terrainClearanceM) ? rawCameraDiagnostics.terrainClearanceM : null,
+    };
+  }
+
+  let poseComparisonNorm = null;
+  const rawPoseComparison = report.gates?.metrics?.poseComparison;
+  if (isPlainObject(rawPoseComparison)) {
+    poseComparisonNorm = {
+      idleVsLocomotionChangedFraction: isFiniteOrNull(rawPoseComparison.idleVsLocomotionChangedFraction) ? rawPoseComparison.idleVsLocomotionChangedFraction : null,
+      idleVsMechanicChangedFraction: isFiniteOrNull(rawPoseComparison.idleVsMechanicChangedFraction) ? rawPoseComparison.idleVsMechanicChangedFraction : null,
+    };
+  }
+
+  let terrainDiagnosticsNorm = null;
+  const rawTerrainDiagnostics = report.gates?.metrics?.terrainDiagnostics;
+  if (isPlainObject(rawTerrainDiagnostics)) {
+    terrainDiagnosticsNorm = {
+      renderOwner: typeof rawTerrainDiagnostics.renderOwner === 'string' ? sanitizePathOrString(rawTerrainDiagnostics.renderOwner) : '',
+      renderMeshBaseHeight: isFiniteOrNull(rawTerrainDiagnostics.renderMeshBaseHeight) ? rawTerrainDiagnostics.renderMeshBaseHeight : null,
+      parityMethod: typeof rawTerrainDiagnostics.parityMethod === 'string' ? sanitizePathOrString(rawTerrainDiagnostics.parityMethod) : '',
+      paritySamples: isFiniteOrNull(rawTerrainDiagnostics.paritySamples) ? rawTerrainDiagnostics.paritySamples : null,
+      parityMaxErrorM: isFiniteOrNull(rawTerrainDiagnostics.parityMaxErrorM) ? rawTerrainDiagnostics.parityMaxErrorM : null,
+    };
+  }
+
+  let rendererInfoNorm = null;
+  const rawRendererInfo = report.gates?.metrics?.rendererInfo;
+  if (isPlainObject(rawRendererInfo)) {
+    rendererInfoNorm = {
+      backend: typeof rawRendererInfo.backend === 'string' ? sanitizePathOrString(rawRendererInfo.backend) : '',
+      shaderLanguage: typeof rawRendererInfo.shaderLanguage === 'string' ? sanitizePathOrString(rawRendererInfo.shaderLanguage) : '',
+      materialsReady: Boolean(rawRendererInfo.materialsReady),
+      renderedFrames: isFiniteOrNull(rawRendererInfo.renderedFrames) ? rawRendererInfo.renderedFrames : null,
+      validationErrors: Array.isArray(rawRendererInfo.validationErrors)
+        ? rawRendererInfo.validationErrors.map((e) => sanitizePathOrString(String(e)))
+        : [],
+    };
+  }
+
+  let rendererDiagnosticsNorm = null;
+  const rawRendererDiagnostics = report.gates?.metrics?.rendererDiagnostics;
+  if (isPlainObject(rawRendererDiagnostics)) {
+    rendererDiagnosticsNorm = {
+      backend: typeof rawRendererDiagnostics.backend === 'string' ? sanitizePathOrString(rawRendererDiagnostics.backend) : '',
+      shaderLanguage: typeof rawRendererDiagnostics.shaderLanguage === 'string' ? sanitizePathOrString(rawRendererDiagnostics.shaderLanguage) : '',
+      materialsReady: Boolean(rawRendererDiagnostics.materialsReady),
+      renderedFrames: isFiniteOrNull(rawRendererDiagnostics.renderedFrames) ? rawRendererDiagnostics.renderedFrames : null,
+      validationErrors: Array.isArray(rawRendererDiagnostics.validationErrors)
+        ? rawRendererDiagnostics.validationErrors.map((e) => sanitizePathOrString(String(e)))
+        : [],
+    };
+  }
+
+  let poseDifferencesNorm = null;
+  const rawPoseDifferences = report.gates?.metrics?.poseDifferences;
+  if (isPlainObject(rawPoseDifferences)) {
+    poseDifferencesNorm = {
+      idleLocomotion: isFiniteOrNull(rawPoseDifferences.idleLocomotion) ? rawPoseDifferences.idleLocomotion : null,
+      idleMechanic: isFiniteOrNull(rawPoseDifferences.idleMechanic) ? rawPoseDifferences.idleMechanic : null,
+    };
+  }
+
   const norm = {
     schemaVersion: SCHEMA_VERSION,
     status: ALLOWED_STATUSES.includes(report.status) ? report.status : 'error',
@@ -472,6 +803,7 @@ export function normalizeVerificationReport(report) {
     captures: Array.isArray(report.captures)
       ? report.captures.map((c) => (typeof c === 'string' ? sanitizePathOrString(c) : String(c)))
       : [],
+    environment: environmentNorm,
     gates: {
       pass: Boolean(report.gates?.pass),
       failures: Array.isArray(report.gates?.failures)
@@ -487,16 +819,17 @@ export function normalizeVerificationReport(report) {
               meanLuminance: isFiniteOrNull(f?.meanLuminance) ? f.meanLuminance : null,
               flatFrameRatio: isFiniteOrNull(f?.flatFrameRatio) ? f.flatFrameRatio : null,
               characterAreaFraction: isFiniteOrNull(f?.characterAreaFraction) ? f.characterAreaFraction : null,
+              environmentTileVariance: isFiniteOrNull(f?.environmentTileVariance) ? f.environmentTileVariance : null,
+              environmentEdgeDensity: isFiniteOrNull(f?.environmentEdgeDensity) ? f.environmentEdgeDensity : null,
+              characterFillRatio: isFiniteOrNull(f?.characterFillRatio) ? f.characterFillRatio : null,
+              characterEdgeDensity: isFiniteOrNull(f?.characterEdgeDensity) ? f.characterEdgeDensity : null,
               localLuminanceVariation: isFiniteOrNull(f?.localLuminanceVariation) ? f.localLuminanceVariation : null,
               edgeDensity: isFiniteOrNull(f?.edgeDensity) ? f.edgeDensity : null,
             }))
           : [],
-        cameraDiagnostics: isPlainObject(report.gates?.metrics?.cameraDiagnostics)
-          ? report.gates.metrics.cameraDiagnostics
-          : (isFiniteOrNull(report.gates?.metrics?.cameraNearestDepthM) ? { ...EMPTY_CAMERA_DIAGNOSTICS, nearestDepthM: report.gates.metrics.cameraNearestDepthM } : null),
-        rendererDiagnostics: isPlainObject(report.gates?.metrics?.rendererDiagnostics) ? report.gates.metrics.rendererDiagnostics : { ...EMPTY_RENDERER_DIAGNOSTICS },
-        terrainDiagnostics: isPlainObject(report.gates?.metrics?.terrainDiagnostics) ? report.gates.metrics.terrainDiagnostics : { ...EMPTY_TERRAIN_DIAGNOSTICS },
-        poseDifferences: isPlainObject(report.gates?.metrics?.poseDifferences) ? report.gates.metrics.poseDifferences : { idleLocomotion: null, idleMechanic: null },
+        cameraNearestDepthM: isFiniteOrNull(report.gates?.metrics?.cameraNearestDepthM)
+          ? report.gates.metrics.cameraNearestDepthM
+          : null,
         frameStats: {
           medianMs: isFiniteOrNull(report.gates?.metrics?.frameStats?.medianMs)
             ? report.gates.metrics.frameStats.medianMs
@@ -508,6 +841,12 @@ export function normalizeVerificationReport(report) {
             ? report.gates.metrics.frameStats.samples
             : null,
         },
+        cameraDiagnostics: cameraDiagnosticsNorm,
+        poseComparison: poseComparisonNorm,
+        terrainDiagnostics: terrainDiagnosticsNorm,
+        rendererInfo: rendererInfoNorm,
+        rendererDiagnostics: rendererDiagnosticsNorm,
+        poseDifferences: poseDifferencesNorm,
       },
     },
     benchmark: benchmarkNorm,
@@ -530,7 +869,21 @@ export function createVerificationReport({
   build = { ok: true, error: null },
   runtime = { hookReady: true, errors: [] },
   captures = [],
-  gates = { pass: true, failures: [], info: [], metrics: { frames: [], cameraDiagnostics: { ...EMPTY_CAMERA_DIAGNOSTICS }, rendererDiagnostics: { ...EMPTY_RENDERER_DIAGNOSTICS }, terrainDiagnostics: { ...EMPTY_TERRAIN_DIAGNOSTICS }, poseDifferences: { idleLocomotion: null, idleMechanic: null }, frameStats: { medianMs: null, p99Ms: null, samples: null } } },
+  environment = null,
+  gates = {
+    pass: true,
+    failures: [],
+    info: [],
+    metrics: {
+      frames: [],
+      cameraNearestDepthM: null,
+      frameStats: { medianMs: null, p99Ms: null, samples: null },
+      cameraDiagnostics: null,
+      poseComparison: null,
+      terrainDiagnostics: null,
+      rendererInfo: null,
+    },
+  },
   status = null,
   benchmark = null,
 }) {
@@ -551,6 +904,7 @@ export function createVerificationReport({
     build,
     runtime,
     captures,
+    environment,
     gates,
     benchmark,
   };

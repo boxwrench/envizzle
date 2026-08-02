@@ -20,6 +20,12 @@ export const THRESHOLDS = Object.freeze({
   environmentBlockSize: 16,
   poseIdleLocomotionMinChangedArea: 0.015,
   poseIdleMechanicMinChangedArea: 0.020,
+  // Additive since Task 6 — do not change the values above.
+  poseChangeMinFraction: 0.02,
+  tileVarianceMin: 0.0008,
+  edgeDensityMin: 0.0015,
+  characterFillRatioMax: 0.92,
+  characterEdgeDensityMin: 0.15,
 });
 
 // Perceptual weights on non-linear sRGB. Deliberately not linearised: this
@@ -65,6 +71,113 @@ export function changedAreaFraction(a, b, threshold = 0.02) {
 }
 
 /** Average within-block luminance standard deviation, a local-detail measure. */
+export function tileLuminanceVariance({ data, width, height }, tilesX = 8, tilesY = 8) {
+  const cols = Math.max(1, Math.min(tilesX, width));
+  const rows = Math.max(1, Math.min(tilesY, height));
+  const means = [];
+  for (let ty = 0; ty < rows; ty++) {
+    const y0 = Math.floor((ty * height) / rows);
+    const y1 = ty === rows - 1 ? height : Math.floor(((ty + 1) * height) / rows);
+    for (let tx = 0; tx < cols; tx++) {
+      const x0 = Math.floor((tx * width) / cols);
+      const x1 = tx === cols - 1 ? width : Math.floor(((tx + 1) * width) / cols);
+      let sum = 0;
+      let n = 0;
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          sum += lumAt(data, (y * width + x) * 4);
+          n++;
+        }
+      }
+      if (n > 0) means.push(sum / n);
+    }
+  }
+  const mean = means.reduce((a, b) => a + b, 0) / means.length;
+  return means.reduce((a, b) => a + (b - mean) ** 2, 0) / means.length;
+}
+
+/**
+ * Mean magnitude of a plain horizontal+vertical finite-difference luminance
+ * gradient — no external image-processing library, just array math over the
+ * same decoded pixel buffer meanLuminance/flatFrameRatio already use.
+ * Near-zero for a flat/smooth frame; higher when real edges are present.
+ */
+export function meanGradientMagnitude({ data, width, height }) {
+  let sum = 0;
+  const n = width * height;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const l = lumAt(data, i);
+      const gx = x < width - 1 ? lumAt(data, i + 4) - l : 0;
+      const gy = y < height - 1 ? lumAt(data, i + width * 4) - l : 0;
+      sum += Math.sqrt(gx * gx + gy * gy);
+    }
+  }
+  return sum / n;
+}
+
+/**
+ * Conservative silhouette-shape metrics for the character region, derived
+ * from the same with/without-character pair characterAreaFraction already
+ * diffs. A solid rectangular/primitive placeholder fills nearly all of its
+ * own changed-pixel bounding box and has very little internal edge
+ * structure; an articulated silhouette has gaps (lower fill ratio) and more
+ * boundary relative to its area (higher edge density). No general shape or
+ * semantic recognition — just bounding-box fill ratio and a perimeter-vs-
+ * area heuristic over the same diff mask.
+ */
+export function characterSilhouetteMetrics(withChar, withoutChar, threshold = 0.02) {
+  if (withChar.width !== withoutChar.width || withChar.height !== withoutChar.height) {
+    throw new Error(
+      `Cannot compute silhouette metrics for images of different size: ${withChar.width}x${withChar.height} vs ${withoutChar.width}x${withoutChar.height}`,
+    );
+  }
+  const { width, height } = withChar;
+  const mask = new Uint8Array(width * height);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  let count = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const p = y * width + x;
+      const diff = Math.abs(lumAt(withChar.data, p * 4) - lumAt(withoutChar.data, p * 4));
+      if (diff > threshold) {
+        mask[p] = 1;
+        count++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (count === 0) return null;
+
+  const bboxW = maxX - minX + 1;
+  const bboxH = maxY - minY + 1;
+  const fillRatio = count / (bboxW * bboxH);
+
+  let edgePixels = 0;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const p = y * width + x;
+      if (!mask[p]) continue;
+      const left = x > 0 ? mask[p - 1] : 0;
+      const right = x < width - 1 ? mask[p + 1] : 0;
+      const up = y > 0 ? mask[p - width] : 0;
+      const down = y < height - 1 ? mask[p + width] : 0;
+      if (!left || !right || !up || !down) edgePixels++;
+    }
+  }
+  const edgeDensity = edgePixels / count;
+
+  return { fillRatio, edgeDensity, maskCount: count };
+}
+
 export function localLuminanceVariation({ data, width, height }, blockSize = THRESHOLDS.environmentBlockSize) {
   let total = 0;
   let blocks = 0;
@@ -89,7 +202,7 @@ export function localLuminanceVariation({ data, width, height }, blockSize = THR
 }
 
 /** Fraction of neighbouring pixel comparisons with a visible luminance edge. */
-export function edgeDensity({ data, width, height }, edgeThreshold = 0.035) {
+export function edgeDensity({ data, width, height }, edgeThreshold = 0.0015) {
   let edges = 0;
   let comparisons = 0;
   for (let y = 0; y < height; y++) {
@@ -219,6 +332,9 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
   const effectiveCameraDiagnostics = cameraDiagnostics || (typeof cameraDepthM === 'number'
     ? { method: 'gpu-depth', nearestDepthM: cameraDepthM, terrainClearanceM: 1 }
     : null);
+  if (!effectiveCameraDiagnostics || typeof effectiveCameraDiagnostics !== 'object' || Array.isArray(effectiveCameraDiagnostics)) {
+    failures.push(`window.__demo.cameraDiagnostics() returned ${JSON.stringify(effectiveCameraDiagnostics)} instead of an object — the camera-clipping gate cannot run. Implement it to return {method, nearestDepthM, terrainClearanceM}.`);
+  }
   failures.push(...validateCameraDiagnostics(effectiveCameraDiagnostics, { terrainDiagnostics }));
   if (typeof frameStats?.medianMs !== 'number' || !Number.isFinite(frameStats.medianMs) || frameStats.medianMs < 0) {
     failures.push(
@@ -251,6 +367,10 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
     let lum = null;
     let flat = null;
     let charFraction = null;
+    let envTileVariance = null;
+    let envEdgeDensity = null;
+    let charFillRatio = null;
+    let charEdgeDensity = null;
     let environmentVariation = null;
     let environmentEdges = null;
 
@@ -271,6 +391,25 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
       }
     }
 
+    // Generic environment-detail metrics, computed on the character-hidden
+    // screenshot so a large or nearby character silhouette can't mask an
+    // otherwise flat/beige/low-detail environment.
+    if (validImgNoChar) {
+      envTileVariance = tileLuminanceVariance(imageWithoutCharacter);
+      envEdgeDensity = meanGradientMagnitude(imageWithoutCharacter);
+      info.push(`[${name}] environment tile-luminance variance ${envTileVariance.toFixed(5)}, edge density ${envEdgeDensity.toFixed(5)}`);
+      if (envTileVariance < THRESHOLDS.tileVarianceMin) {
+        failures.push(
+          `[${name}] environment tile-luminance variance ${envTileVariance.toFixed(5)} below floor ${THRESHOLDS.tileVarianceMin} (character hidden) — the environment looks flat/low-detail across the frame.`,
+        );
+      }
+      if (envEdgeDensity < THRESHOLDS.edgeDensityMin) {
+        failures.push(
+          `[${name}] environment edge density ${envEdgeDensity.toFixed(5)} below floor ${THRESHOLDS.edgeDensityMin} (character hidden) — the environment has almost no visible structure/edges.`,
+        );
+      }
+    }
+
     if (validImg && validImgNoChar) {
       try {
         charFraction = changedAreaFraction(image, imageWithoutCharacter);
@@ -283,6 +422,17 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
           failures.push(
             `[${name}] character covers ${(charFraction * 100).toFixed(1)}% of frame (cap ${THRESHOLDS.characterAreaMax * 100}%) — camera is too close to read the environment.`,
           );
+        }
+        const silhouette = characterSilhouetteMetrics(image, imageWithoutCharacter);
+        if (silhouette) {
+          charFillRatio = silhouette.fillRatio;
+          charEdgeDensity = silhouette.edgeDensity;
+          info.push(`[${name}] character silhouette fill ${(charFillRatio * 100).toFixed(1)}%, edge density ${(charEdgeDensity * 100).toFixed(1)}%`);
+          if (charFillRatio > THRESHOLDS.characterFillRatioMax && charEdgeDensity < THRESHOLDS.characterEdgeDensityMin) {
+            failures.push(
+              `[${name}] character silhouette looks like a solid primitive (bounding-box fill ${(charFillRatio * 100).toFixed(1)}%, edge density ${(charEdgeDensity * 100).toFixed(1)}%) — character must have an articulated, non-primitive silhouette.`,
+            );
+          }
         }
         environmentVariation = localLuminanceVariation(imageWithoutCharacter);
         environmentEdges = edgeDensity(imageWithoutCharacter);
@@ -299,12 +449,16 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
       meanLuminance: typeof lum === 'number' && Number.isFinite(lum) ? lum : null,
       flatFrameRatio: typeof flat === 'number' && Number.isFinite(flat) ? flat : null,
       characterAreaFraction: typeof charFraction === 'number' && Number.isFinite(charFraction) ? charFraction : null,
+      environmentTileVariance: typeof envTileVariance === 'number' && Number.isFinite(envTileVariance) ? envTileVariance : null,
+      environmentEdgeDensity: typeof envEdgeDensity === 'number' && Number.isFinite(envEdgeDensity) ? envEdgeDensity : null,
+      characterFillRatio: typeof charFillRatio === 'number' && Number.isFinite(charFillRatio) ? charFillRatio : null,
+      characterEdgeDensity: typeof charEdgeDensity === 'number' && Number.isFinite(charEdgeDensity) ? charEdgeDensity : null,
       localLuminanceVariation: typeof environmentVariation === 'number' && Number.isFinite(environmentVariation) ? environmentVariation : null,
       edgeDensity: typeof environmentEdges === 'number' && Number.isFinite(environmentEdges) ? environmentEdges : null,
     });
   }
 
-  const frameByName = new Map((frames || []).map((frame) => [frame?.name, frame]));
+  const frameByName = new Map((frames || []).map((frame) => [frame?.name, { ...frame, valid: isValidImage(frame?.image) }]));
   const poseDifferences = { idleLocomotion: null, idleMechanic: null };
   for (const [key, otherName, threshold] of [
     ['idleLocomotion', 'locomotion', THRESHOLDS.poseIdleLocomotionMinChangedArea],
@@ -325,6 +479,41 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
     }
   }
 
+  // 5. Pose-comparison gate: idle must look visibly different from locomotion and mechanic.
+  let idleVsLocomotion = null;
+  let idleVsMechanic = null;
+  const idleEntry = frameByName.get('idle');
+  const locomotionEntry = frameByName.get('locomotion');
+  const mechanicEntry = frameByName.get('mechanic');
+
+  if (idleEntry?.valid && locomotionEntry?.valid) {
+    try {
+      idleVsLocomotion = changedAreaFraction(idleEntry.image, locomotionEntry.image);
+      info.push(`idle-vs-locomotion changed area ${(idleVsLocomotion * 100).toFixed(1)}%`);
+      if (idleVsLocomotion < THRESHOLDS.poseChangeMinFraction) {
+        failures.push(
+          `idle and locomotion poses differ by only ${(idleVsLocomotion * 100).toFixed(1)}% of the frame (floor ${THRESHOLDS.poseChangeMinFraction * 100}%) — poses are not visibly distinguishable.`,
+        );
+      }
+    } catch (err) {
+      failures.push(`failed to compare idle and locomotion poses: ${err.message}`);
+    }
+  }
+
+  if (idleEntry?.valid && mechanicEntry?.valid) {
+    try {
+      idleVsMechanic = changedAreaFraction(idleEntry.image, mechanicEntry.image);
+      info.push(`idle-vs-mechanic changed area ${(idleVsMechanic * 100).toFixed(1)}%`);
+      if (idleVsMechanic < THRESHOLDS.poseChangeMinFraction) {
+        failures.push(
+          `idle and mechanic poses differ by only ${(idleVsMechanic * 100).toFixed(1)}% of the frame (floor ${THRESHOLDS.poseChangeMinFraction * 100}%) — poses are not visibly distinguishable.`,
+        );
+      }
+    } catch (err) {
+      failures.push(`failed to compare idle and mechanic poses: ${err.message}`);
+    }
+  }
+
   if (Number.isFinite(frameStats?.medianMs) && Number.isFinite(frameStats?.p99Ms) && frameStats?.samples >= 1) {
     info.push(
       `frame time: median ${frameStats.medianMs.toFixed(1)} ms, p99 ${frameStats.p99Ms.toFixed(1)} ms over ${frameStats.samples} samples (informational — headless timing is not gated)`,
@@ -336,7 +525,12 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
     cameraDiagnostics: effectiveCameraDiagnostics && typeof effectiveCameraDiagnostics === 'object' ? effectiveCameraDiagnostics : null,
     cameraNearestDepthM: typeof effectiveCameraDiagnostics?.nearestDepthM === 'number' && Number.isFinite(effectiveCameraDiagnostics.nearestDepthM) && effectiveCameraDiagnostics.nearestDepthM >= 0 ? effectiveCameraDiagnostics.nearestDepthM : null,
     terrainDiagnostics: terrainDiagnostics && typeof terrainDiagnostics === 'object' ? terrainDiagnostics : null,
+    rendererInfo: null,
     poseDifferences,
+    poseComparison: {
+      idleVsLocomotionChangedFraction: typeof idleVsLocomotion === 'number' && Number.isFinite(idleVsLocomotion) ? idleVsLocomotion : null,
+      idleVsMechanicChangedFraction: typeof idleVsMechanic === 'number' && Number.isFinite(idleVsMechanic) ? idleVsMechanic : null,
+    },
     frameStats: {
       medianMs: typeof frameStats?.medianMs === 'number' && Number.isFinite(frameStats.medianMs) && frameStats.medianMs >= 0 ? frameStats.medianMs : null,
       p99Ms: typeof frameStats?.p99Ms === 'number' && Number.isFinite(frameStats.p99Ms) && frameStats.p99Ms >= 0 ? frameStats.p99Ms : null,
