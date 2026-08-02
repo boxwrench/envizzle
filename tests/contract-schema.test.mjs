@@ -152,6 +152,42 @@ test('standalone validator agrees with the real validator: absolute path anywher
   });
 });
 
+// Regression test for the review finding: validateProjectShape previously only checked
+// engine/shaderLanguage/shaderLanguageExtension/materialApi were non-empty strings, without
+// cross-checking them against the canonical tuple for the *stated* renderingProfile. This
+// mutation is well-typed (every field is a legitimate non-empty string) but wrong for the
+// declared babylon-webgpu profile — it must still be rejected by both validators.
+test('standalone validator agrees with the real validator: well-typed but wrong-for-profile project tuple is rejected by both', () => {
+  const result = assembleBrief(canonicalShowcaseSpec('Alpine Dawn'), { rootDir: repoRoot });
+  assert.equal(result.buildContract.project.renderingProfile, 'babylon-webgpu', 'fixture assumption: Alpine Dawn is babylon-webgpu');
+  const mutated = clone(result.buildContract);
+  const before = JSON.stringify(mutated);
+  mutated.project.engine = 'Three.js latest stable, WebGLRenderer (WebGL2 only)';
+  mutated.project.shaderLanguage = 'GLSL ES 3.00 raw modules';
+  mutated.project.shaderLanguageExtension = 'glsl';
+  mutated.project.materialApi = 'Three.js RawShaderMaterial on WebGLRenderer';
+  assert.notEqual(JSON.stringify(mutated), before, 'mutation must actually change the contract');
+  // Sanity check: every mutated field is still a legitimate non-empty string, and matches the
+  // *other* profile's real tuple exactly — this is not a garbage/malformed value, it is simply
+  // the wrong tuple for the profile actually declared on this contract.
+  for (const field of ['engine', 'shaderLanguage', 'shaderLanguageExtension', 'materialApi']) {
+    assert.equal(typeof mutated.project[field], 'string');
+    assert.notEqual(mutated.project[field].trim(), '');
+  }
+
+  const real = realValidateBuildContract(mutated);
+  const standalone = validateBuildContractStandalone(mutated);
+  assert.equal(real.valid, false, 'real validator should reject a wrong-for-profile rendering tuple');
+  assert.equal(standalone.valid, false, 'standalone validator should also reject a wrong-for-profile rendering tuple');
+  assert.match(standalone.errors.join('; '), /rendering profile tuple/i);
+});
+
+test('standalone validator agrees with the real validator: project.briefFilename not matching the deterministic name-derived pattern is rejected by both', () => {
+  assertBothReject('briefFilename does not match derived name pattern', (contract) => {
+    contract.project.briefFilename = 'SOMETHING_ELSE_TECHDEMO_PROMPT.md';
+  });
+});
+
 test('standalone validator agrees with the real validator: unknown key injected at top level is rejected by both', () => {
   assertBothReject('unknown top-level key', (contract) => {
     contract.unexpected = true;

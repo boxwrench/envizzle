@@ -94,6 +94,14 @@ const RENDERER_INFO_BY_PROFILE = {
   'three-webgl2': { keys: ['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors'], backend: 'webgl2', shaderLanguage: 'glsl-es-300', materialsReadyRequired: true, minRenderedFrames: 1, maxValidationErrors: 0 },
 };
 
+// Mirrors selection.mjs's RENDERING_PROFILES engine/shaderLang/shaderLangExt/materialApi tuple
+// (exactly 2 fixed entries) — same Tier-2 "small/stable/2-entry-table" criterion already applied
+// to RENDERER_INFO_BY_PROFILE above, applied consistently to the project.* rendering tuple too.
+const PROJECT_FIELDS_BY_PROFILE = {
+  'babylon-webgpu': { engine: 'Babylon.js latest stable, WebGPU only', shaderLanguage: 'WGSL', shaderLanguageExtension: 'wgsl', materialApi: 'Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL' },
+  'three-webgl2': { engine: 'Three.js latest stable, WebGLRenderer (WebGL2 only)', shaderLanguage: 'GLSL ES 3.00 raw modules', shaderLanguageExtension: 'glsl', materialApi: 'Three.js RawShaderMaterial on WebGLRenderer' },
+};
+
 // Minimum forbidden-pattern IDs common to every rendering profile (see global-constraints.md).
 const UNIVERSAL_FORBIDDEN_PATTERN_IDS = ['webgl-fallback', 'duplicate-terrain-displacement', 'cpu-predisplaced-render-mesh', 'premature-readiness', 'suppressed-initialization-failure', 'placeholder-character', 'indistinguishable-poses', 'render-loop-allocation', 'incomplete-evidence', 'continue-after-failed-stage'];
 
@@ -187,10 +195,16 @@ function compareCanonical(value, canonical, pathLabel, errors) {
 function validateProjectShape(project, errors) {
   if (!exactKeys(project, PROJECT_KEYS, 'project', errors)) return;
   if (!nonEmptyString(project.name) || !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(project.name)) errors.push('project.name must be a safe upper-case hyphenated name');
-  if (!isSafeRelativePath(project.briefFilename)) errors.push('project.briefFilename must be a safe relative path');
+  if (!isSafeRelativePath(project.briefFilename) || (nonEmptyString(project.name) && project.briefFilename !== `${project.name.replace(/-/g, '_')}_TECHDEMO_PROMPT.md`)) {
+    errors.push('project.briefFilename must be the deterministic project brief filename');
+  }
   if (typeof project.briefSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(project.briefSha256)) errors.push('project.briefSha256 must be exactly 64 lowercase hexadecimal characters');
-  if (!RENDERING_PROFILE_IDS.includes(project.renderingProfile)) errors.push(`project.renderingProfile must be one of: ${RENDERING_PROFILE_IDS.join(', ')}`);
-  if (!nonEmptyString(project.engine) || !nonEmptyString(project.shaderLanguage) || !nonEmptyString(project.shaderLanguageExtension) || !nonEmptyString(project.materialApi)) errors.push('project rendering-profile tuple fields must be non-empty strings');
+  const profileFields = PROJECT_FIELDS_BY_PROFILE[project.renderingProfile];
+  if (!profileFields) {
+    errors.push(`project.renderingProfile must be one of: ${RENDERING_PROFILE_IDS.join(', ')}`);
+  } else if (project.engine !== profileFields.engine || project.shaderLanguage !== profileFields.shaderLanguage || project.shaderLanguageExtension !== profileFields.shaderLanguageExtension || project.materialApi !== profileFields.materialApi) {
+    errors.push('project rendering profile tuple does not match the canonical rendering profile');
+  }
   if (!RENDERING_PARADIGMS.includes(project.renderingParadigm)) errors.push(`project.renderingParadigm must be one of: ${RENDERING_PARADIGMS.join(', ')}`);
   if (project.assetStrategy !== 'zero-asset') errors.push('project.assetStrategy must be zero-asset');
   if (!nonEmptyString(project.assetStrategyText)) errors.push('project.assetStrategyText must be non-empty');
