@@ -66,6 +66,18 @@ test('points at the real files it depends on', () => {
   }
 });
 
+test('SKILL.md points at the staged build-supervisor references and stays under the line ceiling', () => {
+  assert.ok(skill.split(/\r?\n/).length <= 500, `SKILL.md is ${skill.split(/\r?\n/).length} lines; the ceiling is 500`);
+  for (const reference of [
+    'references/implementation-planning.md',
+    'references/babylon-webgpu-patterns.md',
+    'references/visual-review.md',
+  ]) {
+    assert.ok(skill.includes(reference), `SKILL.md missing staged build-supervisor pointer: ${reference}`);
+  }
+  assert.match(skill, /5-stage build-supervisor model/i);
+  assert.match(skill, /forbidden-pattern enforcement/i);
+});
 test('mandates inlining the character recipe verbatim', () => {
   assert.match(skill, /inline/i);
   assert.match(skill, /verbatim|in full/i);

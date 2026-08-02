@@ -34,7 +34,7 @@ const decode = (name) => {
 };
 const okStats = { medianMs: 11, p99Ms: 15, samples: 600 };
 
-// window.__demo.cameraDiagnostics() replaces the old scalar cameraNearestDepth()
+// window.__demo.cameraDiagnostics() replaces the old scalar camera-depth hook
 // (Task 6). This is a passing fixture; individual tests mutate a single field
 // off of it so each negative case is proven to differ from something that passes.
 const validCameraDiagnostics = () => ({ method: 'gpu-depth', nearestDepthM: 5, terrainClearanceM: 4.5 });

@@ -112,7 +112,7 @@ Also listen for `device.addEventListener('uncapturederror', ...)` (or the equiva
 
 ### Device-Loss Handling
 
-Await `device.lost` and treat its resolution as a genuine failure state: report it, do not attempt to silently recreate the device and continue as if nothing happened, and do not leave `window.__demo.ready` at `true` once the device is gone. A lost device invalidates every readiness claim made before it was lost.
+Await `device.lost` and treat its resolution as a genuine failure state: report it, do not attempt to silently recreate the device and continue as if nothing happened, and do not leave the hook in status `"ready"` or with `ready: true` once the device is gone. A lost device invalidates every readiness claim made before it was lost.
 
 ## Render Submission and Completion
 
@@ -130,7 +130,7 @@ Backend proof's required outputs include at least one submitted frame completing
 
 ### Truthful Readiness
 
-`window.__demo.ready` starts `false` and becomes `true` only after every proof step above has genuinely succeeded, in order: adapter acquisition, device creation, `WebGPUEngine.initAsync()`, Babylon shader processing, pipeline creation, binding/resource creation, forced compilation of every required material and representative mesh, all required materials ready, zero scoped validation errors, zero uncaptured validation errors, no device loss, at least one render submission, submitted GPU work completion where supported, and no delayed blocking validation error during a bounded drain period after submission.
+The hook starts with `ready: false`, `status: "initializing"`, and `error: null`. Set `status: "ready"` only after every proof step above has genuinely succeeded in order. On failure, set `status: "failed"`, keep `ready: false`, and provide a nonblank normalized `error`. Readiness is a report of what happened, not an optimistic guess about what should have happened by now.
 
 Never set `ready` inside a `finally` block, and never suppress an initialization failure and continue as though it succeeded. On failure, `status` becomes `"failed"`, `ready` stays `false`, and `error` is set to a nonblank, normalized description of what actually went wrong. Readiness is a report of what happened, not an optimistic guess about what should have happened by now.
 

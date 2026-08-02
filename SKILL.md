@@ -459,3 +459,10 @@ you are reproducing the failure this skill exists to prevent.
 | `benchmark.mjs` | Benchmark case registry, bundle preparation, result collection, comparative summary generation (CLI: `node benchmark.mjs`) |
 | `reference-loader.mjs` | Strict reference loader with duplicate/unknown entry detection and cross-checking |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |
+## Staged build-supervisor references
+
+Use `references/implementation-planning.md`, `references/babylon-webgpu-patterns.md`,
+and `references/visual-review.md` when applying the 5-stage build-supervisor model.
+They hold the canonical stage order, rendering-profile patterns, and visual review
+questions; the build contract and verifier enforce forbidden-pattern enforcement
+at a high level.

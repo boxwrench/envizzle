@@ -29,6 +29,25 @@ test('all six new reference files exist and presets.md no longer exists', () => 
   assert.equal(fs.existsSync(path.join('references', 'presets.md')), false, 'presets.md should no longer exist');
 });
 
+test('active docs and verifier-facing source contain no old camera hook method', () => {
+  const activePaths = [
+    'SKILL.md',
+    'TEMPLATE.md',
+    'README.md',
+    ...fs.readdirSync('references').filter((file) => file.endsWith('.md')).map((file) => path.join('references', file)),
+    'assemble.mjs',
+    'build-contract.mjs',
+    'benchmark.mjs',
+    'selection.mjs',
+    'check.mjs',
+    'reference-loader.mjs',
+    ...fs.readdirSync('verify').filter((file) => file.endsWith('.mjs')).map((file) => path.join('verify', file)),
+  ];
+  const oldHookMethod = ['cameraNearest', 'Depth'].join('');
+  const oldHookPattern = new RegExp(oldHookMethod + '\\s*\\(');
+  const offenders = activePaths.filter((file) => oldHookPattern.test(fs.readFileSync(file, 'utf8')));
+  assert.deepEqual(offenders, [], `active files still mention the renamed hook method: ${offenders.join(', ')}`);
+});
 test('references longer than 100 lines contain a linked Contents section near the top', () => {
   const files = fs.readdirSync('references').filter((f) => f.endsWith('.md'));
   for (const f of files) {
