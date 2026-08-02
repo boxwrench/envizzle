@@ -210,6 +210,16 @@ fail the build without it. Readiness is truthful: it stays false until adapter/d
 acquisition, engine initialization, shader processing, pipeline and resource creation,
 material compilation/readiness, zero validation errors, and one successful rendered
 frame have all completed.
+The hook starts with ready: false, status: "initializing", and error: null. Set status:
+"ready" only after adapter acquisition → device creation → WebGPUEngine.initAsync()
+→ Babylon shader processing → pipeline creation → binding/resource creation
+→ forced compilation of every required material and representative mesh
+→ all required materials ready → zero scoped validation errors → zero uncaptured
+validation errors → no device loss → at least one render submission → submitted
+GPU work completion where supported → no delayed blocking validation error during
+a bounded drain period. If initialization fails, set status: "failed", keep
+ready: false, and provide a nonblank normalized error. Never set ready in
+a finally block and never suppress an initialization failure and continue.
 
 ```js
 window.__demo = {
@@ -237,6 +247,12 @@ nonblank normalized `error`; never set `ready` in a `finally` block or suppress 
 exception. The verifier waits for either ready/true or failed and reports failed
 immediately. Runtime readiness only proves that the required renderer produced a
 frame; it does not mean Envizzle evidence and visual verification passed.
+
+`rendererInfo()` must report the selected backend and shader language, material readiness,
+submitted frames, and an empty validation-error list. `terrainDiagnostics()` must prove
+GPU-owned render elevation and GPU-readback parity. `cameraDiagnostics()` replaces the
+old scalar camera-depth hook and must report its measurement method, nearest depth, and
+terrain clearance.
 
 `setCharacterVisible(false)` must hide only the character and its cloth, leaving
 terrain, vegetation, and atmosphere untouched.

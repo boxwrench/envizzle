@@ -30,6 +30,7 @@ const removeTempDir = (dir) => {
 };
 
 test('all six canonical showcase selections can produce valid briefs', () => {
+  const profilesSeen = new Set();
   for (const [name, showcase] of Object.entries(SHOWCASES)) {
     const spec = {
       selection: {
@@ -74,7 +75,27 @@ test('all six canonical showcase selections can produce valid briefs', () => {
 
     const val = validateBrief(brief);
     assert.equal(val.ok, true, `Brief for ${name} failed validateBrief: ${val.problems.join(' | ')}`);
+    for (const heading of [
+      '## Product Principle',
+      '## Architecture Ownership',
+      '## Implementation Stages',
+      '## Rendering-Profile Pattern Guidance',
+      '## Forbidden Patterns',
+      '## Review Criteria',
+    ]) {
+      assert.ok(brief.includes(heading), `${name} brief missing staged section: ${heading}`);
+    }
+    const duneAntiPattern = 'Do not represent dunes as overlapping cones, pyramids, low-resolution square tiles, visibly independent LOD grids, or repeated isolated procedural primitives.';
+    const normalizedBrief = brief.replaceAll('\r', '').replaceAll('\n', ' ');
+    if (showcase.biome === 'Dune Desert') {
+      assert.ok(normalizedBrief.includes(duneAntiPattern), `${name} brief must include Dune-specific anti-pattern guidance`);
+    } else {
+      assert.equal(normalizedBrief.includes(duneAntiPattern), false, `${name} brief must not include Dune-specific anti-pattern guidance`);
+    }
+
+    profilesSeen.add(showcase.renderingProfile);
   }
+  assert.deepEqual([...profilesSeen].sort(), ['babylon-webgpu', 'three-webgl2']);
 });
 
 test('output is deterministic byte-for-byte', () => {

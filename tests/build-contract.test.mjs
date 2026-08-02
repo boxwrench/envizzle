@@ -1208,23 +1208,13 @@ test('renderHandoff no longer contains the old "needs nothing else" sentence and
   assert.match(rendered, /the build contract, the evidence record, this handoff, and the verifier/i);
 });
 
-test('checkStagedSections defaults to false so validateAssemblyArtifacts does not break assembleBrief before Task 8 wires the new sections in', () => {
+test('assembleBrief wires every staged section and enables hard drift detection', () => {
   const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
   const withoutFlag = validateAssemblyArtifacts({ model: assembled.assemblyModel, contract: assembled.buildContract, brief: assembled.brief });
   assert.equal(withoutFlag.valid, true, withoutFlag.errors.join('; '));
 
   const withFlagOnRealBrief = validateAssemblyArtifacts({ model: assembled.assemblyModel, contract: assembled.buildContract, brief: assembled.brief, checkStagedSections: true });
-  assert.equal(withFlagOnRealBrief.valid, false, 'the real assembled brief does not yet contain the Task 4 sections (Task 8 wires them in)');
-  for (const message of [
-    'brief does not contain the canonical product principle',
-    'brief does not contain the canonical architecture ownership section',
-    'brief does not contain the canonical implementation stage instructions',
-    'brief does not contain the canonical rendering-profile pattern guidance',
-    'brief does not contain the canonical forbidden pattern list',
-    'brief does not contain the canonical review criteria',
-  ]) {
-    assert.ok(withFlagOnRealBrief.errors.includes(message), `expected error "${message}"`);
-  }
+  assert.equal(withFlagOnRealBrief.valid, true, withFlagOnRealBrief.errors.join('; '));
 });
 
 function buildSyntheticStagedBrief(contract) {

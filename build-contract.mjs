@@ -1305,7 +1305,7 @@ export function renderBabylonPatternGuidance(contract) {
       '',
       '### Positive Pattern Example: Minimal WGSL ShaderMaterial',
       '',
-      'Canonical worked example from `references/babylon-webgpu-patterns.md` — a ShaderMaterial configured for WGSL, registered on `ShaderStore.ShadersStoreWGSL`, with no manual `@group`/`@binding` anywhere; Babylon owns the generated binding layout:',
+      'Canonical worked example from the bundled rendering-profile pattern reference — a ShaderMaterial configured for WGSL, registered on `ShaderStore.ShadersStoreWGSL`, with no manual `@group`/`@binding` anywhere; Babylon owns the generated binding layout:',
       '',
       '```js',
       extractBabylonPatternExample(),
@@ -1380,14 +1380,7 @@ export function renderHandoff({ fileName, builderAgent, contract }) {
 `;
 }
 
-// `checkStagedSections` is opt-in (default false) rather than always-on: `assemble.mjs`'s
-// `assembleBrief()` calls this function as a hard gate (throws on failure), and the Task 4
-// render*() functions for the 7 staged-build-supervisor sections are not yet appended to the
-// assembled brief body — that wiring is Task 8's job. Turning these checks on unconditionally
-// today would make every assembled brief fail its own self-check. Task 8 should pass
-// `checkStagedSections: true` once it appends the new render*() output to `result`; until then,
-// tests exercise these checks directly by passing `checkStagedSections: true` against synthetic
-// briefs to prove the drift-detection logic itself is correct.
+// `checkStagedSections` remains opt-in (default false) so synthetic or partial callers can choose whether to enforce every staged section. The production assembler passes `true` after appending all render*() output, keeping the canonical brief/contract drift check load-bearing.
 export function validateAssemblyArtifacts({ model, contract, brief, checkStagedSections = false }) {
   const errors = [];
   if (typeof brief !== 'string') {

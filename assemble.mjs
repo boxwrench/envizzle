@@ -26,6 +26,12 @@ import {
   createCanonicalAssemblyModel,
   createEvidenceTemplate,
   renderContractSummary,
+  renderProductPrinciple,
+  renderArchitectureOwnership,
+  renderImplementationStages,
+  renderBabylonPatternGuidance,
+  renderForbiddenPatterns,
+  renderReviewCriteria,
   renderHandoff,
   renderMilestoneInstructions,
   validateAssemblyArtifacts,
@@ -896,7 +902,14 @@ export function assembleBrief(spec, options = {}) {
 
   result += assemblyDecisionsText + '\n';
 
-  result += `\n\n${renderContractSummary(canonicalModel)}\n${renderMilestoneInstructions(canonicalModel)}\n`;
+  result += `\n\n${renderContractSummary(canonicalModel)}\n` +
+    `${renderMilestoneInstructions(canonicalModel)}\n` +
+    `${renderProductPrinciple(canonicalModel)}\n` +
+    `${renderArchitectureOwnership(canonicalModel)}\n` +
+    `${renderImplementationStages(canonicalModel)}\n` +
+    `${renderBabylonPatternGuidance(canonicalModel)}\n` +
+    `${renderForbiddenPatterns(canonicalModel)}\n` +
+    `${renderReviewCriteria(canonicalModel)}\n`;
 
   // Final Validation
   const briefVal = validateBrief(result);
@@ -921,6 +934,7 @@ export function assembleBrief(spec, options = {}) {
     model: canonicalModel,
     contract: buildContract,
     brief: result,
+    checkStagedSections: true,
   });
   if (!artifactAgreement.valid) {
     throw new Error(`Brief/build-contract agreement failed: ${artifactAgreement.errors.join(' | ')}`);

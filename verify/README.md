@@ -11,48 +11,66 @@ declaring anything a pass.
 ## Running it
 
 ```bash
-node verify/verify_demo.mjs [path-to-generated-demo]
+node verify/verify_demo.mjs [path-to-generated-demo] [--browser-channel chrome] [--headed]
 ```
 
 Defaults to the current working directory if no path is given. It:
 
-1. Audits the directory for required files (`index.html`, `package.json`,
-   `vite.config.js`, `DECISIONS.md`, `PERF.md`, `src/main.js`).
-2. Runs `npx vite build` and fails on any build error.
-3. Boots a local `vite` dev server and launches headless Chromium via
-   Playwright with WebGPU flags enabled.
-4. Waits for the `window.__demo` hook (see below). If it never appears,
-   verification stops there — nothing past this point is checkable without
-   it.
-5. Checks for runtime/console errors.
-6. Cycles through the `idle`, `locomotion`, and `mechanic` poses. For each,
+1. Audits the directory for required files (index.html, package.json,
+   vite.config.js, DECISIONS.md, PERF.md, src/main.js).
+2. Runs npx vite build and fails on any build error.
+3. Boots a local vite dev server and launches Chromium via Playwright with
+   WebGPU flags enabled. Use --browser-channel chrome to select the supported
+   Chrome channel, or --headed to show the browser window.
+4. Waits for the window.__demo hook (see below). A browser without WebGPU is
+   reported as an operational error; a demo that falls back after WebGPU is
+   available is a failed verification.
+5. Waits for truthful readiness, then checks renderer, terrain, camera, and
+   frame diagnostics plus runtime/console errors.
+6. Cycles through the idle, locomotion, and mechanic poses. For each,
    captures a screenshot with the character visible and one with it hidden,
-   and writes `screenshots/milestone_<pose>.png`.
-7. Reads camera depth and frame-time stats from the hook.
-8. Runs `evaluateGates` (see `gates.mjs`) over everything captured and
-   reports pass/fail.
+   and writes screenshots/milestone_<pose>.png.
+7. Runs evaluateGates (see gates.mjs) over everything captured and reports
+   pass/fail.
 
-Exit code is `0` only if every check — including every image gate — passed.
+Exit code is 0 only if every check — including every image gate — passed.
 
 ## The `window.__demo` contract
 
-A generated demo must expose this hook on `window` for verification to run
-past the "hook missing" stage:
+A generated demo must expose this hook on window during initialization for
+verification to run past the "hook missing" stage:
 
 ```js
 window.__demo = {
-  ready: true,                       // becomes true once the scene has loaded and is rendering
-  setPose(name),                     // 'idle' | 'locomotion' | 'mechanic' — move the demo to that milestone
-  setCharacterVisible(bool),         // toggle the character's visibility, nothing else in the scene
-  cameraNearestDepth(),              // metres from the camera to the nearest solid geometry along its view direction
-  frameStats(),                      // { medianMs, p99Ms, samples } over a recent rolling window
+  ready: false,
+  status: "initializing",           // "initializing" | "ready" | "failed"
+  error: null,
+  setPose(name) {},              // 'idle'|'locomotion'|'mechanic'
+  setCharacterVisible(visible) {},
+  rendererInfo() {},
+  terrainDiagnostics() {},
+  cameraDiagnostics() {},
+  frameStats() {},
 };
 ```
 
-Without this hook the orchestrator cannot drive poses, measure camera depth,
-or isolate the character for the visibility gate — so it fails fast and
-explicitly (`window.__demo hook missing`) instead of quietly skipping checks
-and reporting success anyway.
+The hook must start with ready: false, status: "initializing", and error:
+null. Set status: "ready" only after adapter acquisition, device creation,
+WebGPUEngine.initAsync(), shader processing, pipeline and resource creation,
+required-material compilation, zero scoped and uncaptured validation errors,
+no device loss, at least one completed render submission, and a bounded drain
+with no delayed blocking validation error. On initialization failure, set
+status: "failed", keep ready: false, and provide a nonblank normalized error.
+ready: true is valid only with status: "ready"; never set it in a finally block
+or suppress an initialization failure.
+
+rendererInfo() must strictly report the selected backend, shader language,
+material readiness, rendered frame count, and validation errors. The terrain
+diagnostic must prove GPU-owned render elevation with GPU-readback parity, and
+the camera diagnostic must report its method, nearest depth, and terrain
+clearance. Without this hook the orchestrator cannot drive poses, inspect
+readiness, or isolate the character for the visibility gate — so it fails fast
+and explicitly instead of quietly skipping checks and reporting success.
 
 ## The gates (`gates.mjs`)
 
