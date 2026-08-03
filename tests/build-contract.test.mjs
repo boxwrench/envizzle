@@ -415,6 +415,7 @@ test('generated bundle contains all verifier files', () => {
       'report.mjs',
       'patternScan.mjs',
       'contractSchema.mjs',
+      'metricSchema.mjs',
       'verify_demo.mjs',
     ];
     for (const file of expectedFiles) {
@@ -688,14 +689,14 @@ test('written prompt SHA-256 equals ENVIZZLE_BUILD.json project.briefSha256', ()
   }
 });
 
-test('build contract has exactly the 14 canonical top-level keys in order', () => {
+test('build contract has exactly the 15 canonical top-level keys in order', () => {
   const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
   const keys = Object.keys(assembled.buildContract);
   assert.deepEqual(keys, [
-    'schemaVersion', 'project', 'selection', 'stateChannels', 'creative', 'acceptance', 'milestones',
+    'schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'milestones',
     'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria',
   ]);
-  assert.equal(keys.length, 14);
+  assert.equal(keys.length, 15);
 });
 
 test('sourceOfTruth matches the canonical frozen value for every showcase', () => {

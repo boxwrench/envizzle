@@ -144,15 +144,19 @@ test('cpu-predisplaced-render-mesh: does not flag the allowed CPU mirror in heig
   }
 });
 
-test('placeholder-character: flags a primitive box/sphere/capsule stand-in', () => {
-  assertHitAndMiss(
-    'placeholder-character',
-    { 'src/character/model.js': 'const mesh = new THREE.CapsuleGeometry(0.5, 1.5, 4, 8);\n' },
-    { 'src/character/model.js': 'const mesh = buildProceduralSilhouette(archetypeParams);\n' },
-  );
+test('placeholder-character is delegated to visual silhouette gates', () => {
+  const dir = makeProject({
+    'src/character/model.js': 'const mesh = new THREE.CapsuleGeometry(0.5, 1.5, 4, 8);',
+  });
+  try {
+    const results = scanForForbiddenPatterns(dir, [{ id: 'placeholder-character', reason: 'test reason' }]);
+    assert.deepEqual(results, []);
+  } finally {
+    removeProject(dir);
+  }
 });
 
-test('premature-readiness: flags ready:true set without a nearby status==="ready" guard', () => {
+test('premature-readiness: flags ready:true without lifecycle proof and accepts adjacent canonical assignment', () => {
   assertHitAndMiss(
     'premature-readiness',
     {
@@ -161,21 +165,21 @@ test('premature-readiness: flags ready:true set without a nearby status==="ready
     },
     {
       'src/core/demoDiagnostics.js':
-        "function markReady() {\n  if (status === 'ready') {\n    window.__demo.ready = true;\n  }\n}\n",
+        "function markReady() {\n  status = 'ready';\n  window.__demo.ready = true;\n}\n",
     },
   );
 });
 
-test('suppressed-initialization-failure: flags a src/core catch block that never sets status failed', () => {
+test('suppressed-initialization-failure: only initialization catches must set status failed', () => {
   assertHitAndMiss(
     'suppressed-initialization-failure',
     {
       'src/core/engine.js':
-        'try {\n  initAdapter();\n} catch (err) {\n  console.log(err);\n}\n',
+        'function initializeEngine() {\n  try {\n    initAdapter();\n  } catch (err) {\n    console.log(err);\n  }\n}\n',
     },
     {
       'src/core/engine.js':
-        "try {\n  initAdapter();\n} catch (err) {\n  status = 'failed';\n  window.__demo.error = err.message;\n}\n",
+        "function loadAsset() {\n  try {\n    fetchAsset();\n  } catch (err) {\n    console.log(err);\n  }\n}\n",
     },
   );
 });

@@ -24,7 +24,7 @@ const NOVELTY_BUDGET_KEYS = ['addsEngine', 'addsAssetCategory', 'addsPersistentB
 const REQUIRED_CAPTURE_POSES = ['idle', 'locomotion', 'mechanic'];
 const POSE_FILENAME_MAP = { idle: 'milestone_idle.png', locomotion: 'milestone_locomotion.png', mechanic: 'milestone_mechanic.png' };
 
-const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'creative', 'acceptance', 'milestones', 'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria'];
+const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'milestones', 'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria'];
 const PROJECT_KEYS = ['name', 'briefFilename', 'briefSha256', 'renderingProfile', 'engine', 'shaderLanguage', 'shaderLanguageExtension', 'materialApi', 'renderingParadigm', 'assetStrategy', 'assetStrategyText', 'targetHardware', 'coreInteractionSentence'];
 const SELECTION_KEYS = ['creativeMode', 'path', 'baseShowcase', 'ambition', 'includedSections', 'omittedOptionalSections', 'extraSections', 'biome', 'archetype', 'mechanic', 'camera', 'renderingProfile', 'cameraAdjustments', 'changedAxes'];
 const STATE_CHANNEL_KEYS = ['enabled', 'omittedBehavior', 'channels'];
@@ -32,7 +32,7 @@ const STATE_ENTRY_KEYS = ['channel', 'nativeMeaning', 'owningSystem', 'writers',
 const BASELINE_KEYS = ['baseline', 'recoveryMechanism', 'recoveryOutcome'];
 const CREATIVE_KEYS = ['creativeSpark', 'signatureMoment', 'noveltyBudget', 'coherenceOverrides'];
 const SIGNATURE_KEYS = ['enabled', 'text', 'reusedSystem', 'verificationPose', 'instruction'];
-const ACCEPTANCE_KEYS = ['requiredProjectPaths', 'productionBuild', 'verificationHook', 'runtime', 'captures', 'imageGates', 'camera', 'report'];
+const ACCEPTANCE_KEYS = ['requiredProjectPaths', 'productionBuild', 'verificationHook', 'renderer', 'terrain', 'runtime', 'captures', 'imageGates', 'camera', 'evidence', 'environmentVisuals', 'poseDifferences', 'report'];
 const MILESTONE_KEYS = ['id', 'title', 'requiredChecks', 'requiredScreenshotEvidence', 'requiredConsoleEvidence', 'requiredPerformanceEvidence', 'requiredVisualSelfReview', 'completion'];
 const MILESTONE_IDS_IN_ORDER = ['first-runnable-scene', 'systems-complete', 'final-polish'];
 
@@ -212,6 +212,12 @@ function validateProjectShape(project, errors) {
   if (!nonEmptyString(project.coreInteractionSentence)) errors.push('project.coreInteractionSentence must be non-empty');
 }
 
+function validateTerrainElevationShape(terrainElevation, errors) {
+  const label = 'terrainElevation';
+  if (!exactKeys(terrainElevation, Object.keys(TERRAIN_ELEVATION_OWNERSHIP), label, errors)) return;
+  compareCanonical(terrainElevation, TERRAIN_ELEVATION_OWNERSHIP, label, errors);
+}
+
 function validateSelectionShape(selection, errors) {
   if (!exactKeys(selection, SELECTION_KEYS, 'selection', errors)) return;
   if (!CREATIVE_MODES.includes(selection.creativeMode)) errors.push('selection.creativeMode is invalid');
@@ -293,7 +299,7 @@ function validateAcceptanceShape(acceptance, errors) {
   const label = 'acceptance';
   if (!exactKeys(acceptance, ACCEPTANCE_KEYS, label, errors)) return;
   if (!isStringArray(acceptance.requiredProjectPaths) || acceptance.requiredProjectPaths.length === 0) errors.push(`${label}.requiredProjectPaths must be a non-empty string array`);
-  for (const key of ['productionBuild', 'verificationHook', 'runtime', 'captures', 'imageGates', 'camera', 'report']) {
+  for (const key of ['productionBuild', 'verificationHook', 'renderer', 'terrain', 'runtime', 'captures', 'imageGates', 'camera', 'evidence', 'environmentVisuals', 'poseDifferences', 'report']) {
     if (!isPlainObject(acceptance[key])) errors.push(`${label}.${key} must be a plain object`);
   }
   if (isPlainObject(acceptance.verificationHook) && !isStringArray(acceptance.verificationHook.requiredHooks)) errors.push(`${label}.verificationHook.requiredHooks must be a string array`);
@@ -451,6 +457,7 @@ export function validateBuildContractStandalone(contract) {
     errors.push('project.renderingProfile must equal selection.renderingProfile');
   }
   validateStateChannelsShape(contract.stateChannels, contract.selection, errors);
+  validateTerrainElevationShape(contract.terrainElevation, errors);
   validateCreativeShape(contract.creative, contract.selection, errors);
   validateAcceptanceShape(contract.acceptance, errors);
   validateMilestonesShape(contract.milestones, errors);

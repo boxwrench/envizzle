@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { assembleBrief } from '../assemble.mjs';
+import { buildCaseAssemblySpec } from '../benchmark-cases.mjs';
 import { parseVerifyCliArgs, verifyDemo, isBlockingGpuMessage } from '../verify/verify_demo.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,9 +43,9 @@ function makeCompleteEvidence(assembled) {
   return evidence;
 }
 
-function makeProject({ contract = true, evidence = true, contractMutator, evidenceMutator, sourceMain = '' } = {}) {
+function makeProject({ contract = true, evidence = true, contractMutator, evidenceMutator, sourceMain = '', assembly = validAssembly() } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'envizzle-task7-'));
-  const assembled = assembleBrief(validAssembly(), { rootDir: repoRoot });
+  const assembled = assembleBrief(assembly, { rootDir: repoRoot });
   for (const relative of REQUIRED_PATHS) {
     const full = path.join(dir, relative);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -113,6 +114,7 @@ function tinyPngBuffer() {
 
 function makeFakePlaywright({
   gpuAvailable = true,
+  webgl2Available = true,
   demoState = { status: 'ready', ready: true, error: null },
   rendererInfo = { backend: 'webgpu', shaderLanguage: 'wgsl', materialsReady: true, renderedFrames: 1, validationErrors: [] },
   rendererInfoAfterDrain,
@@ -120,6 +122,7 @@ function makeFakePlaywright({
   cameraDiagnostics = { method: 'gpu-depth', nearestDepthM: 5, terrainClearanceM: 4.5 },
   frameStats = { medianMs: 10, p99Ms: 15, samples: 100 },
   onDrain,
+  onPageError,
 } = {}) {
   let drained = false;
   let launchOptions = null;
@@ -130,7 +133,9 @@ function makeFakePlaywright({
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(listener);
     },
-    async goto() {},
+    async goto() {
+      if (onPageError) listeners.get('pageerror')?.forEach((listener) => listener({ message: onPageError }));
+    },
     async waitForFunction() {},
     async waitForTimeout(ms) {
       if (ms === 1 || ms === 250) {
@@ -141,6 +146,7 @@ function makeFakePlaywright({
     async screenshot() { return tinyPngBuffer(); },
     async evaluate(fn) {
       const source = fn.toString();
+      if (source.includes('webgl2')) return webgl2Available ? { available: true, reason: null } : { available: false, reason: 'WebGL2 context unavailable' };
       if (source.includes('navigator.gpu')) return gpuAvailable ? { available: true, reason: null } : { available: false, reason: 'navigator.gpu is undefined' };
       if (source.includes('window.__demo.status')) return demoState;
       if (source.includes('rendererInfo')) return drained && rendererInfoAfterDrain ? rendererInfoAfterDrain : rendererInfo;
@@ -208,6 +214,23 @@ test('missing browser WebGPU capability is operational, not a failed demo', asyn
   }
 });
 
+test('three-webgl2 profile does not require WebGPU', async () => {
+  const project = makeProject({ assembly: buildCaseAssemblySpec('hoshi-signature') });
+  const fake = makeFakePlaywright({
+    gpuAvailable: false,
+    webgl2Available: true,
+    rendererInfo: { backend: 'webgl2', shaderLanguage: 'glsl-es-300', materialsReady: true, renderedFrames: 1, validationErrors: [] },
+  });
+  try {
+    const result = await run(project, fake);
+    assert.notEqual(result.status, 'error', result.failures.join(' | '));
+    assert.equal(result.report.environment.webgpuCapable, false);
+    assert.ok(!result.failures.some((message) => /WebGPU is not available/i.test(message)));
+  } finally {
+    cleanup(project);
+  }
+});
+
 test('renderer backend mismatch remains a demo failure when WebGPU is available', async () => {
   const project = makeProject();
   const fake = makeFakePlaywright({ rendererInfo: { backend: 'webgl2', shaderLanguage: 'glsl-es-300', materialsReady: true, renderedFrames: 1, validationErrors: [] } });
@@ -253,6 +276,7 @@ test('terrain ownership and parity proofs reject every invalid proof mutation', 
     { label: 'insufficient parity samples', terrainDiagnostics: { renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'gpu-readback', paritySamples: 2, parityMaxErrorM: 0.012 }, pattern: /paritySamples/ },
     { label: 'excessive parity error', terrainDiagnostics: { renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'gpu-readback', paritySamples: 8, parityMaxErrorM: 0.031 }, pattern: /parityMaxErrorM/ },
     { label: 'invalid camera method', cameraDiagnostics: { method: 'cpu-height-only', nearestDepthM: 5, terrainClearanceM: 4.5 }, pattern: /cameraDiagnostics.*method/ },
+    { label: 'camera parity method with invalid terrain proof', cameraDiagnostics: { method: 'cpu-height-with-gpu-parity', nearestDepthM: 5, terrainClearanceM: 4.5 }, terrainDiagnostics: { renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'cpu-only', paritySamples: 8, parityMaxErrorM: 0.012 }, pattern: /camera parity qualification failed|parityMethod/ },
   ];
   for (const fixture of cases) {
     const project = makeProject();
@@ -277,6 +301,22 @@ test('delayed blocking validation errors during the bounded drain fail the run a
     assert.equal(result.status, 'failed');
     assert.ok(result.report.runtime.errors.some((message) => /uncaptured validation error/i.test(message)));
     assert.ok(result.failures.some((message) => /incomplete verification/i.test(message)));
+  } finally {
+    cleanup(project);
+  }
+});
+
+test('ordinary page and console errors are blocking runtime failures', async () => {
+  const project = makeProject();
+  const fake = makeFakePlaywright({
+    onPageError: 'ordinary page error',
+    onDrain: (emit) => emit('console', 'ordinary console error'),
+  });
+  try {
+    const result = await run(project, fake);
+    assert.equal(result.status, 'failed');
+    assert.ok(result.report.runtime.errors.some((message) => /ordinary page error/.test(message)));
+    assert.ok(result.report.runtime.errors.some((message) => /ordinary console error/.test(message)));
   } finally {
     cleanup(project);
   }

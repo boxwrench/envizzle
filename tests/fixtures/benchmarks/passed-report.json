@@ -1,65 +1,99 @@
 {
-  "schemaVersion": 1,
-  "status": "passed",
-  "target": "demo-project",
-  "startedAt": "2026-07-31T12:00:00.000Z",
-  "finishedAt": "2026-07-31T12:00:05.000Z",
-  "durationMs": 5000,
-  "requiredPaths": [
-    "index.html",
-    "package.json",
-    "vite.config.js",
-    "DECISIONS.md",
-    "PERF.md",
-    "src/main.js"
-  ],
-  "build": {
-    "ok": true,
-    "error": null
-  },
-  "runtime": {
-    "hookReady": true,
-    "errors": []
-  },
-  "captures": [
-    "milestone_idle.png",
-    "milestone_locomotion.png",
-    "milestone_mechanic.png"
-  ],
-  "gates": {
-    "pass": true,
-    "failures": [],
-    "info": [
-      "[idle] mean luminance 0.420"
-    ],
-    "metrics": {
-      "frames": [
-        {
-          "name": "idle",
-          "meanLuminance": 0.42,
-          "flatFrameRatio": 0.18,
-          "characterAreaFraction": 0.08
-        },
-        {
-          "name": "locomotion",
-          "meanLuminance": 0.42,
-          "flatFrameRatio": 0.18,
-          "characterAreaFraction": 0.08
-        },
-        {
-          "name": "mechanic",
-          "meanLuminance": 0.42,
-          "flatFrameRatio": 0.18,
-          "characterAreaFraction": 0.08
-        }
-      ],
-      "cameraNearestDepthM": 1.2,
-      "frameStats": {
-        "medianMs": 11,
-        "p99Ms": 17,
-        "samples": 600
-      }
-    }
-  },
-  "benchmark": null
+    "schemaVersion":  1,
+    "status":  "passed",
+    "target":  "demo-project",
+    "startedAt":  "2026-07-31T12:00:00.000Z",
+    "finishedAt":  "2026-07-31T12:00:05.000Z",
+    "durationMs":  5000,
+    "requiredPaths":  [
+                          "index.html",
+                          "package.json",
+                          "vite.config.js",
+                          "DECISIONS.md",
+                          "PERF.md",
+                          "src/main.js"
+                      ],
+    "build":  {
+                  "ok":  true,
+                  "error":  null
+              },
+    "runtime":  {
+                    "hookReady":  true,
+                    "errors":  [
+
+                               ]
+                },
+    "captures":  [
+                     "milestone_idle.png",
+                     "milestone_locomotion.png",
+                     "milestone_mechanic.png"
+                 ],
+    "gates":  {
+                  "pass":  true,
+                  "failures":  [
+
+                               ],
+                  "info":  [
+                               "[idle] mean luminance 0.420"
+                           ],
+                  "metrics":  {
+                                  "frames":  [
+                                                 {
+                                                     "name":  "idle",
+                                                     "meanLuminance":  0.42,
+                                                     "flatFrameRatio":  0.18,
+                                                     "characterAreaFraction":  0.08,
+                                                     "localLuminanceVariation":  0.12,
+                                                     "edgeDensity":  0.2
+                                                 },
+                                                 {
+                                                     "name":  "locomotion",
+                                                     "meanLuminance":  0.42,
+                                                     "flatFrameRatio":  0.18,
+                                                     "characterAreaFraction":  0.08,
+                                                     "localLuminanceVariation":  0.12,
+                                                     "edgeDensity":  0.2
+                                                 },
+                                                 {
+                                                     "name":  "mechanic",
+                                                     "meanLuminance":  0.42,
+                                                     "flatFrameRatio":  0.18,
+                                                     "characterAreaFraction":  0.08,
+                                                     "localLuminanceVariation":  0.12,
+                                                     "edgeDensity":  0.2
+                                                 }
+                                             ],
+                                  "cameraDiagnostics":  {
+                                                            "method":  "gpu-depth",
+                                                            "nearestDepthM":  1.2,
+                                                            "terrainClearanceM":  1.4
+                                                        },
+                                  "rendererDiagnostics":  {
+                                                              "backend":  "webgpu",
+                                                              "shaderLanguage":  "wgsl",
+                                                              "materialsReady":  true,
+                                                              "renderedFrames":  1,
+                                                              "validationErrors":  [
+
+                                                                                   ]
+                                                          },
+                                  "terrainDiagnostics":  {
+                                                             "renderOwner":  "gpu",
+                                                             "renderMeshBaseHeight":  0,
+                                                             "parityMethod":  "gpu-readback",
+                                                             "paritySamples":  8,
+                                                             "parityMaxErrorM":  0.012
+                                                         },
+                                  "poseDifferences":  {
+                                                          "idleLocomotion":  0.12,
+                                                          "idleMechanic":  0.2
+                                                      },
+                                  "frameStats":  {
+                                                     "medianMs":  11,
+                                                     "p99Ms":  17,
+                                                     "samples":  600
+                                                 }
+                              }
+              },
+    "benchmark":  null
 }

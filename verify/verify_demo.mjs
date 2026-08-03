@@ -422,6 +422,7 @@ export async function verifyDemo(projectDir, options = {}) {
   const writtenCaptures = [];
   let isOperationalError = false;
   let webgpuCapable = false;
+  let requiredBackendCapable = false;
 
   const fail = (m) => {
     failures.push(m);
@@ -518,9 +519,10 @@ export async function verifyDemo(projectDir, options = {}) {
   // included while non-blocking diagnostics remain informational.
   const refreshConsoleClassification = () => {
     const previousBlocking = new Set(blockingConsoleErrors);
-    const allConsoleMessages = [...runtimeErrors, ...consoleWarnings];
-    blockingConsoleErrors = allConsoleMessages.filter(isBlockingGpuMessage);
-    informationalConsoleMessages = allConsoleMessages.filter((m) => !isBlockingGpuMessage(m));
+    const blockingRuntimeMessages = runtimeErrors.filter((message) => typeof message === 'string' && message.trim() !== '');
+    const blockingWarningMessages = consoleWarnings.filter(isBlockingGpuMessage);
+    blockingConsoleErrors = [...new Set([...blockingRuntimeMessages, ...blockingWarningMessages])];
+    informationalConsoleMessages = consoleWarnings.filter((message) => !isBlockingGpuMessage(message));
     return blockingConsoleErrors.filter((m) => !previousBlocking.has(m));
   };
   let gateResult = {
@@ -529,7 +531,10 @@ export async function verifyDemo(projectDir, options = {}) {
     info: [],
     metrics: {
       frames: [],
-      cameraNearestDepthM: null,
+      cameraDiagnostics: null,
+      rendererDiagnostics: null,
+      terrainDiagnostics: null,
+      poseDifferences: { idleLocomotion: null, idleMechanic: null },
       frameStats: { medianMs: null, p99Ms: null, samples: null },
     },
   };
@@ -604,43 +609,55 @@ export async function verifyDemo(projectDir, options = {}) {
         fail(navFailureMessage);
       }
 
-      // Item 7: WebGPU-unavailable vs. forbidden-fallback distinction. If the browser
-      // environment itself lacks WebGPU (or adapter acquisition fails), that is an
-      // operational/infrastructure limitation of the verifier, not a demo defect — it must
-      // never be reported as a "failed" (demo defect) result. A demo that has WebGPU
-      // available but still renders on a non-webgpu backend is caught separately below,
-      // as a genuine (non-operational) rendererInfo() mismatch.
-      let gpuCheck;
+      // Item 7: require only the backend selected by the generated contract. WebGPU
+      // capability is an operational prerequisite for Babylon WebGPU; WebGL2
+      // capability is the corresponding prerequisite for Three WebGL2.
+      const requiredRenderingProfile = contract?.project?.renderingProfile === 'three-webgl2'
+        ? 'three-webgl2'
+        : 'babylon-webgpu';
+      let backendCheck;
       try {
-        gpuCheck = await page.evaluate(async () => {
-          if (!window.navigator || !window.navigator.gpu) {
-            return { available: false, reason: 'navigator.gpu is undefined' };
-          }
-          try {
-            const adapter = await window.navigator.gpu.requestAdapter();
-            if (!adapter) return { available: false, reason: 'navigator.gpu.requestAdapter() returned null' };
-            return { available: true, reason: null };
-          } catch (err) {
-            return { available: false, reason: `navigator.gpu.requestAdapter() threw: ${err && err.message}` };
-          }
-        });
-      } catch (gpuErr) {
+        if (requiredRenderingProfile === 'three-webgl2') {
+          backendCheck = await page.evaluate(() => {
+            const canvas = document.querySelector('canvas');
+            if (!canvas) return { available: false, reason: 'no canvas element was found' };
+            const context = canvas.getContext('webgl2');
+            return context
+              ? { available: true, reason: null }
+              : { available: false, reason: 'canvas.getContext("webgl2") returned null' };
+          });
+        } else {
+          backendCheck = await page.evaluate(async () => {
+            if (!window.navigator || !window.navigator.gpu) {
+              return { available: false, reason: 'navigator.gpu is undefined' };
+            }
+            try {
+              const adapter = await window.navigator.gpu.requestAdapter();
+              if (!adapter) return { available: false, reason: 'navigator.gpu.requestAdapter() returned null' };
+              return { available: true, reason: null };
+            } catch (err) {
+              return { available: false, reason: 'navigator.gpu.requestAdapter() threw: ' + (err && err.message) };
+            }
+          });
+        }
+      } catch (backendErr) {
         if (!browser.isConnected()) {
           isOperationalError = true;
-          throw new Error(`Browser infrastructure disconnected while checking WebGPU availability: ${gpuErr.message}`);
+          throw new Error('Browser infrastructure disconnected while checking ' + requiredRenderingProfile + ' availability: ' + backendErr.message);
         }
         isOperationalError = true;
-        throw new Error(`Failed to evaluate WebGPU availability: ${gpuErr.message}`);
+        throw new Error('Failed to evaluate ' + requiredRenderingProfile + ' availability: ' + backendErr.message);
       }
 
-      webgpuCapable = Boolean(gpuCheck && gpuCheck.available);
-      if (!webgpuCapable) {
+      webgpuCapable = requiredRenderingProfile === 'babylon-webgpu' && Boolean(backendCheck && backendCheck.available);
+      requiredBackendCapable = Boolean(backendCheck && backendCheck.available);
+      if (!requiredBackendCapable) {
         isOperationalError = true;
+        const capabilityName = requiredRenderingProfile === 'three-webgl2' ? 'WebGL2' : 'WebGPU';
         throw new Error(
-          `WebGPU is not available in this browser environment (${gpuCheck && gpuCheck.reason ? gpuCheck.reason : 'navigator.gpu unavailable'}) — this is a verifier infrastructure limitation, not a demo defect. Verification is incomplete.`,
+          capabilityName + ' is not available in this browser environment (' + (backendCheck && backendCheck.reason ? backendCheck.reason : 'required backend unavailable') + ') — this is a verifier infrastructure limitation, not a demo defect. Verification is incomplete.',
         );
       }
-
       // Item 3: status-aware readiness poll. Wait for a terminal status ('ready' or
       // 'failed'), then read the actual state — never accept the old bare `ready === true`
       // signal on its own.
@@ -852,10 +869,9 @@ export async function verifyDemo(projectDir, options = {}) {
             gateResult.pass = false;
             gateResult.failures = [...(gateResult.failures || []), `camera/frame-stat hook failed: ${hookError.message}`, ...blockingConsoleErrors];
           } else {
-            gateResult = evaluateGates({ frames, cameraDiagnostics, frameStats });
+            gateResult = evaluateGates({ frames, cameraDiagnostics, terrainDiagnostics, frameStats });
             gateResult.metrics = {
               ...gateResult.metrics,
-              rendererInfo,
               rendererDiagnostics: rendererInfo,
               terrainDiagnostics,
             };
@@ -988,7 +1004,7 @@ export async function verifyDemo(projectDir, options = {}) {
       pass: gateResult.pass,
       failures: gateResult.failures || [],
       info: gateResult.info || [],
-      metrics: gateResult.metrics || { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } },
+      metrics: gateResult.metrics || { frames: [], cameraDiagnostics: null, rendererDiagnostics: null, terrainDiagnostics: null, poseDifferences: { idleLocomotion: null, idleMechanic: null }, frameStats: { medianMs: null, p99Ms: null, samples: null } },
     },
     status,
     benchmark: benchmarkContext,

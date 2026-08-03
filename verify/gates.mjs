@@ -1,3 +1,5 @@
+import { VERIFICATION_METRIC_KEYS } from './metricSchema.mjs';
+
 /**
  * Pure image gates. Every function takes {width, height, data} where data is
  * RGBA bytes, so unit tests use synthetic buffers and the browser run passes
@@ -521,17 +523,12 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
   }
 
   const metrics = {
-    frames: metricFrames,
-    cameraDiagnostics: effectiveCameraDiagnostics && typeof effectiveCameraDiagnostics === 'object' ? effectiveCameraDiagnostics : null,
-    cameraNearestDepthM: typeof effectiveCameraDiagnostics?.nearestDepthM === 'number' && Number.isFinite(effectiveCameraDiagnostics.nearestDepthM) && effectiveCameraDiagnostics.nearestDepthM >= 0 ? effectiveCameraDiagnostics.nearestDepthM : null,
-    terrainDiagnostics: terrainDiagnostics && typeof terrainDiagnostics === 'object' ? terrainDiagnostics : null,
-    rendererInfo: null,
-    poseDifferences,
-    poseComparison: {
-      idleVsLocomotionChangedFraction: typeof idleVsLocomotion === 'number' && Number.isFinite(idleVsLocomotion) ? idleVsLocomotion : null,
-      idleVsMechanicChangedFraction: typeof idleVsMechanic === 'number' && Number.isFinite(idleVsMechanic) ? idleVsMechanic : null,
-    },
-    frameStats: {
+    [VERIFICATION_METRIC_KEYS[0]]: metricFrames,
+    [VERIFICATION_METRIC_KEYS[1]]: effectiveCameraDiagnostics && typeof effectiveCameraDiagnostics === 'object' ? effectiveCameraDiagnostics : null,
+    [VERIFICATION_METRIC_KEYS[2]]: null,
+    [VERIFICATION_METRIC_KEYS[3]]: terrainDiagnostics && typeof terrainDiagnostics === 'object' ? terrainDiagnostics : null,
+    [VERIFICATION_METRIC_KEYS[4]]: poseDifferences,
+    [VERIFICATION_METRIC_KEYS[5]]: {
       medianMs: typeof frameStats?.medianMs === 'number' && Number.isFinite(frameStats.medianMs) && frameStats.medianMs >= 0 ? frameStats.medianMs : null,
       p99Ms: typeof frameStats?.p99Ms === 'number' && Number.isFinite(frameStats.p99Ms) && frameStats.p99Ms >= 0 ? frameStats.p99Ms : null,
       samples: typeof frameStats?.samples === 'number' && Number.isInteger(frameStats.samples) && frameStats.samples >= 1 ? frameStats.samples : null,

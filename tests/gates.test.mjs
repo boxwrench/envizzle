@@ -574,7 +574,8 @@ test('evaluateGates returns structured metrics matching image measurements', () 
 
   assert.equal(result.pass, true, result.failures.join(' | '));
   assert.ok(result.metrics, 'metrics must be present');
-  assert.equal(result.metrics.cameraNearestDepthM, 1.5);
+  assert.deepEqual(Object.keys(result.metrics), ['frames', 'cameraDiagnostics', 'rendererDiagnostics', 'terrainDiagnostics', 'poseDifferences', 'frameStats']);
+  assert.equal(result.metrics.cameraDiagnostics.nearestDepthM, 1.5);
   assert.deepEqual(result.metrics.frameStats, { medianMs: 12, p99Ms: 18, samples: 600 });
   assert.equal(result.metrics.frames.length, 3);
 
@@ -592,13 +593,24 @@ test('evaluateGates returns structured metrics matching image measurements', () 
 
   const expectedIdleVsLocomotion = changedAreaFraction(idleImg, locomotionImg);
   const expectedIdleVsMechanic = changedAreaFraction(idleImg, mechanicImg);
-  assert.ok(Math.abs(result.metrics.poseComparison.idleVsLocomotionChangedFraction - expectedIdleVsLocomotion) < 1e-9);
-  assert.ok(Math.abs(result.metrics.poseComparison.idleVsMechanicChangedFraction - expectedIdleVsMechanic) < 1e-9);
+  assert.ok(Math.abs(result.metrics.poseDifferences.idleLocomotion - expectedIdleVsLocomotion) < 1e-9);
+  assert.ok(Math.abs(result.metrics.poseDifferences.idleMechanic - expectedIdleVsMechanic) < 1e-9);
 
-  // gates.mjs does not receive terrainDiagnostics/rendererInfo inputs — it reports
-  // them as null rather than fabricating a shape it has no data for (Task 7's job).
+  // gates.mjs does not receive terrain or renderer hook inputs — it reports
+  // those canonical metric slots as null rather than fabricating diagnostics.
   assert.equal(result.metrics.terrainDiagnostics, null);
-  assert.equal(result.metrics.rendererInfo, null);
+  assert.equal(result.metrics.rendererDiagnostics, null);
+});
+
+test('camera parity validation receives terrainDiagnostics', () => {
+  const result = evaluateGates({
+    frames: makeValidSyntheticThreePoses(),
+    cameraDiagnostics: { method: 'cpu-height-with-gpu-parity', nearestDepthM: 5, terrainClearanceM: 4.5 },
+    terrainDiagnostics: { renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'cpu-only', paritySamples: 8, parityMaxErrorM: 0.01 },
+    frameStats: okStats,
+  });
+  assert.equal(result.pass, false);
+  assert.ok(result.failures.some((failure) => /camera parity qualification failed.*parityMethod/.test(failure)), result.failures.join(' | '));
 });
 
 // --- Verifier infrastructure-failure classification (no production build bypass) -----

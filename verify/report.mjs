@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { VERIFICATION_METRIC_KEYS } from './metricSchema.mjs';
 
 export const SCHEMA_VERSION = 1;
 export const ALLOWED_STATUSES = Object.freeze(['passed', 'failed', 'error']);
@@ -306,13 +307,13 @@ export function validateVerificationReport(report) {
       errors.push('gates.metrics must be a plain object');
     } else {
       const m = report.gates.metrics;
-      const REQUIRED_METRIC_KEYS = ['frames', 'cameraNearestDepthM', 'frameStats'];
-      // Task 6: cameraDiagnostics/poseComparison are computed by gates.mjs itself;
-      // terrainDiagnostics/rendererInfo come from window.__demo hooks Task 7 wires
-      // up separately. All four are optional here — older/simpler reports (e.g.
-      // tests/fixtures/benchmarks/*.json, written before this task) never had them,
-      // and must keep validating.
-      const OPTIONAL_METRIC_KEYS = ['cameraDiagnostics', 'poseComparison', 'terrainDiagnostics', 'rendererInfo', 'rendererDiagnostics', 'poseDifferences'];
+      const REQUIRED_METRIC_KEYS = VERIFICATION_METRIC_KEYS;
+      // Canonical verification metrics are emitted by gates.mjs and completed with
+      // rendererDiagnostics and terrainDiagnostics by verify_demo.mjs.
+      // Failed/error reports may use null diagnostic values, but the six-key
+      // metric schema itself is always exact.
+
+      const OPTIONAL_METRIC_KEYS = [];
       const metricsErr = keySetError(m, REQUIRED_METRIC_KEYS, OPTIONAL_METRIC_KEYS, 'gates.metrics');
       if (metricsErr) errors.push(metricsErr);
 
@@ -356,11 +357,6 @@ export function validateVerificationReport(report) {
           }
         }
       }
-
-      if (!isNonNegativeOrNull(m.cameraNearestDepthM)) {
-        errors.push('gates.metrics.cameraNearestDepthM must be a non-negative finite number or null');
-      }
-
       if (!isPlainObject(m.frameStats)) {
         errors.push('gates.metrics.frameStats must be a plain object');
       } else {
@@ -394,23 +390,6 @@ export function validateVerificationReport(report) {
           }
         }
       }
-
-      // Task 6: poseComparison, present only when supplied.
-      if ('poseComparison' in m && m.poseComparison !== null) {
-        if (!isPlainObject(m.poseComparison)) {
-          errors.push('gates.metrics.poseComparison must be null or a plain object');
-        } else {
-          const pcErr = keySetError(m.poseComparison, ['idleVsLocomotionChangedFraction', 'idleVsMechanicChangedFraction'], [], 'gates.metrics.poseComparison');
-          if (pcErr) errors.push(pcErr);
-          if (!isUnitRangeOrNull(m.poseComparison.idleVsLocomotionChangedFraction)) {
-            errors.push('gates.metrics.poseComparison.idleVsLocomotionChangedFraction must be a finite number between 0 and 1, or null');
-          }
-          if (!isUnitRangeOrNull(m.poseComparison.idleVsMechanicChangedFraction)) {
-            errors.push('gates.metrics.poseComparison.idleVsMechanicChangedFraction must be a finite number between 0 and 1, or null');
-          }
-        }
-      }
-
 
       if ('rendererDiagnostics' in m && m.rendererDiagnostics !== null) {
         if (!isPlainObject(m.rendererDiagnostics)) {
@@ -474,45 +453,6 @@ export function validateVerificationReport(report) {
         }
       }
 
-      // Task 6: rendererInfo, present only when supplied; null or strictly shaped.
-      // Enforcing backend==="webgpu"/shaderLanguage==="wgsl" here would bake a single
-      // rendering profile into a profile-agnostic report schema; that enforcement
-      // belongs to Task 7's verify_demo.mjs lifecycle gate, which knows which profile
-      // is in play. This validates shape/types and (for "passed", below) cleanliness.
-      if ('rendererInfo' in m && m.rendererInfo !== null) {
-        if (!isPlainObject(m.rendererInfo)) {
-          errors.push('gates.metrics.rendererInfo must be null or a plain object');
-        } else {
-          const ri = m.rendererInfo;
-          const riErr = keySetError(ri, ['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors'], [], 'gates.metrics.rendererInfo');
-          if (riErr) errors.push(riErr);
-          if (typeof ri.backend !== 'string' || ri.backend.trim() === '') {
-            errors.push('gates.metrics.rendererInfo.backend must be a non-empty string');
-          } else if (containsLeak(ri.backend)) {
-            errors.push('gates.metrics.rendererInfo.backend contains path, stack, or credential leakage');
-          }
-          if (typeof ri.shaderLanguage !== 'string' || ri.shaderLanguage.trim() === '') {
-            errors.push('gates.metrics.rendererInfo.shaderLanguage must be a non-empty string');
-          } else if (containsLeak(ri.shaderLanguage)) {
-            errors.push('gates.metrics.rendererInfo.shaderLanguage contains path, stack, or credential leakage');
-          }
-          if (typeof ri.materialsReady !== 'boolean') {
-            errors.push('gates.metrics.rendererInfo.materialsReady must be a boolean');
-          }
-          if (typeof ri.renderedFrames !== 'number' || !Number.isInteger(ri.renderedFrames) || ri.renderedFrames < 0) {
-            errors.push('gates.metrics.rendererInfo.renderedFrames must be a non-negative integer');
-          }
-          if (!Array.isArray(ri.validationErrors) || ri.validationErrors.some((e) => typeof e !== 'string')) {
-            errors.push('gates.metrics.rendererInfo.validationErrors must be an array of strings');
-          } else {
-            for (const ve of ri.validationErrors) {
-              if (containsLeak(ve)) {
-                errors.push(`gates.metrics.rendererInfo.validationErrors entry contains path, stack, or credential leakage: '${ve}'`);
-              }
-            }
-          }
-        }
-      }
     }
   }
 
@@ -584,10 +524,6 @@ export function validateVerificationReport(report) {
         errors.push(`Passed frame '${f.name}' missing finite characterAreaFraction`);
       }
     }
-    const depth = report.gates?.metrics?.cameraNearestDepthM;
-    if (typeof depth !== 'number' || !Number.isFinite(depth) || depth < 0) {
-      errors.push('Passed report missing finite non-negative cameraNearestDepthM');
-    }
     const fs = report.gates?.metrics?.frameStats;
     if (typeof fs?.medianMs !== 'number' || !Number.isFinite(fs.medianMs) || fs.medianMs < 0) {
       errors.push('Passed report missing finite non-negative frameStats.medianMs');
@@ -596,14 +532,12 @@ export function validateVerificationReport(report) {
       errors.push('Passed report missing finite non-negative frameStats.p99Ms');
     }
 
-    // Task 6: cameraDiagnostics/poseComparison, mandatory-when-present (see the
-    // OPTIONAL_METRIC_KEYS comment above for why they cannot be unconditionally
-    // required). gates.mjs always emits them now, so any report actually produced
-    // by the current evaluateGates() will have them populated when passing; a
-    // report that omits them entirely (e.g. an older fixture) is not penalized.
+    // Camera diagnostics are required by the canonical metrics schema for a passed report.
     const m = report.gates?.metrics;
-    if (m && 'cameraDiagnostics' in m && isPlainObject(m.cameraDiagnostics)) {
-      const cd = m.cameraDiagnostics;
+    const cd = m?.cameraDiagnostics;
+    if (!isPlainObject(cd)) {
+      errors.push('Passed report missing cameraDiagnostics');
+    } else {
       if (!ALLOWED_CAMERA_METHODS.includes(cd.method)) {
         errors.push('Passed report gates.metrics.cameraDiagnostics.method must be a valid method');
       }
@@ -614,31 +548,6 @@ export function validateVerificationReport(report) {
         errors.push('Passed report gates.metrics.cameraDiagnostics.terrainClearanceM must be a finite positive number');
       }
     }
-    if (m && 'poseComparison' in m && isPlainObject(m.poseComparison)) {
-      const pc = m.poseComparison;
-      if (typeof pc.idleVsLocomotionChangedFraction !== 'number' || !Number.isFinite(pc.idleVsLocomotionChangedFraction)) {
-        errors.push('Passed report gates.metrics.poseComparison.idleVsLocomotionChangedFraction must be a finite number');
-      }
-      if (typeof pc.idleVsMechanicChangedFraction !== 'number' || !Number.isFinite(pc.idleVsMechanicChangedFraction)) {
-        errors.push('Passed report gates.metrics.poseComparison.idleVsMechanicChangedFraction must be a finite number');
-      }
-    }
-    // Task 6: rendererInfo, mandatory-when-present. When Task 7 populates it, a
-    // "passed" report must be unambiguously clean — consistent with "no blocking
-    // console/GPU errors" already being part of the pass bar.
-    if (m && 'rendererInfo' in m && m.rendererInfo !== null && isPlainObject(m.rendererInfo)) {
-      const ri = m.rendererInfo;
-      if (Array.isArray(ri.validationErrors) && ri.validationErrors.length > 0) {
-        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererInfo.validationErrors is not empty');
-      }
-      if (ri.materialsReady !== true) {
-        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererInfo.materialsReady is not true');
-      }
-      if (typeof ri.renderedFrames !== 'number' || ri.renderedFrames < 1) {
-        errors.push('Contradictory state: status is "passed" but gates.metrics.rendererInfo.renderedFrames is not at least 1');
-      }
-    }
-
     if (m && 'rendererDiagnostics' in m && m.rendererDiagnostics !== null && isPlainObject(m.rendererDiagnostics)) {
       const rd = m.rendererDiagnostics;
       if (Array.isArray(rd.validationErrors) && rd.validationErrors.length > 0) {
@@ -720,15 +629,6 @@ export function normalizeVerificationReport(report) {
     };
   }
 
-  let poseComparisonNorm = null;
-  const rawPoseComparison = report.gates?.metrics?.poseComparison;
-  if (isPlainObject(rawPoseComparison)) {
-    poseComparisonNorm = {
-      idleVsLocomotionChangedFraction: isFiniteOrNull(rawPoseComparison.idleVsLocomotionChangedFraction) ? rawPoseComparison.idleVsLocomotionChangedFraction : null,
-      idleVsMechanicChangedFraction: isFiniteOrNull(rawPoseComparison.idleVsMechanicChangedFraction) ? rawPoseComparison.idleVsMechanicChangedFraction : null,
-    };
-  }
-
   let terrainDiagnosticsNorm = null;
   const rawTerrainDiagnostics = report.gates?.metrics?.terrainDiagnostics;
   if (isPlainObject(rawTerrainDiagnostics)) {
@@ -738,20 +638,6 @@ export function normalizeVerificationReport(report) {
       parityMethod: typeof rawTerrainDiagnostics.parityMethod === 'string' ? sanitizePathOrString(rawTerrainDiagnostics.parityMethod) : '',
       paritySamples: isFiniteOrNull(rawTerrainDiagnostics.paritySamples) ? rawTerrainDiagnostics.paritySamples : null,
       parityMaxErrorM: isFiniteOrNull(rawTerrainDiagnostics.parityMaxErrorM) ? rawTerrainDiagnostics.parityMaxErrorM : null,
-    };
-  }
-
-  let rendererInfoNorm = null;
-  const rawRendererInfo = report.gates?.metrics?.rendererInfo;
-  if (isPlainObject(rawRendererInfo)) {
-    rendererInfoNorm = {
-      backend: typeof rawRendererInfo.backend === 'string' ? sanitizePathOrString(rawRendererInfo.backend) : '',
-      shaderLanguage: typeof rawRendererInfo.shaderLanguage === 'string' ? sanitizePathOrString(rawRendererInfo.shaderLanguage) : '',
-      materialsReady: Boolean(rawRendererInfo.materialsReady),
-      renderedFrames: isFiniteOrNull(rawRendererInfo.renderedFrames) ? rawRendererInfo.renderedFrames : null,
-      validationErrors: Array.isArray(rawRendererInfo.validationErrors)
-        ? rawRendererInfo.validationErrors.map((e) => sanitizePathOrString(String(e)))
-        : [],
     };
   }
 
@@ -827,9 +713,6 @@ export function normalizeVerificationReport(report) {
               edgeDensity: isFiniteOrNull(f?.edgeDensity) ? f.edgeDensity : null,
             }))
           : [],
-        cameraNearestDepthM: isFiniteOrNull(report.gates?.metrics?.cameraNearestDepthM)
-          ? report.gates.metrics.cameraNearestDepthM
-          : null,
         frameStats: {
           medianMs: isFiniteOrNull(report.gates?.metrics?.frameStats?.medianMs)
             ? report.gates.metrics.frameStats.medianMs
@@ -842,9 +725,7 @@ export function normalizeVerificationReport(report) {
             : null,
         },
         cameraDiagnostics: cameraDiagnosticsNorm,
-        poseComparison: poseComparisonNorm,
         terrainDiagnostics: terrainDiagnosticsNorm,
-        rendererInfo: rendererInfoNorm,
         rendererDiagnostics: rendererDiagnosticsNorm,
         poseDifferences: poseDifferencesNorm,
       },
@@ -876,12 +757,11 @@ export function createVerificationReport({
     info: [],
     metrics: {
       frames: [],
-      cameraNearestDepthM: null,
-      frameStats: { medianMs: null, p99Ms: null, samples: null },
       cameraDiagnostics: null,
-      poseComparison: null,
+      rendererDiagnostics: null,
       terrainDiagnostics: null,
-      rendererInfo: null,
+      poseDifferences: null,
+      frameStats: { medianMs: null, p99Ms: null, samples: null },
     },
   },
   status = null,

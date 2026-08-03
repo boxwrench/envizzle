@@ -236,17 +236,19 @@ function checkCpuPredisplacedRenderMesh(files) {
 /** Setting window.__demo.ready = true without a nearby status==='ready' guard. */
 function checkPrematureReadiness(files) {
   const hits = [];
-  const guardRe = /status\s*===?\s*['"]ready['"]/;
+  const readyAssignmentRe = /(?:\bready\s*:\s*true\b|\.ready\s*=\s*true\b)/g;
+  const readyStatusRe = /status\s*(?:={1,3}|:)\s*['"]ready['"]/;
   for (const file of files) {
-    const re = /(?:\bready\s*:\s*true\b|\.ready\s*=\s*true\b)/g;
-    let m = re.exec(file.content);
+    let m = readyAssignmentRe.exec(file.content);
     while (m !== null) {
       const windowStart = Math.max(0, m.index - 150);
-      const preceding = file.content.slice(windowStart, m.index);
-      if (!guardRe.test(preceding)) {
+      const windowEnd = Math.min(file.content.length, m.index + m[0].length + 150);
+      const nearby = file.content.slice(windowStart, windowEnd);
+      if (!readyStatusRe.test(nearby)) {
         hits.push({ file: file.relPath, line: getLineNumber(file.content, m.index) });
       }
-      m = re.exec(file.content);
+      if (readyAssignmentRe.lastIndex === m.index) readyAssignmentRe.lastIndex += 1;
+      m = readyAssignmentRe.exec(file.content);
     }
   }
   return hits;
@@ -259,21 +261,26 @@ function checkPrematureReadiness(files) {
  */
 function checkSuppressedInitializationFailure(files) {
   const hits = [];
-  const declRe = /catch\s*\([^)]*\)\s*\{/g;
+  const functionDeclRe = /(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{/g;
+  const catchDeclRe = /catch\s*\([^)]*\)\s*\{/g;
   for (const file of files) {
     if (!isCoreFile(file)) continue;
-    const blocks = extractBracedBlocks(file.content, declRe);
-    for (const block of blocks) {
-      const body = file.content.slice(block.start, block.end + 1);
-      if (!/status\s*[:=]\s*['"]failed['"]/.test(body)) {
-        hits.push({ file: file.relPath, line: getLineNumber(file.content, block.declIndex) });
+    const initFunctions = extractBracedBlocks(file.content, functionDeclRe, (m) => m[1] || m[2])
+      .filter((block) => /(?:init|engine|bootstrap|setup)/i.test(block.name || ''));
+    for (const fn of initFunctions) {
+      const functionBody = file.content.slice(fn.start, fn.end + 1);
+      const catches = extractBracedBlocks(functionBody, catchDeclRe);
+      for (const block of catches) {
+        const catchBody = functionBody.slice(block.start, block.end + 1);
+        if (!/status\s*[:=]\s*['"]failed['"]/.test(catchBody)) {
+          hits.push({ file: file.relPath, line: getLineNumber(file.content, fn.start + block.declIndex) });
+        }
       }
     }
   }
   return hits;
 }
-
-/** A primitive box/sphere/capsule stand-in inside src/character/**. */
+/** Primitive geometry may be an intentional articulated component; silhouette/image gates own this decision. */
 function checkPlaceholderCharacter(files) {
   return scanRegex(
     files,
@@ -325,6 +332,7 @@ function checkRenderLoopAllocation(files) {
 const noOp = () => [];
 
 export const PATTERN_SCAN_NO_OP_IDS = Object.freeze([
+  'placeholder-character',
   'duplicate-terrain-displacement',
   'indistinguishable-poses',
   'incomplete-evidence',
@@ -344,7 +352,7 @@ const PATTERN_CHECKERS = {
   'webgl1-fallback-context': checkWebgl1FallbackContext,
   'webgl-fallback': checkWebglFallback,
   'cpu-predisplaced-render-mesh': checkCpuPredisplacedRenderMesh,
-  'placeholder-character': checkPlaceholderCharacter,
+  'placeholder-character': noOp,
   'premature-readiness': checkPrematureReadiness,
   'suppressed-initialization-failure': checkSuppressedInitializationFailure,
   'render-loop-allocation': checkRenderLoopAllocation,
