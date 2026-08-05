@@ -47,7 +47,7 @@ Each config supplies the nine tokens the biome, archetype, mechanic, and camera 
 | Extra sections | none |
 | State-channel contract | depression → R (depression depth in metres, 0 -> 0.45): carve groove lowers snow depression depth; displaced-mass → G (displaced mass, berm height 0 -> 0.25 m): carve berms raise displaced snow mass; wetness-or-compaction → B (wetness 0 -> 1): groove writes wetness, interpreted as compressed sheen |
 | `RENDERING_PARADIGM` | AAA Photoreal |
-| `ENGINE` | Babylon.js latest stable, WebGPU only |
+| `ENGINE` | Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
 | `MATERIAL_API` | Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
@@ -98,7 +98,7 @@ screenshot someone shares.
 | Extra sections | none |
 | State-channel contract | none (omitted at slice) |
 | `RENDERING_PARADIGM` | AAA Photoreal |
-| `ENGINE` | Babylon.js latest stable, WebGPU only |
+| `ENGINE` | Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
 | `MATERIAL_API` | Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
@@ -124,7 +124,7 @@ complete image with four systems in it. Start here if you are building a first d
 | Extra sections | none |
 | State-channel contract | anchor-displaced-mass → G (foam coverage 0 -> 1): displaced mass becomes localized foam coverage; landing-depression → B (bed scour depth 0 -> 0.22 m): landing depression becomes bed-scour depth; hard-landing-disturbance → A (turbidity 0 -> 1): disturbed sand becomes turbidity |
 | `RENDERING_PARADIGM` | AAA Photoreal |
-| `ENGINE` | Babylon.js latest stable, WebGPU only |
+| `ENGINE` | Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
 | `MATERIAL_API` | Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |
@@ -149,7 +149,7 @@ distance cues. The XR budget on the rig is what makes the mage's hands hold up a
 | Extra sections | none |
 | State-channel contract | depression → R (crust thickness 0 -> 0.25 m): beam intersection reduces crust thickness; heat-scorch-disturbance → B (temperature normalised 0 -> 1): beam heat raises normalized temperature |
 | `RENDERING_PARADIGM` | AAA Photoreal |
-| `ENGINE` | Babylon.js latest stable, WebGPU only |
+| `ENGINE` | Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only |
 | `SHADER_LANG` / `SHADER_LANG_EXT` | WGSL / `wgsl` |
 | `MATERIAL_API` | Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL |
 | `ASSET_STRATEGY` | 100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies) |

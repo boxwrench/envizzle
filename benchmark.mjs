@@ -11,6 +11,7 @@ import {
 } from './benchmark-cases.mjs';
 import { assembleBrief, writeBundle } from './assemble.mjs';
 import { validateVerificationReport, containsLeak, isPathInside } from './verify/report.mjs';
+import { VERIFICATION_METRIC_KEYS, VERIFICATION_FRAME_KEYS } from './verify/metricSchema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname);
@@ -24,6 +25,7 @@ function computeSha256(str) {
 }
 
 const CONTROL_CHARS_REGEX = /[\x00-\x1F\x7F]/;
+const METRIC_KEYS = VERIFICATION_METRIC_KEYS;
 
 function isUnitRangeOrNull(val) {
   return val === null || (typeof val === 'number' && Number.isFinite(val) && val >= 0 && val <= 1);
@@ -252,8 +254,8 @@ export function validateBenchmarkResult(res) {
     } else {
       const m = res.automated.metrics;
       const mKeys = Object.keys(m);
-      if (mKeys.length !== 3 || !mKeys.includes('frames') || !mKeys.includes('cameraNearestDepthM') || !mKeys.includes('frameStats')) {
-        errors.push(`automated.metrics must contain exact keys ['frames', 'cameraNearestDepthM', 'frameStats'], got [${mKeys.join(', ')}]`);
+      if (JSON.stringify(mKeys) !== JSON.stringify(METRIC_KEYS)) {
+        errors.push(`automated.metrics must contain exact keys [${METRIC_KEYS.join(', ')}], got [${mKeys.join(', ')}]`);
       }
 
       const knownPoses = new Set(['idle', 'locomotion', 'mechanic']);
@@ -267,8 +269,8 @@ export function validateBenchmarkResult(res) {
             continue;
           }
           const fKeys = Object.keys(f);
-          if (fKeys.length !== 4 || !fKeys.includes('name') || !fKeys.includes('meanLuminance') || !fKeys.includes('flatFrameRatio') || !fKeys.includes('characterAreaFraction')) {
-            errors.push(`automated.metrics.frames entry must contain exact keys ['name', 'meanLuminance', 'flatFrameRatio', 'characterAreaFraction'], got [${fKeys.join(', ')}]`);
+          if (JSON.stringify(fKeys) !== JSON.stringify(VERIFICATION_FRAME_KEYS)) {
+            errors.push(`automated.metrics.frames entry must contain exact environment-aware keys, got [${fKeys.join(', ')}]`);
           }
           if (typeof f.name !== 'string') {
             errors.push('automated.metrics.frames entry name must be a string');
@@ -286,11 +288,39 @@ export function validateBenchmarkResult(res) {
           if (!isUnitRangeOrNull(f.characterAreaFraction)) {
             errors.push(`automated.metrics.frames entry '${f.name}' characterAreaFraction must be a finite number between 0 and 1, or null`);
           }
+          if (!isUnitRangeOrNull(f.localLuminanceVariation)) errors.push(`automated.metrics.frames entry '${f.name}' localLuminanceVariation must be a finite number between 0 and 1, or null`);
+          if (!isUnitRangeOrNull(f.edgeDensity)) errors.push(`automated.metrics.frames entry '${f.name}' edgeDensity must be a finite number between 0 and 1, or null`);
         }
       }
 
-      if (!isNonNegativeOrNull(m.cameraNearestDepthM)) {
-        errors.push('automated.metrics.cameraNearestDepthM must be a non-negative finite number or null');
+      const validateMetricShape = (value, keys, label) => {
+        if (!isPlainObject(value)) { errors.push('automated.metrics.' + label + ' must be a plain object'); return false; }
+        if (JSON.stringify(Object.keys(value)) !== JSON.stringify(keys)) { errors.push('automated.metrics.' + label + ' must contain exact keys [' + keys.join(', ') + ']'); return false; }
+        return true;
+      };
+
+      if (m.cameraDiagnostics !== null && validateMetricShape(m.cameraDiagnostics, ['method', 'nearestDepthM', 'terrainClearanceM'], 'cameraDiagnostics')) {
+        const cd = m.cameraDiagnostics;
+        if (cd.method !== null && !['gpu-depth', 'cpu-height-with-gpu-parity'].includes(cd.method)) errors.push('automated.metrics.cameraDiagnostics.method must be null or a supported camera method');
+        if (!isNonNegativeOrNull(cd.nearestDepthM)) errors.push('automated.metrics.cameraDiagnostics.nearestDepthM must be a non-negative finite number or null');
+        if (!isNonNegativeOrNull(cd.terrainClearanceM)) errors.push('automated.metrics.cameraDiagnostics.terrainClearanceM must be a non-negative finite number or null');
+      }
+      if (m.rendererDiagnostics !== null && validateMetricShape(m.rendererDiagnostics, ['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors'], 'rendererDiagnostics')) {
+        const rd = m.rendererDiagnostics;
+        if (typeof rd.backend !== 'string' || typeof rd.shaderLanguage !== 'string') errors.push('automated.metrics.rendererDiagnostics backend and shaderLanguage must be strings');
+        if (typeof rd.materialsReady !== 'boolean') errors.push('automated.metrics.rendererDiagnostics.materialsReady must be boolean');
+        if (typeof rd.renderedFrames !== 'number' || !Number.isInteger(rd.renderedFrames) || rd.renderedFrames < 0) errors.push('automated.metrics.rendererDiagnostics.renderedFrames must be a non-negative integer');
+        if (!Array.isArray(rd.validationErrors) || rd.validationErrors.some((entry) => typeof entry !== 'string')) errors.push('automated.metrics.rendererDiagnostics.validationErrors must be an array of strings');
+      }
+      if (m.terrainDiagnostics !== null && validateMetricShape(m.terrainDiagnostics, ['renderOwner', 'renderMeshBaseHeight', 'parityMethod', 'paritySamples', 'parityMaxErrorM'], 'terrainDiagnostics')) {
+        const td = m.terrainDiagnostics;
+        if (typeof td.renderOwner !== 'string' || typeof td.parityMethod !== 'string') errors.push('automated.metrics.terrainDiagnostics renderOwner and parityMethod must be strings');
+        if (!(td.renderMeshBaseHeight === null || (typeof td.renderMeshBaseHeight === 'number' && Number.isFinite(td.renderMeshBaseHeight)))) errors.push('automated.metrics.terrainDiagnostics.renderMeshBaseHeight must be finite or null');
+        if (typeof td.paritySamples !== 'number' || !Number.isInteger(td.paritySamples) || td.paritySamples < 0) errors.push('automated.metrics.terrainDiagnostics.paritySamples must be a non-negative integer');
+        if (!isNonNegativeOrNull(td.parityMaxErrorM)) errors.push('automated.metrics.terrainDiagnostics.parityMaxErrorM must be non-negative and finite or null');
+      }
+      if (m.poseDifferences !== null && (!validateMetricShape(m.poseDifferences, ['idleLocomotion', 'idleMechanic'], 'poseDifferences') || !isUnitRangeOrNull(m.poseDifferences.idleLocomotion) || !isUnitRangeOrNull(m.poseDifferences.idleMechanic))) {
+        errors.push('automated.metrics.poseDifferences must contain finite [0, 1] idleLocomotion and idleMechanic values or null');
       }
 
       if (!isPlainObject(m.frameStats)) {
@@ -329,9 +359,10 @@ export function validateBenchmarkResult(res) {
           if (typeof f.characterAreaFraction !== 'number' || !Number.isFinite(f.characterAreaFraction)) errors.push(`Frame '${f.name}' missing finite characterAreaFraction`);
         }
       }
-      if (typeof m.cameraNearestDepthM !== 'number' || !Number.isFinite(m.cameraNearestDepthM) || m.cameraNearestDepthM < 0) {
-        errors.push('Passed benchmark result missing finite non-negative cameraNearestDepthM');
-      }
+      if (!isPlainObject(m.cameraDiagnostics) || typeof m.cameraDiagnostics.nearestDepthM !== 'number' || !Number.isFinite(m.cameraDiagnostics.nearestDepthM) || m.cameraDiagnostics.nearestDepthM < 0) errors.push('Passed benchmark result missing cameraDiagnostics');
+      if (!isPlainObject(m.rendererDiagnostics) || m.rendererDiagnostics.materialsReady !== true || typeof m.rendererDiagnostics.renderedFrames !== 'number' || m.rendererDiagnostics.renderedFrames < 1 || !Array.isArray(m.rendererDiagnostics.validationErrors) || m.rendererDiagnostics.validationErrors.length > 0) errors.push('Passed benchmark result missing valid rendererDiagnostics');
+      if (!isPlainObject(m.terrainDiagnostics) || typeof m.terrainDiagnostics.parityMaxErrorM !== 'number' || !Number.isFinite(m.terrainDiagnostics.parityMaxErrorM)) errors.push('Passed benchmark result missing valid terrainDiagnostics');
+      if (!isPlainObject(m.poseDifferences) || typeof m.poseDifferences.idleLocomotion !== 'number' || typeof m.poseDifferences.idleMechanic !== 'number') errors.push('Passed benchmark result missing pose-difference metrics');
       if (!isPlainObject(m.frameStats) || typeof m.frameStats.medianMs !== 'number' || !Number.isFinite(m.frameStats.medianMs) || typeof m.frameStats.p99Ms !== 'number' || !Number.isFinite(m.frameStats.p99Ms) || typeof m.frameStats.samples !== 'number' || !Number.isInteger(m.frameStats.samples) || m.frameStats.samples < 1) {
         errors.push('Passed benchmark result missing valid frameStats metrics');
       }
@@ -944,6 +975,23 @@ export function collectBenchmarkResult(projectDir, options = {}) {
   for (const error of rawReport.runtime?.errors || []) addHardGateFailure(error);
   for (const failure of rawReport.gates?.failures || []) addHardGateFailure(failure);
 
+  const reportMetrics = rawReport.gates?.metrics;
+  const canonicalMetrics = reportMetrics ? {
+    [METRIC_KEYS[0]]: Array.isArray(reportMetrics.frames) ? reportMetrics.frames.map((frame) => Object.fromEntries(VERIFICATION_FRAME_KEYS.map((key) => [key, frame?.[key] ?? null]))) : [],
+    [METRIC_KEYS[1]]: reportMetrics.cameraDiagnostics ?? null,
+    [METRIC_KEYS[2]]: reportMetrics.rendererDiagnostics ?? null,
+    [METRIC_KEYS[3]]: reportMetrics.terrainDiagnostics ?? null,
+    [METRIC_KEYS[4]]: reportMetrics.poseDifferences ?? null,
+    [METRIC_KEYS[5]]: reportMetrics.frameStats ?? { medianMs: null, p99Ms: null, samples: null },
+  } : {
+    [METRIC_KEYS[0]]: [],
+    [METRIC_KEYS[1]]: null,
+    [METRIC_KEYS[2]]: null,
+    [METRIC_KEYS[3]]: null,
+    [METRIC_KEYS[4]]: null,
+    [METRIC_KEYS[5]]: { medianMs: null, p99Ms: null, samples: null },
+  };
+
   const normalizedResult = {
     schemaVersion: 1,
     caseId: caseDef.id,
@@ -955,7 +1003,7 @@ export function collectBenchmarkResult(projectDir, options = {}) {
       pass: isPassed,
       hardGateFailures,
       hardGateFailureCount: hardGateFailures.length,
-      metrics: rawReport.gates?.metrics || { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } },
+      metrics: canonicalMetrics,
     },
     humanReview,
     eligible: isPassed,

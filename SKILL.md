@@ -14,7 +14,7 @@ Five artefacts, written into the user's target project directory:
 | `<PROJECT>_TECHDEMO_PROMPT.md` | The brief. One self-contained Markdown file. **This is the product.** |
 | `ENVIZZLE_BUILD.json` | Versioned machine-readable build contract generated from the same validated assembly result as the brief. |
 | `ENVIZZLE_EVIDENCE.json` | Empty/incomplete milestone evidence template for screenshots, console findings, performance, weaknesses, and corrections. |
-| `verify/` | A copy of this skill's `verify/` directory (`verify_demo.mjs`, `gates.mjs`, `README.md`). |
+| `verify/` | A copy of this skill's `verify/` directory (`README.md`, `gates.mjs`, `report.mjs`, `patternScan.mjs`, `contractSchema.mjs`, `metricSchema.mjs`, `verify_demo.mjs`). |
 | `HANDOFF.md` | Handoff, contract, evidence, and three-milestone visual self-review instructions. |
 
 The brief must be **self-contained**. The agent that builds from it may be any
@@ -202,7 +202,7 @@ Also collect, in the same pass:
 
 - **`PROJECT_NAME`** — a short upper-case hyphenated name, e.g. `ALPINE-DAWN`.
 - **Rendering profile (engine and shader language)** — read from `references/cameras.md`, offer exactly:
-  1. **Babylon.js WebGPU + WGSL** (default): `ENGINE` = `Babylon.js latest stable, WebGPU only`, `SHADER_LANG` = `WGSL`, `SHADER_LANG_EXT` = `wgsl`, `MATERIAL_API` = `Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL`.
+  1. **Babylon.js WebGPU + WGSL** (default): `ENGINE` = `Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only`, `SHADER_LANG` = `WGSL`, `SHADER_LANG_EXT` = `wgsl`, `MATERIAL_API` = `Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL`.
   2. **Three.js WebGL2 + GLSL ES 3.00** (alternative): `ENGINE` = `Three.js latest stable, WebGLRenderer (WebGL2 only)`, `SHADER_LANG` = `GLSL ES 3.00 raw modules`, `SHADER_LANG_EXT` = `glsl`, `MATERIAL_API` = `Three.js RawShaderMaterial on WebGLRenderer`.
 
   State that these are primary rendering profiles and automatic backend fallback is forbidden.
@@ -235,10 +235,12 @@ Deterministic brief assembly using `assemble.mjs` is the preferred mechanical pa
 
 ### Preferred Path: `assemble.mjs`
 
-1. Construct the assembly JSON matching the schema in [references/assembly.md](references/assembly.md).
-2. Run the assembler: `node assemble.mjs <assembly.json> --out <target-project-directory>`.
-3. Resolve every reported finding or error if validation fails.
-4. Hand off only a successfully assembled and validated bundle.
+1. Resolve four absolute paths before writing the assembly spec: `skillRoot` (this skill's own directory — the folder containing `assemble.mjs`), `workspaceRoot` (the user's project/output location), the absolute assembly-spec JSON path, and the absolute `--out` path. Do not rely on the current working directory being either of these.
+2. Construct the assembly JSON matching the schema in [references/assembly.md](references/assembly.md).
+3. Write the JSON object directly to the absolute assembly-spec path using a single pass (e.g. via Node `fs.writeFileSync` or the Write file tool). Do not use multi-step PowerShell string-concatenation or here-strings.
+4. Run the assembler: `node assemble.mjs <absolute-assembly-spec-path> --out <absolute-out-directory>`.
+5. Resolve every reported finding or error if validation fails.
+6. Hand off only a successfully assembled and validated bundle.
 
 The manual composition rules below remain the authoritative specification and fallback.
 
@@ -397,21 +399,21 @@ wrong biome's text, a mechanic writing a channel the biome does not declare, and
 
 ## Step 5 — Hand off
 
-1. Copy this skill's `verify/` directory next to the target project so
-   `verify/verify_demo.mjs`, `verify/gates.mjs`, and `verify/README.md` sit beside
-   the brief.
-2. Write `HANDOFF.md` in the same directory:
+1. Copy this skill's `verify/` directory next to the target project.
+2. Write `HANDOFF.md` in the same directory using the canonical `renderHandoff()` structure:
 
 ```markdown
 # Handoff
 
-- **Brief:** `<PROJECT>_TECHDEMO_PROMPT.md` — give this file to the coding agent, whole. It needs nothing else.
-- **Agent:** <the agent the user named, e.g. Claude Code in this repo>
-- **When the agent says it is done:** `npm install -D playwright pngjs && node verify/verify_demo.mjs .`
-- **On failure:** the verifier lists each problem. Hand the list back to the agent and have it fix and re-run. Do not accept the demo with failures outstanding.
-- **Frame times are reported, not gated** — a slow demo is a decision for you, not a build failure.
-- **Engine version pinning:** When installing the engine during a generated project build, pin the exact resolved engine version in `package.json` and the lockfile, record that version in `DECISIONS.md`, and avoid floating CDN imports.
-- **Mode decisions:** Record in `DECISIONS.md`: creative mode, base showcase or custom path, creative spark or surprise me, final Signature Moment, existing system reused by Signature Moment, any Experimental changed axis, compatibility checks performed, and permitted implementation deviations.
+Read the entire bundle before writing any code. No single file stands alone (`<PROJECT>_TECHDEMO_PROMPT.md`, `ENVIZZLE_BUILD.json`, `ENVIZZLE_EVIDENCE.json`, `HANDOFF.md`, `verify/`).
+
+## Workflow
+
+Read the entire bundle and implement the five stages in order (`backend-proof`, `terrain-kernel`, `environment-composition`, `character-locomotion`, `mechanic-final-polish`). At each stage, run `node verify/verify_demo.mjs . --stage <stage-id>`, inspect required screenshots, record weaknesses/corrections, and proceed automatically only if the stage passes. Do not ask the user for approval after every successful stage.
+
+Stop and report only when generated artifacts contradict one another, a stage cannot pass, continuing requires violating the contract, or a required capability is unavailable.
+
+After all five stages pass, run final whole-slice verification (`node verify/verify_demo.mjs .`).
 ```
 
 3. Tell the user, in one line, what to paste where.
@@ -459,3 +461,10 @@ you are reproducing the failure this skill exists to prevent.
 | `benchmark.mjs` | Benchmark case registry, bundle preparation, result collection, comparative summary generation (CLI: `node benchmark.mjs`) |
 | `reference-loader.mjs` | Strict reference loader with duplicate/unknown entry detection and cross-checking |
 | `verify/verify_demo.mjs` | Post-build verification: build, console errors, and the image gates |
+## Staged build-supervisor references
+
+Use `references/implementation-planning.md`, `references/babylon-webgpu-patterns.md`,
+and `references/visual-review.md` when applying the 5-stage build-supervisor model.
+They hold the canonical stage order, rendering-profile patterns, and visual review
+questions; the build contract and verifier enforce forbidden-pattern enforcement
+at a high level.

@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { loadReferenceCatalog, EXPECTED_BIOME_TOKENS, EXPECTED_MECHANIC_TOKENS } from '../reference-loader.mjs';
+import {
+  loadReferenceCatalog,
+  EXPECTED_BIOME_TOKENS,
+  EXPECTED_MECHANIC_TOKENS,
+  OPTIONAL_BIOME_LABELED_TOKENS,
+} from '../reference-loader.mjs';
 import { checkCoherence } from '../check.mjs';
 import { SHOWCASES } from '../selection.mjs';
 
@@ -37,10 +42,15 @@ test('loadReferenceCatalog loads exact canonical entry counts', () => {
   assert.equal(Object.keys(catalog.showcases).length, 6);
 });
 
-test('every biome has exactly 19 tokens, FOOT_INTERACTION, and parseable coherence JSON', () => {
+test('every biome has at least the 19 required tokens, FOOT_INTERACTION, and parseable coherence JSON', () => {
   const catalog = loadReferenceCatalog({ rootDir: repoRoot });
   for (const [name, biome] of Object.entries(catalog.biomes)) {
-    assert.equal(Object.keys(biome.tokens).length, 19, `Biome ${name} should have 19 tokens`);
+    const presentOptionalCount = OPTIONAL_BIOME_LABELED_TOKENS.filter((key) => biome.tokens[key] !== undefined).length;
+    assert.equal(
+      Object.keys(biome.tokens).length,
+      19 + presentOptionalCount,
+      `Biome ${name} should have 19 required tokens plus ${presentOptionalCount} optional tokens`,
+    );
     for (const token of EXPECTED_BIOME_TOKENS) {
       assert.ok(biome.tokens[token], `Biome ${name} missing token ${token}`);
       assert.ok(biome.tokens[token].trim().length > 0, `Biome ${name} token ${token} is empty`);
@@ -49,6 +59,50 @@ test('every biome has exactly 19 tokens, FOOT_INTERACTION, and parseable coheren
     assert.ok(biome.footInteraction.trim().length > 0, `Biome ${name} footInteraction is empty`);
     assert.ok(biome.coherenceConfig, `Biome ${name} missing coherenceConfig`);
     assert.ok(Array.isArray(biome.coherenceConfig.palette), `Biome ${name} palette should be array`);
+  }
+});
+
+test('Dune Desert defines both optional morphology review tokens with the exact anti-pattern and positive-requirement content; every other biome now defines its own', () => {
+  const catalog = loadReferenceCatalog({ rootDir: repoRoot });
+  const dune = catalog.biomes['Dune Desert'];
+  const normalizeWhitespace = (s) => s.replace(/\s+/g, ' ').trim();
+  assert.equal(
+    normalizeWhitespace(dune.tokens.MORPHOLOGY_ANTI_PATTERNS),
+    'Do not represent dunes as overlapping cones, pyramids, low-resolution square tiles, visibly independent LOD grids, or repeated isolated procedural primitives.',
+  );
+  const positiveRequirements = [
+    'crescent-shaped barchan forms',
+    'shallow windward slopes',
+    'steeper slip faces',
+    'multiple dune scales',
+    'continuous ridges',
+    'readable wind direction',
+    'seamless LOD boundaries',
+    'layered dune horizon',
+    'natural elevation continuity',
+    'visible locomotion wake',
+    'clearly readable surf/carve mechanic',
+  ];
+  const normalizedVisualReviewQuestions = normalizeWhitespace(dune.tokens.VISUAL_REVIEW_QUESTIONS);
+  for (const phrase of positiveRequirements) {
+    assert.ok(
+      normalizedVisualReviewQuestions.includes(phrase),
+      `Dune Desert VISUAL_REVIEW_QUESTIONS missing positive requirement '${phrase}'`,
+    );
+  }
+
+  // Every biome now carries its own MORPHOLOGY_ANTI_PATTERNS/VISUAL_REVIEW_QUESTIONS
+  // (added for the 5 non-Dune biomes so environment review has the same positive
+  // morphology guidance and anti-pattern language across all six biomes, not just Dune).
+  for (const [name, biome] of Object.entries(catalog.biomes)) {
+    assert.ok(
+      typeof biome.tokens.MORPHOLOGY_ANTI_PATTERNS === 'string' && biome.tokens.MORPHOLOGY_ANTI_PATTERNS.trim() !== '',
+      `Biome ${name} should define a non-empty MORPHOLOGY_ANTI_PATTERNS`,
+    );
+    assert.ok(
+      typeof biome.tokens.VISUAL_REVIEW_QUESTIONS === 'string' && biome.tokens.VISUAL_REVIEW_QUESTIONS.trim() !== '',
+      `Biome ${name} should define a non-empty VISUAL_REVIEW_QUESTIONS`,
+    );
   }
 });
 
@@ -424,6 +478,51 @@ test('loader regression 20: rejects non-exact asset strategy', () => {
       assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Showcase 'Alpine Dawn' assetStrategy must promise 100% Zero-Asset Procedural/);
     }
   );
+});
+
+test('loader regression 21: rejects duplicate optional biome labeled token', () => {
+  withTempCatalog(
+    (root) => {
+      const bioPath = path.join(root, 'references', 'biomes.md');
+      const content = fs.readFileSync(bioPath, 'utf8');
+      const modified = content.replace(
+        '**`MORPHOLOGY_ANTI_PATTERNS`**',
+        '**`MORPHOLOGY_ANTI_PATTERNS`** — Duplicate.\n\n**`MORPHOLOGY_ANTI_PATTERNS`**'
+      );
+      fs.writeFileSync(bioPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Duplicate labeled-token marker 'MORPHOLOGY_ANTI_PATTERNS'/);
+    }
+  );
+});
+
+test('loader regression 22: rejects empty optional biome labeled token content', () => {
+  withTempCatalog(
+    (root) => {
+      const bioPath = path.join(root, 'references', 'biomes.md');
+      const content = fs.readFileSync(bioPath, 'utf8');
+      const modified = content.replace(
+        '**`VISUAL_REVIEW_QUESTIONS`** — Do the dunes show recognizable crescent-shaped barchan forms\nwith shallow windward slopes, steeper slip faces, and multiple dune scales, joined by\ncontinuous ridges with a readable wind direction, seamless LOD boundaries, and a layered\ndune horizon with natural elevation continuity, and is there a visible locomotion wake\nand a clearly readable surf/carve mechanic?',
+        '**`VISUAL_REVIEW_QUESTIONS`**'
+      );
+      fs.writeFileSync(bioPath, modified, 'utf8');
+    },
+    (root) => {
+      assert.throws(() => loadReferenceCatalog({ rootDir: root }), /Empty content for token 'VISUAL_REVIEW_QUESTIONS'/);
+    }
+  );
+});
+
+test('loader regression 23: an optional biome labeled token defined on a non-Dune biome is tolerated and counted', () => {
+  // Alpine Snow now carries real MORPHOLOGY_ANTI_PATTERNS/VISUAL_REVIEW_QUESTIONS content
+  // (added for all six biomes) — this proves the loader tolerates and counts an optional
+  // labeled token on a non-Dune biome without a synthetic injection.
+  const catalog = loadReferenceCatalog({ rootDir: repoRoot });
+  const alpine = catalog.biomes['Alpine Snow'];
+  assert.equal(typeof alpine.tokens.MORPHOLOGY_ANTI_PATTERNS, 'string');
+  assert.ok(alpine.tokens.MORPHOLOGY_ANTI_PATTERNS.trim() !== '');
+  assert.equal(Object.keys(alpine.tokens).length, 21);
 });
 
 test('missing or duplicate token fields fail loudly', () => {

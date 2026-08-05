@@ -24,7 +24,7 @@ const validReportSample = () => ({
   requiredPaths: ['index.html', 'package.json'],
   build: { ok: true, error: null },
   runtime: { hookReady: true, errors: [] },
-  captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+  captures: ['idle.png', 'locomotion.png', 'mechanic.png'],
   gates: {
     pass: true,
     failures: [],
@@ -35,7 +35,10 @@ const validReportSample = () => ({
         { name: 'locomotion', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
         { name: 'mechanic', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
       ],
-      cameraNearestDepthM: 1.2,
+      cameraDiagnostics: { method: 'gpu-depth', nearestDepthM: 1.2, terrainClearanceM: 1.4 },
+      rendererDiagnostics: null,
+      terrainDiagnostics: null,
+      poseDifferences: { idleLocomotion: 0.12, idleMechanic: 0.2 },
       frameStats: { medianMs: 11, p99Ms: 17, samples: 600 },
     },
   },
@@ -51,7 +54,7 @@ test('createVerificationReport creates valid schemaVersion 1 report', () => {
     requiredPaths: ['index.html'],
     build: { ok: true, error: null },
     runtime: { hookReady: true, errors: [] },
-    captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+    captures: ['idle.png', 'locomotion.png', 'mechanic.png'],
     gates: {
       pass: true,
       failures: [],
@@ -62,7 +65,10 @@ test('createVerificationReport creates valid schemaVersion 1 report', () => {
           { name: 'locomotion', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
           { name: 'mechanic', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
         ],
-        cameraNearestDepthM: 1.2,
+        cameraDiagnostics: { method: 'gpu-depth', nearestDepthM: 1.2, terrainClearanceM: 1.4 },
+        rendererDiagnostics: null,
+        terrainDiagnostics: null,
+        poseDifferences: { idleLocomotion: 0.12, idleMechanic: 0.2 },
         frameStats: { medianMs: 11, p99Ms: 17, samples: 600 },
       },
     },
@@ -254,7 +260,7 @@ test('adversarial: passed report with three arbitrary capture names is rejected'
 
 test('adversarial: passed report with duplicate capture names is rejected', () => {
   const sample = validReportSample();
-  sample.captures = ['milestone_idle.png', 'milestone_idle.png', 'milestone_mechanic.png'];
+  sample.captures = ['idle.png', 'idle.png', 'mechanic.png'];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
   assert.ok(val.errors.some((e) => /Duplicate capture filename|exactly the three required capture filenames/.test(e)));
@@ -262,7 +268,7 @@ test('adversarial: passed report with duplicate capture names is rejected', () =
 
 test('validateVerificationReport rejects passed report with a renamed capture (missing required, extra unknown)', () => {
   const sample = validReportSample();
-  sample.captures = ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic_v2.png'];
+  sample.captures = ['idle.png', 'locomotion.png', 'mechanic_v2.png'];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
 });
@@ -274,7 +280,7 @@ test('validateVerificationReport rejects unknown capture filenames on failed rep
   sample.runtime = { hookReady: false, errors: [] };
   sample.gates.pass = false;
   sample.gates.failures = ['missing required path'];
-  sample.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
+  sample.gates.metrics = { frames: [], cameraDiagnostics: null, rendererDiagnostics: null, terrainDiagnostics: null, poseDifferences: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
   sample.captures = ['not-a-real-capture.png'];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
@@ -288,7 +294,7 @@ test('validateVerificationReport accepts a failed report with zero or a subset o
   sampleEmpty.runtime = { hookReady: false, errors: [] };
   sampleEmpty.gates.pass = false;
   sampleEmpty.gates.failures = ['missing required path'];
-  sampleEmpty.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
+  sampleEmpty.gates.metrics = { frames: [], cameraDiagnostics: null, rendererDiagnostics: null, terrainDiagnostics: null, poseDifferences: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
   sampleEmpty.captures = [];
   assert.equal(validateVerificationReport(sampleEmpty).valid, true, validateVerificationReport(sampleEmpty).errors.join('; '));
 
@@ -298,8 +304,8 @@ test('validateVerificationReport accepts a failed report with zero or a subset o
   samplePartial.runtime = { hookReady: true, errors: ['setPose threw'] };
   samplePartial.gates.pass = false;
   samplePartial.gates.failures = ['setPose threw'];
-  samplePartial.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
-  samplePartial.captures = ['milestone_idle.png'];
+  samplePartial.gates.metrics = { frames: [], cameraDiagnostics: null, rendererDiagnostics: null, terrainDiagnostics: null, poseDifferences: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
+  samplePartial.captures = ['idle.png'];
   assert.equal(validateVerificationReport(samplePartial).valid, true, validateVerificationReport(samplePartial).errors.join('; '));
 });
 
@@ -348,10 +354,10 @@ test('validateVerificationReport rejects a failed report with a negative camera 
   sample.runtime = { hookReady: true, errors: [] };
   sample.gates.pass = false;
   sample.gates.failures = ['camera nearest depth below threshold'];
-  sample.gates.metrics.cameraNearestDepthM = -1.5;
+  sample.gates.metrics.cameraDiagnostics.nearestDepthM = -1.5;
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /cameraNearestDepthM/.test(e)));
+  assert.ok(val.errors.some((e) => /cameraDiagnostics.nearestDepthM/.test(e)));
 });
 
 test('validateVerificationReport rejects an error report with a negative frame time', () => {
@@ -361,7 +367,7 @@ test('validateVerificationReport rejects an error report with a negative frame t
   sample.runtime = { hookReady: false, errors: [] };
   sample.gates.pass = false;
   sample.gates.failures = ['build failed'];
-  sample.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: -5, p99Ms: null, samples: null } };
+  sample.gates.metrics = { frames: [], cameraDiagnostics: null, rendererDiagnostics: null, terrainDiagnostics: null, poseDifferences: null, frameStats: { medianMs: -5, p99Ms: null, samples: null } };
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
   assert.ok(val.errors.some((e) => /medianMs/.test(e)));
@@ -457,4 +463,348 @@ test('writeVerificationReport cleans up temp file on failure', () => {
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+// --- Task 6: environment field, new optional metrics, leak-scrubbing, contradiction rules ---
+
+test('validateVerificationReport accepts a report with no environment key (legacy shape)', () => {
+  const sample = validReportSample();
+  assert.equal('environment' in sample, false);
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('validateVerificationReport accepts environment: null', () => {
+  const sample = validReportSample();
+  sample.environment = null;
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('validateVerificationReport accepts a well-formed environment object', () => {
+  const sample = validReportSample();
+  sample.environment = { browserChannel: 'chrome', headed: false, webgpuCapable: true };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('validateVerificationReport rejects environment with an unknown key', () => {
+  const goodSample = validReportSample();
+  goodSample.environment = { browserChannel: 'chrome', headed: false, webgpuCapable: true };
+  const badSample = validReportSample();
+  badSample.environment = { browserChannel: 'chrome', headed: false, webgpuCapable: true, extra: 1 };
+  assert.notDeepEqual(badSample.environment, goodSample.environment);
+  const val = validateVerificationReport(badSample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('environment')));
+});
+
+test('validateVerificationReport rejects environment.headed that is not a boolean', () => {
+  const sample = validReportSample();
+  sample.environment = { browserChannel: 'chrome', headed: 'yes', webgpuCapable: true };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('environment.headed')));
+});
+
+test('validateVerificationReport rejects environment.browserChannel containing leaked path/stack content', () => {
+  const sample = validReportSample();
+  sample.environment = { browserChannel: 'C:\\Users\\wests\\chrome.exe', headed: false, webgpuCapable: true };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('environment.browserChannel') && e.includes('leak')));
+});
+
+test('validateVerificationReport rejects legacy metric keys', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.cameraNearestDepthM = 1.2;
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /cameraNearestDepthM/.test(e)));
+});
+
+test('validateVerificationReport accepts a well-formed cameraDiagnostics object', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.cameraDiagnostics = { method: 'gpu-depth', nearestDepthM: 1.8, terrainClearanceM: 2.1 };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('validateVerificationReport rejects cameraDiagnostics.method that is not an allowed method', () => {
+  const goodValue = { method: 'gpu-depth', nearestDepthM: 1.8, terrainClearanceM: 2.1 };
+  const badValue = { method: 'cpu-height-only', nearestDepthM: 1.8, terrainClearanceM: 2.1 };
+  assert.notDeepEqual(badValue, goodValue);
+  const sample = validReportSample();
+  sample.gates.metrics.cameraDiagnostics = badValue;
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('cameraDiagnostics.method')));
+});
+
+test('validateVerificationReport rejects cameraDiagnostics.nearestDepthM that is negative', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.cameraDiagnostics = { method: 'gpu-depth', nearestDepthM: -0.5, terrainClearanceM: 2.1 };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('cameraDiagnostics.nearestDepthM')));
+});
+
+test('validateVerificationReport rejects cameraDiagnostics.terrainClearanceM that is zero or negative', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.cameraDiagnostics = { method: 'gpu-depth', nearestDepthM: 1.8, terrainClearanceM: 0 };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('cameraDiagnostics.terrainClearanceM')));
+});
+
+test('validateVerificationReport rejects poseDifferences values outside [0, 1]', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.poseDifferences = { idleLocomotion: 1.5, idleMechanic: 0.3 };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('poseDifferences.idleLocomotion')));
+});
+
+test('validateVerificationReport accepts a well-formed terrainDiagnostics object', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.terrainDiagnostics = {
+    renderOwner: 'gpu',
+    renderMeshBaseHeight: 0,
+    parityMethod: 'gpu-readback',
+    paritySamples: 8,
+    parityMaxErrorM: 0.012,
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('validateVerificationReport rejects terrainDiagnostics.renderOwner that is blank', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.terrainDiagnostics = {
+    renderOwner: '   ',
+    renderMeshBaseHeight: 0,
+    parityMethod: 'gpu-readback',
+    paritySamples: 8,
+    parityMaxErrorM: 0.012,
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('terrainDiagnostics.renderOwner')));
+});
+
+test('validateVerificationReport rejects terrainDiagnostics.parityMethod containing leaked stack content', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.terrainDiagnostics = {
+    renderOwner: 'gpu',
+    renderMeshBaseHeight: 0,
+    parityMethod: 'gpu-readback\n    at Object.<anonymous> (/home/user/project/verify/verify_demo.mjs:42:10)',
+    paritySamples: 8,
+    parityMaxErrorM: 0.012,
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('terrainDiagnostics.parityMethod') && e.includes('leak')));
+});
+
+test('validateVerificationReport rejects terrainDiagnostics.paritySamples that is negative or fractional', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.terrainDiagnostics = {
+    renderOwner: 'gpu',
+    renderMeshBaseHeight: 0,
+    parityMethod: 'gpu-readback',
+    paritySamples: -1,
+    parityMaxErrorM: 0.012,
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('terrainDiagnostics.paritySamples')));
+});
+
+test('validateVerificationReport accepts a well-formed rendererDiagnostics object', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.rendererDiagnostics = {
+    backend: 'webgpu',
+    shaderLanguage: 'wgsl',
+    materialsReady: true,
+    renderedFrames: 1,
+    validationErrors: [],
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('validateVerificationReport rejects rendererDiagnostics.renderedFrames that is negative or fractional', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.rendererDiagnostics = {
+    backend: 'webgpu',
+    shaderLanguage: 'wgsl',
+    materialsReady: true,
+    renderedFrames: 1.5,
+    validationErrors: [],
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('rendererDiagnostics.renderedFrames')));
+});
+
+test('validateVerificationReport rejects rendererDiagnostics.validationErrors entries containing leaked path content', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.rendererDiagnostics = {
+    backend: 'webgpu',
+    shaderLanguage: 'wgsl',
+    materialsReady: true,
+    renderedFrames: 1,
+    validationErrors: ['C:\\Users\\wests\\project\\src\\shaders\\terrain.wgsl: binding mismatch'],
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('rendererDiagnostics.validationErrors') && e.includes('leak')));
+});
+
+test('validateVerificationReport rejects a passed report whose rendererDiagnostics.validationErrors is non-empty (contradiction)', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.rendererDiagnostics = {
+    backend: 'webgpu',
+    shaderLanguage: 'wgsl',
+    materialsReady: true,
+    renderedFrames: 1,
+    validationErrors: ['duplicate binding at group 0'],
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('Contradictory state') && e.includes('validationErrors')));
+});
+
+test('validateVerificationReport rejects a passed report whose rendererDiagnostics.materialsReady is false (contradiction)', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.rendererDiagnostics = {
+    backend: 'webgpu',
+    shaderLanguage: 'wgsl',
+    materialsReady: false,
+    renderedFrames: 1,
+    validationErrors: [],
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('Contradictory state') && e.includes('materialsReady')));
+});
+
+test('validateVerificationReport rejects a passed report whose rendererDiagnostics.renderedFrames is zero (contradiction)', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.rendererDiagnostics = {
+    backend: 'webgpu',
+    shaderLanguage: 'wgsl',
+    materialsReady: true,
+    renderedFrames: 0,
+    validationErrors: [],
+  };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('Contradictory state') && e.includes('renderedFrames')));
+});
+
+test('validateVerificationReport rejects a passed report whose cameraDiagnostics.method is invalid (contradiction)', () => {
+  const sample = validReportSample();
+  sample.gates.metrics.cameraDiagnostics = { method: 'cpu-height-only', nearestDepthM: 1.8, terrainClearanceM: 2.1 };
+  const val = validateVerificationReport(sample);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => e.includes('Passed report') && e.includes('cameraDiagnostics.method')));
+});
+
+test('normalizeVerificationReport preserves canonical null diagnostic metrics', () => {
+  const sample = validReportSample();
+  sample.status = 'failed';
+  sample.build = { ok: false, error: 'build failed' };
+  sample.runtime = { hookReady: false, errors: [] };
+  sample.gates.pass = false;
+  sample.gates.failures = ['build failed'];
+  sample.gates.metrics.cameraDiagnostics = null;
+  sample.gates.metrics.poseDifferences = null;
+  sample.gates.metrics.terrainDiagnostics = null;
+  sample.gates.metrics.rendererDiagnostics = null;
+  const norm = normalizeVerificationReport(sample);
+  assert.equal(norm.gates.metrics.cameraDiagnostics, null);
+  assert.equal(norm.gates.metrics.poseDifferences, null);
+  assert.equal(norm.gates.metrics.terrainDiagnostics, null);
+  assert.equal(norm.gates.metrics.rendererDiagnostics, null);
+  // The normalized canonical report must itself still validate.
+  const val = validateVerificationReport(norm);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('normalizeVerificationReport preserves a supplied cameraDiagnostics/poseDifferences/terrainDiagnostics/rendererDiagnostics', () => {
+  const sample = validReportSample();
+  sample.environment = { browserChannel: 'chrome', headed: true, webgpuCapable: true };
+  sample.gates.metrics.cameraDiagnostics = { method: 'gpu-depth', nearestDepthM: 1.8, terrainClearanceM: 2.1 };
+  sample.gates.metrics.poseDifferences = { idleLocomotion: 0.12, idleMechanic: 0.2 };
+  sample.gates.metrics.terrainDiagnostics = {
+    renderOwner: 'gpu',
+    renderMeshBaseHeight: 0,
+    parityMethod: 'gpu-readback',
+    paritySamples: 8,
+    parityMaxErrorM: 0.012,
+  };
+  sample.gates.metrics.rendererDiagnostics = {
+    backend: 'webgpu',
+    shaderLanguage: 'wgsl',
+    materialsReady: true,
+    renderedFrames: 1,
+    validationErrors: [],
+  };
+  const norm = normalizeVerificationReport(sample);
+  assert.deepEqual(norm.environment, { browserChannel: 'chrome', browserExecutable: null, headed: true, externalServer: null, webgpuCapable: true });
+  assert.deepEqual(norm.gates.metrics.cameraDiagnostics, { method: 'gpu-depth', nearestDepthM: 1.8, terrainClearanceM: 2.1 });
+  assert.deepEqual(norm.gates.metrics.poseDifferences, { idleLocomotion: 0.12, idleMechanic: 0.2 });
+  assert.equal(norm.gates.metrics.terrainDiagnostics.renderOwner, 'gpu');
+  assert.equal(norm.gates.metrics.rendererDiagnostics.backend, 'webgpu');
+  const val = validateVerificationReport(norm);
+  assert.equal(val.valid, true, val.errors.join('; '));
+});
+
+test('createVerificationReport with a fully populated Task 6 gates.metrics shape produces a valid passed report', () => {
+  const report = createVerificationReport({
+    target: 'my-demo-project',
+    startedAt: '2026-07-31T12:00:00.000Z',
+    finishedAt: '2026-07-31T12:00:05.000Z',
+    durationMs: 5000,
+    requiredPaths: ['index.html'],
+    build: { ok: true, error: null },
+    runtime: { hookReady: true, errors: [] },
+    captures: ['idle.png', 'locomotion.png', 'mechanic.png'],
+    environment: { browserChannel: 'chrome', headed: false, webgpuCapable: true },
+    gates: {
+      pass: true,
+      failures: [],
+      info: [],
+      metrics: {
+        frames: [
+          { name: 'idle', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
+          { name: 'locomotion', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
+          { name: 'mechanic', meanLuminance: 0.42, flatFrameRatio: 0.18, characterAreaFraction: 0.08 },
+        ],
+        frameStats: { medianMs: 11, p99Ms: 17, samples: 600 },
+        cameraDiagnostics: { method: 'gpu-depth', nearestDepthM: 1.2, terrainClearanceM: 1.6 },
+        poseDifferences: { idleLocomotion: 0.12, idleMechanic: 0.2 },
+        terrainDiagnostics: {
+          renderOwner: 'gpu',
+          renderMeshBaseHeight: 0,
+          parityMethod: 'gpu-readback',
+          paritySamples: 8,
+          parityMaxErrorM: 0.012,
+        },
+        rendererDiagnostics: {
+          backend: 'webgpu',
+          shaderLanguage: 'wgsl',
+          materialsReady: true,
+          renderedFrames: 1,
+          validationErrors: [],
+        },
+      },
+    },
+  });
+
+  assert.equal(report.status, 'passed');
+  const val = validateVerificationReport(report);
+  assert.equal(val.valid, true, val.errors.join('; '));
+  assert.deepEqual(report.environment, { browserChannel: 'chrome', browserExecutable: null, headed: false, externalServer: null, webgpuCapable: true });
 });

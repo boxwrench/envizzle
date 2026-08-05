@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 
 export const CREATIVE_MODES = ['proven', 'signature', 'experimental'];
 export const SELECTION_PATHS = ['showcase', 'base-showcase', 'fully-custom'];
+
+export function normalizeProvenSignatureMoment() {
+  return { enabled: false, text: '', reusedSystem: '', verificationPose: 'mechanic' };
+}
 export const AMBITIONS = ['slice', 'showcase', 'everything'];
 export const ARCHETYPES = ['Robed Mage', 'Traveller Coat', 'Armored Soldier', 'Desert Nomad', 'Void Wanderer'];
 export const CORE_SECTIONS = ['vegetation', 'state-buffer', 'audio'];
@@ -16,7 +20,7 @@ export const EXTRA_SECTIONS = ['weather', 'water-bodies', 'architecture', 'destr
 export const RENDERING_PROFILES = {
   'babylon-webgpu': {
     id: 'babylon-webgpu',
-    engine: 'Babylon.js latest stable, WebGPU only',
+    engine: 'Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only',
     shaderLang: 'WGSL',
     shaderLangExt: 'wgsl',
     materialApi: 'Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL',
@@ -752,13 +756,12 @@ export function validateSelection(selection) {
     ));
   } else {
     if (selection.creativeMode === 'proven') {
-      if (sig.enabled !== false) {
-        out.push(conflict(
-          'proven-signature-enabled-forbidden',
-          'error',
-          'Proven mode requires signatureMoment.enabled to be false.',
-          'Set signatureMoment.enabled: false.',
-        ));
+      const canonical = normalizeProvenSignatureMoment();
+      if (sig.enabled !== canonical.enabled || sig.text !== canonical.text || sig.reusedSystem !== canonical.reusedSystem) {
+        out.push(conflict('proven-signature-enabled-forbidden', 'error', 'Proven mode must encode the canonical empty signatureMoment.', 'Set signatureMoment to normalizeProvenSignatureMoment().'));
+      }
+      if (sig.verificationPose !== canonical.verificationPose) {
+        out.push(conflict('signature-moment-verification-pose-invalid', 'error', `signatureMoment.verificationPose must be '${canonical.verificationPose}' in Proven mode.`, `Set signatureMoment.verificationPose: '${canonical.verificationPose}'.`));
       }
     } else if (selection.creativeMode === 'signature' || selection.creativeMode === 'experimental') {
       if (sig.enabled !== true) {

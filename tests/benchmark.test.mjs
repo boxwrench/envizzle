@@ -260,6 +260,11 @@ test('collectBenchmarkResult enforces real brief, metadata, report target, and S
     const promptSha256 = crypto.createHash('sha256').update(promptBytes).digest('hex');
 
     passReport.benchmark = { caseId: 'alpine-signature', briefSha256: promptSha256 };
+    for (const frame of passReport.gates.metrics.frames) {
+      frame.environmentTileVariance = 0.01;
+      frame.characterFillRatio = 0.2;
+      frame.characterEdgeDensity = 0.3;
+    }
     fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
     // 1. Valid collect
@@ -270,6 +275,22 @@ test('collectBenchmarkResult enforces real brief, metadata, report target, and S
     });
     assert.equal(res.eligible, true);
     assert.equal(res.caseId, 'alpine-signature');
+    assert.deepEqual(Object.keys(res.automated.metrics), [
+      'frames',
+      'cameraDiagnostics',
+      'rendererDiagnostics',
+      'terrainDiagnostics',
+      'poseDifferences',
+      'frameStats',
+    ]);
+    assert.deepEqual(Object.keys(res.automated.metrics.frames[0]), [
+      'name',
+      'meanLuminance',
+      'flatFrameRatio',
+      'characterAreaFraction',
+      'localLuminanceVariation',
+      'edgeDensity',
+    ]);
 
     // 2. Case ID mismatch
     assert.throws(() => {
@@ -323,7 +344,7 @@ test('collectBenchmarkResult combines deterministic build, runtime, and gate fai
     const promptFile = fs.readdirSync(projDir).find((file) => file.endsWith('_TECHDEMO_PROMPT.md'));
     const promptSha256 = crypto.createHash('sha256').update(fs.readFileSync(path.join(projDir, promptFile))).digest('hex');
     const clone = (value) => JSON.parse(JSON.stringify(value));
-    const emptyMetrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
+    const emptyMetrics = { frames: [], cameraDiagnostics: null, rendererDiagnostics: null, terrainDiagnostics: null, poseDifferences: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
 
     const makeReport = ({
       status = 'failed',
@@ -695,10 +716,10 @@ test('failed result with a duplicate or unknown pose in metrics.frames is reject
 
 test('adversarial test: failed benchmark result with a negative camera depth rejected', () => {
   const res = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'failed-result.json'), 'utf8'));
-  res.automated.metrics.cameraNearestDepthM = -2;
+  res.automated.metrics.cameraDiagnostics = { method: 'gpu-depth', nearestDepthM: -2, terrainClearanceM: 1 };
   const val = validateBenchmarkResult(res);
   assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /cameraNearestDepthM/.test(e)));
+  assert.ok(val.errors.some((e) => /cameraDiagnostics.nearestDepthM/.test(e)));
 });
 
 test('adversarial test: error benchmark result with a negative frame time rejected', () => {

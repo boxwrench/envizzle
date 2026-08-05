@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { validateAssemblySpec, assembleBrief, writeBundle } from '../assemble.mjs';
+import { execFileSync } from 'node:child_process';
+import { validateAssemblySpec, assembleBrief, writeBundle, stripBom, VERIFIER_SOURCE_FILES } from '../assemble.mjs';
 import { validateBrief, checkCoherence } from '../check.mjs';
 import { SHOWCASES, MECHANIC_WRITES } from '../selection.mjs';
 
@@ -30,6 +31,7 @@ const removeTempDir = (dir) => {
 };
 
 test('all six canonical showcase selections can produce valid briefs', () => {
+  const profilesSeen = new Set();
   for (const [name, showcase] of Object.entries(SHOWCASES)) {
     const spec = {
       selection: {
@@ -74,7 +76,27 @@ test('all six canonical showcase selections can produce valid briefs', () => {
 
     const val = validateBrief(brief);
     assert.equal(val.ok, true, `Brief for ${name} failed validateBrief: ${val.problems.join(' | ')}`);
+    for (const heading of [
+      '## Product Principle',
+      '## Architecture Ownership',
+      '## Implementation Stages',
+      '## Rendering-Profile Pattern Guidance',
+      '## Forbidden Patterns',
+      '## Review Criteria',
+    ]) {
+      assert.ok(brief.includes(heading), `${name} brief missing staged section: ${heading}`);
+    }
+    const duneAntiPattern = 'Do not represent dunes as overlapping cones, pyramids, low-resolution square tiles, visibly independent LOD grids, or repeated isolated procedural primitives.';
+    const normalizedBrief = brief.replaceAll('\r', '').replaceAll('\n', ' ');
+    if (showcase.biome === 'Dune Desert') {
+      assert.ok(normalizedBrief.includes(duneAntiPattern), `${name} brief must include Dune-specific anti-pattern guidance`);
+    } else {
+      assert.equal(normalizedBrief.includes(duneAntiPattern), false, `${name} brief must not include Dune-specific anti-pattern guidance`);
+    }
+
+    profilesSeen.add(showcase.renderingProfile);
   }
+  assert.deepEqual([...profilesSeen].sort(), ['babylon-webgpu', 'three-webgl2']);
 });
 
 test('output is deterministic byte-for-byte', () => {
@@ -569,6 +591,107 @@ test('writeBundle collision matrix covering all eight target paths and unrelated
     assert.throws(() => {
       writeBundle(dirSpec, tmpDir, { rootDir: repoRoot, force: true });
     }, (err) => err.code === 'EISDIR');
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('assembled brief contains the 5-stage evidence instructions, not milestone language', () => {
+  const showcase = SHOWCASES['Alpine Dawn'];
+  const spec = {
+    selection: {
+      creativeMode: 'signature',
+      path: 'showcase',
+      baseShowcase: 'Alpine Dawn',
+      changedAxes: [],
+      ambition: showcase.ambition,
+      biome: showcase.biome,
+      archetype: showcase.archetype,
+      mechanic: showcase.mechanic,
+      camera: showcase.camera,
+      renderingProfile: showcase.renderingProfile,
+      includedSections: showcase.includedSections,
+      extraSections: showcase.extraSections,
+      cameraAdjustments: showcase.cameraAdjustments,
+      stateChannelContract: showcase.stateChannelContract,
+      signatureMoment: {
+        enabled: true,
+        text: 'Signature moment for Alpine Dawn',
+        reusedSystem: 'particles',
+        verificationPose: 'mechanic',
+      },
+      noveltyBudget: {
+        addsEngine: false,
+        addsAssetCategory: false,
+        addsPersistentBuffer: false,
+        addsMajorRenderPass: false,
+        addsSimulationSubsystem: false,
+        addsInput: false,
+        increasesAmbition: false,
+      },
+    },
+    creativeSpark: 'surprise me',
+    builderAgent: 'Claude Code',
+    extraSectionMarkdown: {},
+  };
+  const { brief, buildContract, evidenceTemplate } = assembleBrief(spec, { rootDir: repoRoot });
+  assert.ok(!/milestone/i.test(brief), 'brief must not mention milestones');
+  assert.equal(buildContract.schemaVersion, 2);
+  assert.deepEqual(buildContract.stages.map((s) => s.id), ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-final-polish']);
+  assert.equal(evidenceTemplate.schemaVersion, 2);
+  assert.ok(brief.includes('Implementation Stages and Visual Self-Review'));
+});
+
+test('assemble CLI accepts a UTF-8 assembly spec with a leading BOM', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const specPath = path.join(tmpDir, 'with-bom.json');
+    const spec = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'signature-alpine.json'), 'utf8'));
+    fs.writeFileSync(specPath, '\uFEFF' + JSON.stringify(spec));
+    const result = execFileSync('node', ['assemble.mjs', specPath, '--stdout'], { encoding: 'utf8', cwd: repoRoot });
+    assert.ok(result.includes('Implementation Stages'));
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('assemble CLI accepts normal UTF-8 without a BOM unchanged', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const specPath = path.join(tmpDir, 'no-bom.json');
+    const spec = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'signature-alpine.json'), 'utf8'));
+    fs.writeFileSync(specPath, JSON.stringify(spec));
+    const result = execFileSync('node', ['assemble.mjs', specPath, '--stdout'], { encoding: 'utf8', cwd: repoRoot });
+    assert.ok(result.includes('Implementation Stages'));
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('assemble CLI reports a clear JSON parse error for malformed JSON after BOM removal', () => {
+  const tmpDir = makeTempDir();
+  try {
+    const specPath = path.join(tmpDir, 'malformed-with-bom.json');
+    fs.writeFileSync(specPath, '\uFEFF{ "selection": ');
+    assert.throws(() => execFileSync('node', ['assemble.mjs', specPath, '--stdout'], { encoding: 'utf8', stdio: 'pipe', cwd: repoRoot }));
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('stripBom only removes a single leading U+FEFF and mutates nothing else', () => {
+  assert.equal(stripBom('\uFEFFhello'), 'hello');
+  assert.equal(stripBom('hello'), 'hello');
+  assert.equal(stripBom('hel\uFEFFlo'), 'hel\uFEFFlo');
+});
+
+test('VERIFIER_SOURCE_FILES has 7 canonical files and writeBundle writes 11 files in total', () => {
+  assert.equal(VERIFIER_SOURCE_FILES.length, 7);
+  const tmpDir = makeTempDir();
+  try {
+    const spec = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'signature-alpine.json'), 'utf8'));
+    const result = writeBundle(spec, tmpDir, { rootDir: repoRoot });
+    assert.equal(result.writtenFiles.length, 11);
   } finally {
     removeTempDir(tmpDir);
   }

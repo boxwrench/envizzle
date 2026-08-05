@@ -15,8 +15,8 @@
   "cameraAdjustments": [],
   "signatureMoment": {
     "enabled": false,
-    "text": "No signature moment",
-    "reusedSystem": "none",
+    "text": "",
+    "reusedSystem": "",
     "verificationPose": "mechanic"
   },
   "noveltyBudget": {

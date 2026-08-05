@@ -34,6 +34,39 @@ test('README.md documents selection and coherence CLI commands', () => {
   assert.match(content, /node check\.mjs coherence/i, 'README.md missing coherence CLI command');
 });
 
+test('verify README documents the truthful verification hook and CLI controls', () => {
+  const content = fs.readFileSync('verify/README.md', 'utf8');
+  assert.match(content, /--browser-channel/);
+  assert.match(content, /--browser-executable/);
+  assert.match(content, /--external-server/);
+  assert.match(content, /--headed/);
+  assert.match(content, /--stage backend-proof/);
+  assert.match(content, /--stage terrain-kernel/);
+  assert.match(content, /--stage environment-composition/);
+  assert.match(content, /--stage character-locomotion/);
+  assert.match(content, /--stage mechanic-final-polish/);
+  assert.match(content, /ready: false/);
+  assert.match(content, /status: "initializing"/);
+  assert.match(content, /rendererInfo\(\)/);
+  assert.match(content, /terrainDiagnostics\(\)/);
+  assert.match(content, /cameraDiagnostics\(\)/);
+  assert.match(content, /backendProof\(\)/);
+  assert.match(content, /environment_only\.png/);
+  assert.doesNotMatch(content, /cameraNearestDepth/);
+  assert.doesNotMatch(content, /milestone_/);
+});
+
+test('TEMPLATE.md documents the same truthful verification hook shape', () => {
+  const content = fs.readFileSync('TEMPLATE.md', 'utf8');
+  assert.match(content, /## 6\. Mandatory Verification Hook/);
+  assert.match(content, /ready: false/);
+  assert.match(content, /status: "initializing"/);
+  assert.match(content, /rendererInfo\(\)/);
+  assert.match(content, /terrainDiagnostics\(\)/);
+  assert.match(content, /cameraDiagnostics\(\)/);
+  assert.match(content, /backendProof\(\)/);
+  assert.doesNotMatch(content, /cameraNearestDepth/);
+});
 test('README.md recovery instructions contain actual retrieval command and no batch process history', () => {
   const content = fs.readFileSync('README.md', 'utf8');
   assert.match(content, /git\s+(restore|show)/, 'README.md recovery instructions must contain git restore or git show command');

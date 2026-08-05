@@ -26,11 +26,34 @@ import {
   createCanonicalAssemblyModel,
   createEvidenceTemplate,
   renderContractSummary,
+  renderProductPrinciple,
+  renderArchitectureOwnership,
+  renderImplementationStages,
+  renderBabylonPatternGuidance,
+  renderForbiddenPatterns,
+  renderReviewCriteria,
+  renderVisualAcceptanceHierarchy,
+  renderCentrepieceEffect,
   renderHandoff,
-  renderMilestoneInstructions,
+  renderStageEvidenceInstructions,
   validateAssemblyArtifacts,
   validateBuildContract,
 } from './build-contract.mjs';
+
+export const VERIFIER_SOURCE_FILES = Object.freeze([
+  'README.md',
+  'gates.mjs',
+  'report.mjs',
+  'patternScan.mjs',
+  'contractSchema.mjs',
+  'metricSchema.mjs',
+  'verify_demo.mjs',
+]);
+
+export function stripBom(text) {
+  if (typeof text !== 'string') return text;
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
 
 const conflict = (rule, severity, message, fix) => ({ rule, severity, message, fix });
 
@@ -896,7 +919,16 @@ export function assembleBrief(spec, options = {}) {
 
   result += assemblyDecisionsText + '\n';
 
-  result += `\n\n${renderContractSummary(canonicalModel)}\n${renderMilestoneInstructions(canonicalModel)}\n`;
+  result += `\n\n${renderContractSummary(canonicalModel)}\n` +
+    `${renderStageEvidenceInstructions(canonicalModel)}\n` +
+    `${renderProductPrinciple(canonicalModel)}\n` +
+    `${renderArchitectureOwnership(canonicalModel)}\n` +
+    `${renderImplementationStages(canonicalModel)}\n` +
+    `${renderBabylonPatternGuidance(canonicalModel)}\n` +
+    `${renderForbiddenPatterns(canonicalModel)}\n` +
+    `${renderCentrepieceEffect(canonicalModel, mechanic)}\n` +
+    `${renderReviewCriteria(canonicalModel)}\n` +
+    `${renderVisualAcceptanceHierarchy(canonicalModel)}\n`;
 
   // Final Validation
   const briefVal = validateBrief(result);
@@ -921,10 +953,13 @@ export function assembleBrief(spec, options = {}) {
     model: canonicalModel,
     contract: buildContract,
     brief: result,
+    checkStagedSections: true,
   });
   if (!artifactAgreement.valid) {
     throw new Error(`Brief/build-contract agreement failed: ${artifactAgreement.errors.join(' | ')}`);
   }
+
+  const evidenceTemplate = createEvidenceTemplate(briefSha256);
 
   return {
     projectName,
@@ -933,7 +968,7 @@ export function assembleBrief(spec, options = {}) {
     warnings: cohWarnings,
     assemblyModel: canonicalModel,
     buildContract,
-    evidenceTemplate: createEvidenceTemplate(),
+    evidenceTemplate,
   };
 }
 
@@ -945,7 +980,7 @@ export function writeBundle(spec, outDir, options = {}) {
   const verifySrc = path.join(rootDir, 'verify');
 
   // Preflight 1: Read all verifier files into memory before creating/modifying targets
-  const verifierFiles = ['README.md', 'gates.mjs', 'report.mjs', 'verify_demo.mjs'];
+  const verifierFiles = VERIFIER_SOURCE_FILES;
   const cachedVerifierFiles = {};
   for (const vf of verifierFiles) {
     const srcPath = path.join(verifySrc, vf);
@@ -990,10 +1025,7 @@ export function writeBundle(spec, outDir, options = {}) {
     path.join(targetDir, BUILD_CONTRACT_FILENAME),
     path.join(targetDir, EVIDENCE_FILENAME),
     path.join(targetDir, HANDOFF_FILENAME),
-    path.join(targetDir, 'verify', 'README.md'),
-    path.join(targetDir, 'verify', 'gates.mjs'),
-    path.join(targetDir, 'verify', 'report.mjs'),
-    path.join(targetDir, 'verify', 'verify_demo.mjs'),
+    ...VERIFIER_SOURCE_FILES.map((vf) => path.join(targetDir, 'verify', vf)),
   ];
 
   for (const tf of targetFiles) {
@@ -1106,7 +1138,7 @@ function runCli() {
 
   let rawSpec;
   try {
-    rawSpec = fs.readFileSync(specFile, 'utf8');
+    rawSpec = stripBom(fs.readFileSync(specFile, 'utf8'));
   } catch (err) {
     console.error(`Failed to read file '${specFile}': ${err.message}`);
     process.exit(2);

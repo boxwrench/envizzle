@@ -38,7 +38,7 @@ Do not stop at "it works." Stop when every captured frame looks polished, cohesi
 | Concern        | Spec |
 |----------------|------|
 | Language        | Modern JavaScript (ES2023 modules). JSDoc types encouraged, no TypeScript build step required. |
-| Engine          | {{ENGINE — default: Babylon.js latest stable, WebGPU only OR Three.js latest stable, WebGLRenderer (WebGL2 only)}} |
+| Engine          | {{ENGINE — default: Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only OR Three.js latest stable, WebGLRenderer (WebGL2 only)}} |
 | Shader Language | {{SHADER_LANG — default: WGSL or GLSL ES 3.00 raw modules}} |
 | Material API    | {{MATERIAL_API — default: Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL OR Three.js RawShaderMaterial on WebGLRenderer}} |
 | Bundler         | Vite |
@@ -60,6 +60,8 @@ No fallbacks. If GPU context is absent, show a single line of text and stop.
 
 Build a geometry clipmap or nested-ring LOD centred on the player, so triangle density is high near the camera and falls off with distance. Aim for roughly sub-10 cm vertex spacing in the inner ring at default zoom.
 
+**Terrain elevation ownership is a strict contract:** Render terrain vertices must enter the terrain vertex shader at base height `y = 0`. Apply the procedural elevation function exactly once, on the GPU. The CPU may mirror the same height function only for physics, camera clearance, and foot planting. CPU-built render vertices must not be pre-displaced. Share one height implementation between the terrain vertex path and a GPU parity evaluation path; CPU-to-CPU comparison is forbidden.
+
 Height comes from layered procedural noise composited on the GPU:
 
 {{TERRAIN_NOISE_LAYERS}}
@@ -79,6 +81,8 @@ Build the custom material with {{MATERIAL_API}}. Use {{SHADER_LANG}} through raw
 {{MATERIAL_BEHAVIOURS}}
 
 Build the material's core lighting response as a shared shader include inside `src/shaders/lib/lighting.{{SHADER_LANG_EXT — default: wgsl}}` (or `.glsl`) that every surface in the scene imports — terrain, vegetation, character, wake, particles, abilities, vehicles. One function, used everywhere.
+
+**Babylon WebGPU binding ownership:** When the selected profile is `babylon-webgpu`, use `BABYLON.ShaderLanguage.WGSL` and register sources in `BABYLON.ShaderStore.ShadersStoreWGSL`. Babylon-managed `ShaderMaterial` sources must use Babylon shader-processing syntax such as `uniform time : f32;`, `attribute position : vec3<f32>;`, `varying vWorldPosition : vec3<f32>;`, then `uniforms.time`, `vertexInputs.position`, `vertexOutputs.vWorldPosition`, and `fragmentInputs.vWorldPosition` in processed stages. Do not write manual `@group(...)` or `@binding(...)` decorations, including when using Babylon `UniformBuffer`, storage buffer, storage texture, sampler, or texture APIs; bind custom resources through Babylon APIs such as `setUniformBuffer`, `setStorageBuffer`, `setTexture`, or `setTextureSampler`. A raw-WebGPU manual layout is allowed only outside Babylon `ShaderMaterial`; no Envizzle showcase requires that exception.
 
 <!--SECTION:state-buffer-->
 ### 2.3 Wind Field & Terrain State Buffer ({{DEFORMATION_TYPE}})
@@ -149,7 +153,7 @@ Hold {{CENTREPIECE_INPUT — default: RMB / F / T}}. This receives the most poli
 ## 3. Performance Engineering & Mandatory Deliverables
 
 - Zero allocations in the render loop (`new` prohibited in per-frame code). Pre-allocate scratch vectors and math pools.
-- Pre-compile every material, particle system, post-process, and compute pipeline behind loading screen. Gate on `material.isReady()`.
+- Pre-compile every required material and representative mesh or submesh behind the loading screen with the actual selected renderer. For Babylon WebGPU, await `engine.initAsync()`, run `await material.forceCompilationAsync(mesh)` for every required material, require `material.isReady(mesh) === true`, bind all required resources, submit one real render, and block on scoped or uncaptured WebGPU validation errors. Do not treat imported WGSL, a generic syntax check, or a successful Vite build as shader proof.
 - **Settings & Signature Toggle:** Provide `ENABLE_SIGNATURE_MOMENT` in `src/core/settings.js` to enable or disable the Signature Moment behavior. Disabling `ENABLE_SIGNATURE_MOMENT` must restore the selected configuration without the Signature Moment. In Proven mode, set `ENABLE_SIGNATURE_MOMENT` to `false`; it is a no-op and no independent Signature Moment code path is required.
 - **Mandatory Root Log Files:** You MUST create `DECISIONS.md` (recording creative mode, base showcase/custom path, creative spark, Signature Moment, system reuse, compatibility checks, and trade-offs) and `PERF.md` (measured CPU frame budget breakdown + VRAM allocation table) in the project root.
 
@@ -201,22 +205,66 @@ Before declaring the demo complete, verify each item:
 
 ## 6. Mandatory Verification Hook
 
-You MUST expose `window.__demo` once the loading screen dismisses. Verification
-is automated and will fail the build without it.
+You MUST expose `window.__demo` at initialization. Verification is automated and will
+fail the build without it. Readiness is truthful: it stays false until adapter/device
+acquisition, engine initialization, shader processing, pipeline and resource creation,
+material compilation/readiness, zero validation errors, and one successful rendered
+frame have all completed.
+The hook starts with ready: false, status: "initializing", and error: null. Set status:
+"ready" only after adapter acquisition → device creation → WebGPUEngine.initAsync()
+→ Babylon shader processing → pipeline creation → binding/resource creation
+→ forced compilation of every required material and representative mesh
+→ all required materials ready → zero scoped validation errors → zero uncaptured
+validation errors → no device loss → at least one render submission → submitted
+GPU work completion where supported → no delayed blocking validation error during
+a bounded drain period. If initialization fails, set status: "failed", keep
+ready: false, and provide a nonblank normalized error. Never set ready in
+a finally block and never suppress an initialization failure and continue.
 
 ```js
 window.__demo = {
-  ready: true,
+  ready: false,
+  status: "initializing",
+  error: null,
   /** @param {'idle'|'locomotion'|'mechanic'} name */
   setPose(name) {},
   /** @param {boolean} visible - hide the character mesh only, keep the scene */
   setCharacterVisible(visible) {},
-  /** @returns {number} metres from camera to nearest scene geometry */
-  cameraNearestDepth() {},
+  /** @returns {{backend:string, shaderLanguage:string, materialsReady:boolean, renderedFrames:number, validationErrors:Array}} */
+  rendererInfo() {},
+  /** @returns {{renderOwner:string, renderMeshBaseHeight:number, parityMethod:string, paritySamples:number, parityMaxErrorM:number}} */
+  terrainDiagnostics() {},
+  /** @returns {{method:string, nearestDepthM:number, terrainClearanceM:number}} */
+  cameraDiagnostics() {},
   /** @returns {{medianMs:number, p99Ms:number, samples:number}} */
   frameStats() {},
+  /** @returns {{engineInitialized:boolean, activeBackend:string, activeShaderLanguage:string, materialCompilationAttempted:boolean, materialCompiledAgainstMesh:boolean, materialReady:boolean, requiredAttributes:Array<string>, presentVertexBuffers:Object, declaredUniforms:Array<string>, declaredResources:Array<string>, manualBindings:boolean, scopedValidationErrors:Array, uncapturedValidationErrors:Array, deviceLosses:Array, frameSubmitted:boolean, frameCompleted:boolean}} */
+  backendProof() {},
 };
 ```
 
+On success set `window.__demo.status = "ready"`, `ready = true`, and `error = null`.
+On any initialization exception set `status = "failed"`, `ready = false`, and a
+nonblank normalized `error`; never set `ready` in a `finally` block or suppress the
+exception. The verifier waits for either ready/true or failed and reports failed
+immediately. Runtime readiness only proves that the required renderer produced a
+frame; it does not mean Envizzle evidence and visual verification passed.
+
+`rendererInfo()` must report the selected backend and shader language, material readiness,
+submitted frames, and an empty validation-error list. `terrainDiagnostics()` must prove
+GPU-owned render elevation and GPU-readback parity. `cameraDiagnostics()` replaces the
+old scalar camera-depth hook and must report its measurement method, nearest depth, and
+terrain clearance.
+
 `setCharacterVisible(false)` must hide only the character and its cloth, leaving
 terrain, vegetation, and atmosphere untouched.
+
+`backendProof()` is the one-time, richer forensic proof consulted by the `backend-proof`
+stage verifier: it must genuinely report engine initialization, the active backend and
+shader language, material compilation attempted against the representative mesh and
+ready, the required attributes and which vertex buffers are actually present, every
+declared uniform and resource, `manualBindings: false` for a Babylon `ShaderMaterial`
+path, empty scoped/uncaptured validation-error and device-loss lists, and a submitted,
+completed frame. It deliberately overlaps `rendererInfo()` on backend/shader-language —
+`rendererInfo()` stays the small, cheap, repeatedly-polled summary; `backendProof()` is
+the one-shot forensic record. Do not let the two disagree.
