@@ -4,7 +4,7 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseVerifyCliArgs } from '../verify/verify_demo.mjs';
+import { parseVerifyCliArgs, verifyDemo } from '../verify/verify_demo.mjs';
 import { parseBenchmarkCliArgs, prepareBenchmark } from '../benchmark.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,7 +54,6 @@ test('parseVerifyCliArgs handles help, default paths, custom options, duplicate 
   const resCustom = parseVerifyCliArgs(['my-project', '--report', 'out.json']);
   assert.equal(resCustom.projectDir, path.resolve('my-project'));
   assert.equal(resCustom.reportPath, path.resolve('out.json'));
-  assert.equal(resCustom.screenshotsDir, path.join(path.resolve('my-project'), 'evidence', 'final-polish'));
 
   // Malformed options & removed --screenshots option
   assert.throws(() => parseVerifyCliArgs(['--report']), /Missing path/);
@@ -73,6 +72,24 @@ test('verify_demo CLI rejects --screenshots and exits 2', () => {
     assert.fail('--screenshots must exit 2');
   } catch (err) {
     assert.equal(err.status, 2, '--screenshots option must exit code 2');
+  }
+});
+
+test('verifyDemo rejects programmatic options.screenshotsDir override and cannot write to external directory', async () => {
+  const tmpExternal = path.join(repoRoot, 'tests', `tmp-ext-${Date.now()}`);
+  try {
+    await assert.rejects(
+      async () => {
+        await verifyDemo(process.cwd(), { screenshotsDir: tmpExternal });
+      },
+      (err) => {
+        assert.match(err.message, /screenshotsDir.*obsolete/i);
+        return true;
+      }
+    );
+    assert.equal(fs.existsSync(tmpExternal), false, 'External directory must not be created');
+  } finally {
+    if (fs.existsSync(tmpExternal)) fs.rmSync(tmpExternal, { recursive: true, force: true });
   }
 });
 

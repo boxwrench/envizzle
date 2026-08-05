@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -129,9 +130,30 @@ function createValidProjectDirectory(projectDir) {
       report: { required: true, filename: 'verify-report.json' },
     },
     milestones: [
-      { id: 'first-runnable-scene', requiredScreenshotEvidence: { minimumScreenshots: 1, requiredPoses: ['evidence/first-runnable-scene/milestone_idle.png'] } },
-      { id: 'systems-complete', requiredScreenshotEvidence: { minimumScreenshots: 2, requiredPoses: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'] } },
-      { id: 'final-polish', requiredScreenshotEvidence: { minimumScreenshots: 3, requiredPoses: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'] } },
+      {
+        id: 'first-runnable-scene',
+        requiredScreenshotEvidence: {
+          minimumScreenshots: 1,
+          requiredPoses: ['idle'],
+          requiredScreenshotPaths: ['evidence/first-runnable-scene/milestone_idle.png'],
+        },
+      },
+      {
+        id: 'systems-complete',
+        requiredScreenshotEvidence: {
+          minimumScreenshots: 2,
+          requiredPoses: ['locomotion', 'mechanic'],
+          requiredScreenshotPaths: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'],
+        },
+      },
+      {
+        id: 'final-polish',
+        requiredScreenshotEvidence: {
+          minimumScreenshots: 3,
+          requiredPoses: ['idle', 'locomotion', 'mechanic'],
+          requiredScreenshotPaths: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'],
+        },
+      },
     ],
   };
 
@@ -580,11 +602,20 @@ test('missing or malformed briefSha256 fails disk-level validation', () => {
 });
 
 test('pure evidence schema module can be imported and used in an isolated directory without node_modules or pngjs', () => {
-  const tmpDir = makeTmpDir();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'envizzle-isolated-test-'));
   try {
-    const evUrl = pathToFileURL(path.join(repoRoot, 'verify', 'evidence.mjs')).href;
+    const evidenceCopyPath = path.join(tmpDir, 'evidence.mjs');
+    const reportCopyPath = path.join(tmpDir, 'report.mjs');
+
+    fs.copyFileSync(path.join(repoRoot, 'verify', 'evidence.mjs'), evidenceCopyPath);
+    fs.copyFileSync(path.join(repoRoot, 'verify', 'report.mjs'), reportCopyPath);
+
+    const nodeModulesPath = path.join(tmpDir, 'node_modules');
+    assert.equal(fs.existsSync(nodeModulesPath), false, 'Isolated directory must not contain node_modules');
+
+    const copyUrl = pathToFileURL(evidenceCopyPath).href;
     const script = `
-      import { validateMilestoneEvidence } from '${evUrl}';
+      import { validateMilestoneEvidence } from '${copyUrl}';
       const template = {
         schemaVersion: 1,
         status: 'incomplete verification',
@@ -596,12 +627,12 @@ test('pure evidence schema module can be imported and used in an isolated direct
       };
       const res = validateMilestoneEvidence(template);
       if (!res.valid) throw new Error('Validation failed: ' + res.errors.join('; '));
-      console.log('PURE_IMPORT_OK');
+      console.log('GENUINE_PURE_IMPORT_OK');
     `;
     const out = execFileSync('node', ['--input-type=module', '--eval', script], { cwd: tmpDir, env: { ...process.env, NODE_PATH: '' }, encoding: 'utf8' });
-    assert.ok(out.includes('PURE_IMPORT_OK'));
+    assert.ok(out.includes('GENUINE_PURE_IMPORT_OK'));
   } finally {
-    rmTmpDir(tmpDir);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 

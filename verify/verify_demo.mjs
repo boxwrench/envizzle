@@ -58,13 +58,11 @@ export function parseVerifyCliArgs(args) {
   const resolvedReport = reportPath
     ? path.resolve(reportPath)
     : path.join(resolvedTarget, 'verify-report.json');
-  const resolvedScreenshots = path.join(resolvedTarget, 'evidence', 'final-polish');
 
   return {
     help: false,
     projectDir: resolvedTarget,
     reportPath: resolvedReport,
-    screenshotsDir: resolvedScreenshots,
   };
 }
 
@@ -110,16 +108,19 @@ function killTree(child) {
   }
 }
 
-async function waitForServer(url, timeoutMs) {
+async function waitForServer(url, timeoutMs, serverProcess = null) {
   const deadline = Date.now() + timeoutMs;
   let lastErr;
   while (Date.now() < deadline) {
+    if (serverProcess && serverProcess.exitCode !== null) {
+      throw new Error(`dev server process exited with code ${serverProcess.exitCode} before server accepted connections`);
+    }
     try {
       await fetch(url, { method: 'GET', signal: AbortSignal.timeout(Math.min(timeoutMs, 1000)) });
       return;
     } catch (err) {
       lastErr = err;
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 100));
     }
   }
   throw new Error(
@@ -188,6 +189,9 @@ function discoverBenchmarkContext(targetDir) {
 }
 
 export async function verifyDemo(projectDir, options = {}) {
+  if (options.screenshotsDir !== undefined) {
+    throw new Error("Option 'screenshotsDir' is obsolete and prohibited. Final verification captures are always saved to <project-directory>/evidence/final-polish/.");
+  }
   const startedAt = new Date().toISOString();
   const startTime = Date.now();
   const targetDir = path.resolve(projectDir);
@@ -195,9 +199,7 @@ export async function verifyDemo(projectDir, options = {}) {
   const reportPath = options.reportPath
     ? path.resolve(options.reportPath)
     : path.join(targetDir, 'verify-report.json');
-  const shotDir = options.screenshotsDir
-    ? path.resolve(options.screenshotsDir)
-    : path.join(targetDir, 'evidence', 'final-polish');
+  const shotDir = path.join(targetDir, 'evidence', 'final-polish');
 
   const failures = [];
   const logInfo = [];
@@ -282,7 +284,7 @@ export async function verifyDemo(projectDir, options = {}) {
         throw new Error(`Failed to load Playwright: ${pwErr.message}`);
       }
 
-      const port = 5300 + Math.floor(Math.random() * 600);
+      const port = options.port || (10000 + Math.floor(Math.random() * 50000));
       const origin = `http://localhost:${port}`;
       try {
         if (isWin) {
@@ -303,7 +305,7 @@ export async function verifyDemo(projectDir, options = {}) {
       }
 
       try {
-        await waitForServer(origin, options.serverReadyTimeoutMs ?? 30000);
+        await waitForServer(origin, options.serverReadyTimeoutMs ?? 30000, server);
       } catch (srvErr) {
         isOperationalError = true;
         throw srvErr;
@@ -558,7 +560,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
 
   verifyDemo(parsed.projectDir, {
     reportPath: parsed.reportPath,
-    screenshotsDir: parsed.screenshotsDir,
   })
     .then((result) => {
       console.log('\n' + '='.repeat(50));

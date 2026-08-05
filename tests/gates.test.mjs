@@ -87,9 +87,30 @@ const makeStubProject = () => {
       report: { required: true, filename: 'verify-report.json' },
     },
     milestones: [
-      { id: 'first-runnable-scene', requiredScreenshotEvidence: { minimumScreenshots: 1, requiredPoses: ['evidence/first-runnable-scene/milestone_idle.png'] } },
-      { id: 'systems-complete', requiredScreenshotEvidence: { minimumScreenshots: 2, requiredPoses: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'] } },
-      { id: 'final-polish', requiredScreenshotEvidence: { minimumScreenshots: 3, requiredPoses: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'] } },
+      {
+        id: 'first-runnable-scene',
+        requiredScreenshotEvidence: {
+          minimumScreenshots: 1,
+          requiredPoses: ['idle'],
+          requiredScreenshotPaths: ['evidence/first-runnable-scene/milestone_idle.png'],
+        },
+      },
+      {
+        id: 'systems-complete',
+        requiredScreenshotEvidence: {
+          minimumScreenshots: 2,
+          requiredPoses: ['locomotion', 'mechanic'],
+          requiredScreenshotPaths: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'],
+        },
+      },
+      {
+        id: 'final-polish',
+        requiredScreenshotEvidence: {
+          minimumScreenshots: 3,
+          requiredPoses: ['idle', 'locomotion', 'mechanic'],
+          requiredScreenshotPaths: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'],
+        },
+      },
     ],
   };
   fs.writeFileSync(path.join(dir, 'ENVIZZLE_BUILD.json'), JSON.stringify(contract, null, 2), 'utf8');
@@ -419,7 +440,7 @@ test('evaluateGates returns structured metrics matching image measurements', () 
 // genuinely answers `npx vite build` (exit 0/1) and `npx vite --port N --strictPort`
 // (serve for real over HTTP, or fail) itself. This is "creating a temporary npx shim"
 // per the task, not bypassing the build — the shim's build branch is a real child process
-// that verify_demo.mjs's real execSync call actually invokes and inspects the exit code of.
+// that verify_demo.mjs's real execFileSync call actually invokes and inspects the exit code of.
 
 function makeNpxShim(mode) {
   const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'envizzle-npx-shim-'));
