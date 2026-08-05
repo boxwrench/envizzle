@@ -241,24 +241,48 @@ export function validateProjectMilestoneEvidence(projectDir, options = {}) {
     }
   }
 
-  // 2. Check brief file identified by contract and verify brief SHA-256 hash
+  // 2. Check brief file identified by contract and verify mandatory brief SHA-256 hash
   if (contract) {
-    const briefFilename = contract.project?.briefFilename;
-    if (typeof briefFilename !== 'string' || !isSafeRelativePath(briefFilename)) {
-      errors.push(`Build contract specifies unsafe or invalid briefFilename '${briefFilename}'`);
+    if (!isPlainObject(contract) || contract.schemaVersion !== 1) {
+      errors.push(`Build contract '${BUILD_CONTRACT_FILENAME}' must be a plain object with schemaVersion 1`);
+    } else if (!isPlainObject(contract.project)) {
+      errors.push(`Build contract '${BUILD_CONTRACT_FILENAME}' must contain a plain project object`);
     } else {
-      const briefPath = path.join(projReal, briefFilename);
-      if (!fs.existsSync(briefPath)) {
-        errors.push(`Brief file '${briefFilename}' identified by build contract does not exist`);
+      const briefFilename = contract.project.briefFilename;
+      if (typeof briefFilename !== 'string' || briefFilename.trim() === '' || !isSafeRelativePath(briefFilename)) {
+        errors.push(`Build contract specifies unsafe or invalid briefFilename '${briefFilename}'`);
       } else {
-        const briefReal = fs.realpathSync(briefPath);
-        if (!isPathInside(projReal, briefReal)) {
-          errors.push(`Path security violation: brief file '${briefReal}' resolves outside project directory '${projReal}'`);
+        const briefPath = path.join(projReal, briefFilename);
+        if (!fs.existsSync(briefPath)) {
+          errors.push(`Brief file '${briefFilename}' identified by build contract does not exist`);
         } else {
-          const briefBytes = fs.readFileSync(briefReal);
-          const computedSha = crypto.createHash('sha256').update(briefBytes).digest('hex');
-          if (contract.project?.briefSha256 && computedSha !== contract.project.briefSha256) {
-            errors.push(`Brief hash mismatch: file '${briefFilename}' SHA-256 '${computedSha}' does not match contract briefSha256 '${contract.project.briefSha256}'`);
+          let briefReal = null;
+          try {
+            briefReal = fs.realpathSync(briefPath);
+          } catch (err) {
+            errors.push(`Brief file '${briefFilename}' realpath resolution failed: ${err.message}`);
+          }
+          if (briefReal) {
+            if (!isPathInside(projReal, briefReal)) {
+              errors.push(`Path security violation: brief file '${briefReal}' resolves outside project directory '${projReal}'`);
+            } else {
+              const stat = fs.statSync(briefReal);
+              if (!stat.isFile()) {
+                errors.push(`Brief target '${briefFilename}' is not a regular file`);
+              } else {
+                const briefSha256 = contract.project.briefSha256;
+                const hexShaRegex = /^[0-9a-f]{64}$/;
+                if (typeof briefSha256 !== 'string' || !hexShaRegex.test(briefSha256)) {
+                  errors.push(`Build contract project.briefSha256 must be a 64-character lowercase hex string, got '${briefSha256}'`);
+                } else {
+                  const briefBytes = fs.readFileSync(briefReal);
+                  const computedSha = crypto.createHash('sha256').update(briefBytes).digest('hex');
+                  if (computedSha !== briefSha256) {
+                    errors.push(`Brief hash mismatch: file '${briefFilename}' SHA-256 '${computedSha}' does not match contract briefSha256 '${briefSha256}'`);
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -284,6 +308,17 @@ export function validateProjectMilestoneEvidence(projectDir, options = {}) {
     const schemaVal = validateMilestoneEvidence(evidence);
     if (!schemaVal.valid) {
       errors.push(...schemaVal.errors);
+    }
+    // Enforce full completion for project disk-level verification
+    if (evidence.status !== COMPLETE_STATUS) {
+      errors.push(`Milestone evidence status is '${evidence.status}'; completion requires status '${COMPLETE_STATUS}'`);
+    }
+    if (Array.isArray(evidence.milestones)) {
+      for (const m of evidence.milestones) {
+        if (m?.status !== COMPLETE_STATUS) {
+          errors.push(`Milestone '${m?.id}' status is '${m?.status}'; completion requires status '${COMPLETE_STATUS}'`);
+        }
+      }
     }
   }
 

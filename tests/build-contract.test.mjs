@@ -373,7 +373,7 @@ test('output collision leaves every existing bundle file byte-identical', () => 
   }
 });
 
-test('generated bundle contains all four verifier files', () => {
+test('generated bundle contains all five verifier files', () => {
   const tmpDir = makeTempDir();
   try {
     const spec = validSignature();
@@ -513,7 +513,7 @@ test('adversarial evidence mutation: final-polish with only one screenshot is re
   assert.notEqual(JSON.stringify(ev.milestones[2].screenshots), before, 'screenshots field must be changed before testing');
   const validation = validateMilestoneEvidence(ev);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /requires at least 3 screenshot|pose/i);
+  assert.match(validation.errors.join('; '), /missing required canonical screenshot|requires at least 3 screenshot|pose/i);
 });
 
 test('adversarial evidence mutation: duplicate screenshot filenames in completed milestone is rejected', () => {

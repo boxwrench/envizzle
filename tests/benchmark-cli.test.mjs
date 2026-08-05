@@ -125,13 +125,67 @@ test('benchmark CLI collect command exits 0 on passed report and 1 on failed rep
     const caseMeta = JSON.parse(fs.readFileSync(path.join(tmpDir, 'alpine-signature', 'case.json'), 'utf8'));
     const benchmarkIdentity = { caseId: 'alpine-signature', briefSha256: caseMeta.briefSha256 };
 
-    // Passed report
+    // Passed report template bound to case brief hash
     const passReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
     passReport.target = 'bundle';
     passReport.benchmark = { ...benchmarkIdentity };
     fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
-    const outPass = execSync(`node benchmark.mjs collect "${projDir}" --case alpine-signature --model test-agent --attempt 1 --out "${outJson}"`, { cwd: repoRoot, stdio: 'pipe' }).toString();
+    // Untouched incomplete bundle with passed report -> exits 1, eligible: false
+    try {
+      execSync(`node benchmark.mjs collect "${projDir}" --case alpine-signature --model test-agent --attempt 1 --out "${outJson}"`, { cwd: repoRoot, stdio: 'pipe' });
+      assert.fail('Collect on incomplete evidence should exit 1');
+    } catch (err) {
+      assert.equal(err.status, 1, 'Collect on incomplete evidence must exit 1');
+    }
+
+    // Populate completed evidence & required PNGs for genuinely passed run
+    const pngBuf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const ev = {
+      schemaVersion: 1,
+      status: 'complete',
+      milestones: [
+        {
+          id: 'first-runnable-scene',
+          status: 'complete',
+          screenshots: ['evidence/first-runnable-scene/milestone_idle.png'],
+          console: { errors: [], warnings: [] },
+          performance: { fps: 60, frameTimeMs: 16.67 },
+          visualSelfReview: { reviewed: true, weaknesses: ['Minor shadow aliasing'], corrections: ['Adjusted bias'] },
+        },
+        {
+          id: 'systems-complete',
+          status: 'complete',
+          screenshots: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'],
+          console: { errors: [], warnings: [] },
+          performance: { fps: 60, frameTimeMs: 16.67 },
+          visualSelfReview: { reviewed: true, weaknesses: ['LOD transition noticeable'], corrections: ['Smoothed LOD curve'] },
+        },
+        {
+          id: 'final-polish',
+          status: 'complete',
+          screenshots: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'],
+          console: { errors: [], warnings: [] },
+          performance: { fps: 60, frameTimeMs: 16.67 },
+          visualSelfReview: { reviewed: true, weaknesses: ['Bloom flare strong'], corrections: ['Reduced threshold'] },
+        },
+      ],
+    };
+    fs.writeFileSync(path.join(projDir, 'ENVIZZLE_EVIDENCE.json'), JSON.stringify(ev, null, 2), 'utf8');
+    for (const s of [
+      'evidence/first-runnable-scene/milestone_idle.png',
+      'evidence/systems-complete/milestone_locomotion.png',
+      'evidence/systems-complete/milestone_mechanic.png',
+      'evidence/final-polish/milestone_idle.png',
+      'evidence/final-polish/milestone_locomotion.png',
+      'evidence/final-polish/milestone_mechanic.png',
+    ]) {
+      const full = path.join(projDir, s);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, pngBuf);
+    }
+
+    const outPass = execSync(`node benchmark.mjs collect "${projDir}" --case alpine-signature --model test-agent --attempt 1 --out "${outJson}" --force`, { cwd: repoRoot, stdio: 'pipe' }).toString();
     assert.ok(outPass.includes('Successfully collected'));
     const resData = JSON.parse(fs.readFileSync(outJson, 'utf8'));
     assert.equal(resData.eligible, true);

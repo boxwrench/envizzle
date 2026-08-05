@@ -41,6 +41,59 @@ const removeTempDir = (dir) => {
   }
 };
 
+const populateCompletedProjectEvidence = (projDir) => {
+  const pngBuf = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const evidencePath = path.join(projDir, 'ENVIZZLE_EVIDENCE.json');
+  const ev = {
+    schemaVersion: 1,
+    status: 'complete',
+    milestones: [
+      {
+        id: 'first-runnable-scene',
+        status: 'complete',
+        screenshots: ['evidence/first-runnable-scene/milestone_idle.png'],
+        console: { errors: [], warnings: [] },
+        performance: { fps: 60, frameTimeMs: 16.67 },
+        visualSelfReview: { reviewed: true, weaknesses: ['Minor shadow aliasing'], corrections: ['Adjusted bias'] },
+      },
+      {
+        id: 'systems-complete',
+        status: 'complete',
+        screenshots: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'],
+        console: { errors: [], warnings: [] },
+        performance: { fps: 60, frameTimeMs: 16.67 },
+        visualSelfReview: { reviewed: true, weaknesses: ['LOD transition noticeable'], corrections: ['Smoothed LOD curve'] },
+      },
+      {
+        id: 'final-polish',
+        status: 'complete',
+        screenshots: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'],
+        console: { errors: [], warnings: [] },
+        performance: { fps: 60, frameTimeMs: 16.67 },
+        visualSelfReview: { reviewed: true, weaknesses: ['Bloom flare strong'], corrections: ['Reduced threshold'] },
+      },
+    ],
+  };
+  fs.writeFileSync(evidencePath, JSON.stringify(ev, null, 2), 'utf8');
+
+  const screenshots = [
+    'evidence/first-runnable-scene/milestone_idle.png',
+    'evidence/systems-complete/milestone_locomotion.png',
+    'evidence/systems-complete/milestone_mechanic.png',
+    'evidence/final-polish/milestone_idle.png',
+    'evidence/final-polish/milestone_locomotion.png',
+    'evidence/final-polish/milestone_mechanic.png',
+  ];
+  for (const s of screenshots) {
+    const full = path.join(projDir, s);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, pngBuf);
+  }
+};
+
 test('source-mutation regression test rejects traversal ID before file creation', () => {
   const casesJsonPath = path.join(repoRoot, 'benchmarks', 'cases.json');
   const realText = fs.readFileSync(casesJsonPath, 'utf8');
@@ -263,6 +316,7 @@ test('collectBenchmarkResult enforces real brief, metadata, report target, and S
     fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
 
     // 1. Valid collect
+    populateCompletedProjectEvidence(projDir);
     const res = collectBenchmarkResult(projDir, {
       caseId: 'alpine-signature',
       model: 'claude-3-7-sonnet',
@@ -318,6 +372,7 @@ test('collectBenchmarkResult combines deterministic build, runtime, and gate fai
     prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
 
     const projDir = path.join(tmpDir, 'alpine-signature', 'bundle');
+    populateCompletedProjectEvidence(projDir);
     const reportPath = path.join(projDir, 'verify-report.json');
     const passedTemplate = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
     const promptFile = fs.readdirSync(projDir).find((file) => file.endsWith('_TECHDEMO_PROMPT.md'));
@@ -391,6 +446,7 @@ test('collectBenchmarkResult combines deterministic build, runtime, and gate fai
     assert.deepEqual(blankStrings.automated.hardGateFailures, ['runtime reason', 'gate reason']);
     assert.equal(blankStrings.automated.hardGateFailureCount, 2);
 
+    populateCompletedProjectEvidence(projDir);
     const passed = collect(makeReport({ status: 'passed', gatePass: true }));
     assert.deepEqual(passed.automated.hardGateFailures, []);
     assert.equal(passed.automated.hardGateFailureCount, 0);
@@ -855,6 +911,101 @@ test('adversarial test: preparation swap failure restores original outDir with u
     const parentDir = path.dirname(tmpDir);
     const parentFiles = fs.readdirSync(parentDir);
     assert.equal(parentFiles.some((f) => f.startsWith('.tmp-prepare-') || f.startsWith('.tmp-bak-')), false);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('forged passed verification report cannot make an untouched incomplete benchmark bundle eligible', () => {
+  const tmpDir = makeTempDir();
+  try {
+    prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
+    const projDir = path.join(tmpDir, 'alpine-signature', 'bundle');
+    const reportPath = path.join(projDir, 'verify-report.json');
+
+    const promptFiles = fs.readdirSync(projDir).filter((f) => f.endsWith('_TECHDEMO_PROMPT.md'));
+    const promptPath = path.join(projDir, promptFiles[0]);
+    const promptSha256 = crypto.createHash('sha256').update(fs.readFileSync(promptPath)).digest('hex');
+
+    const forgedReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
+    forgedReport.target = 'bundle';
+    forgedReport.benchmark = { caseId: 'alpine-signature', briefSha256: promptSha256 };
+    fs.writeFileSync(reportPath, JSON.stringify(forgedReport, null, 2), 'utf8');
+
+    const res = collectBenchmarkResult(projDir, {
+      caseId: 'alpine-signature',
+      model: 'claude-3-7-sonnet',
+      attempt: 1,
+    });
+
+    assert.equal(res.eligible, false, 'Forged report on incomplete evidence must not be eligible');
+    assert.equal(res.automated.status, 'failed');
+    assert.equal(res.automated.pass, false);
+    assert.ok(res.automated.hardGateFailures.some((f) => /incomplete verification|Milestone evidence/.test(f)));
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('high human-review scores cannot override incomplete evidence', () => {
+  const tmpDir = makeTempDir();
+  try {
+    prepareBenchmark(tmpDir, { caseId: 'alpine-signature' });
+    const projDir = path.join(tmpDir, 'alpine-signature', 'bundle');
+    const reportPath = path.join(projDir, 'verify-report.json');
+    const reviewPath = path.join(tmpDir, 'review.json');
+
+    const promptFiles = fs.readdirSync(projDir).filter((f) => f.endsWith('_TECHDEMO_PROMPT.md'));
+    const promptPath = path.join(projDir, promptFiles[0]);
+    const promptSha256 = crypto.createHash('sha256').update(fs.readFileSync(promptPath)).digest('hex');
+
+    const passReport = JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'benchmarks', 'passed-report.json'), 'utf8'));
+    passReport.target = 'bundle';
+    passReport.benchmark = { caseId: 'alpine-signature', briefSha256: promptSha256 };
+    fs.writeFileSync(reportPath, JSON.stringify(passReport, null, 2), 'utf8');
+
+    const perfectReview = {
+      reviewer: 'Master Evaluator',
+      scores: {
+        compositionReadability: 5,
+        materialCoherence: 5,
+        characterCraft: 5,
+        mechanicLegibility: 5,
+        creativeIdentity: 5,
+        scopeDiscipline: 5,
+      },
+      notes: 'Visually stunning work!',
+    };
+    fs.writeFileSync(reviewPath, JSON.stringify(perfectReview, null, 2), 'utf8');
+
+    const res = collectBenchmarkResult(projDir, {
+      caseId: 'alpine-signature',
+      model: 'claude-3-7-sonnet',
+      attempt: 1,
+      reviewPath,
+    });
+
+    assert.equal(res.eligible, false, 'Perfect human scores cannot override incomplete milestone evidence');
+    assert.equal(res.automated.status, 'failed');
+    assert.equal(res.humanReview.visualAverage, 5.0);
+  } finally {
+    removeTempDir(tmpDir);
+  }
+});
+
+test('benchmark.mjs prepare generates BENCHMARK.md with model-agnostic bundle workspace instructions', () => {
+  const tmpDir = makeTempDir();
+  try {
+    prepareBenchmark(tmpDir, { suite: 'smoke' });
+    const benchmarkDocPath = path.join(tmpDir, 'BENCHMARK.md');
+    assert.equal(fs.existsSync(benchmarkDocPath), true);
+    const content = fs.readFileSync(benchmarkDocPath, 'utf8');
+
+    assert.ok(
+      content.includes("Provide the complete nine-file bundle in `bundle/` as the builder agent's workspace"),
+      `BENCHMARK.md must contain model-agnostic workspace instructions, got:\n${content}`,
+    );
+    assert.ok(!content.includes('Pass the generated brief'));
   } finally {
     removeTempDir(tmpDir);
   }

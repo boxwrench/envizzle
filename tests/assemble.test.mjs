@@ -520,46 +520,57 @@ test('writeBundle preflight: missing verifier source leaves destination untouche
   }
 });
 
-test('writeBundle collision matrix covering all eight target paths and unrelated sentinel file', () => {
+test('writeBundle collision matrix covering all nine target paths and unrelated sentinel file', () => {
   const tmpDir = makeTempDir();
   const specPath = path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'signature-alpine.json');
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
 
   try {
-    // 1. Initial write
-    writeBundle(spec, tmpDir, { rootDir: repoRoot });
+    const targetFileRelPaths = [
+      'ALPINE_DAWN_TECHDEMO_PROMPT.md',
+      'ENVIZZLE_BUILD.json',
+      'ENVIZZLE_EVIDENCE.json',
+      'HANDOFF.md',
+      'verify/README.md',
+      'verify/evidence.mjs',
+      'verify/gates.mjs',
+      'verify/report.mjs',
+      'verify/verify_demo.mjs',
+    ];
 
-    // Add an unrelated sentinel file
+    // 1. Independent collision refusal without --force for EACH of the 9 target files
+    for (const relPath of targetFileRelPaths) {
+      const singleDir = makeTempDir();
+      try {
+        const tf = path.join(singleDir, relPath);
+        fs.mkdirSync(path.dirname(tf), { recursive: true });
+        fs.writeFileSync(tf, 'EXISTING_TARGET_CONTENT', 'utf8');
+
+        assert.throws(
+          () => {
+            writeBundle(spec, singleDir, { rootDir: repoRoot, force: false });
+          },
+          (err) => err.code === 'EEXIST' && err.message.includes(path.normalize(relPath)),
+          `writeBundle must refuse collision independently for target file '${relPath}'`,
+        );
+      } finally {
+        removeTempDir(singleDir);
+      }
+    }
+
+    // 2. Overwrite with --force preserves unrelated sentinel file
+    writeBundle(spec, tmpDir, { rootDir: repoRoot });
     const sentinelPath = path.join(tmpDir, 'SENTINEL.txt');
     fs.writeFileSync(sentinelPath, 'PRESERVED_SENTINEL', 'utf8');
 
-    const targetFilePaths = [
-      path.join(tmpDir, 'ALPINE_DAWN_TECHDEMO_PROMPT.md'),
-      path.join(tmpDir, 'ENVIZZLE_BUILD.json'),
-      path.join(tmpDir, 'ENVIZZLE_EVIDENCE.json'),
-      path.join(tmpDir, 'HANDOFF.md'),
-      path.join(tmpDir, 'verify', 'README.md'),
-      path.join(tmpDir, 'verify', 'gates.mjs'),
-      path.join(tmpDir, 'verify', 'report.mjs'),
-      path.join(tmpDir, 'verify', 'verify_demo.mjs'),
-    ];
-
-    // 2. Collision refusal without --force for each target file
-    for (const tf of targetFilePaths) {
-      assert.ok(fs.existsSync(tf));
-      assert.throws(() => {
-        writeBundle(spec, tmpDir, { rootDir: repoRoot, force: false });
-      }, (err) => err.code === 'EEXIST');
-    }
-
-    // 3. Overwrite with --force preserves unrelated sentinel file
-    fs.writeFileSync(targetFilePaths[0], 'MODIFIED', 'utf8');
+    const firstTarget = path.join(tmpDir, 'ALPINE_DAWN_TECHDEMO_PROMPT.md');
+    fs.writeFileSync(firstTarget, 'MODIFIED', 'utf8');
     writeBundle(spec, tmpDir, { rootDir: repoRoot, force: true });
 
     assert.equal(fs.readFileSync(sentinelPath, 'utf8'), 'PRESERVED_SENTINEL');
-    assert.ok(fs.readFileSync(targetFilePaths[0], 'utf8').includes('# ALPINE-DAWN'));
+    assert.ok(fs.readFileSync(firstTarget, 'utf8').includes('# ALPINE-DAWN'));
 
-    // 4. Directory collision refusal even with --force
+    // 3. Directory collision refusal even with --force
     const dirCollisionPath = path.join(tmpDir, 'DIRECTORY_COLLISION_TECHDEMO_PROMPT.md');
     fs.mkdirSync(dirCollisionPath, { recursive: true });
 
@@ -568,7 +579,7 @@ test('writeBundle collision matrix covering all eight target paths and unrelated
 
     assert.throws(() => {
       writeBundle(dirSpec, tmpDir, { rootDir: repoRoot, force: true });
-    }, (err) => err.code === 'EISDIR');
+    }, (err) => err.code === 'EISDIR' || err.code === 'EEXIST');
   } finally {
     removeTempDir(tmpDir);
   }

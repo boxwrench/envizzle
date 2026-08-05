@@ -463,3 +463,117 @@ test('Scenario 22: validateProjectMilestoneEvidence passes cleanly when all file
     rmTmpDir(tmp);
   }
 });
+
+test('untouched generated evidence template is structurally valid under validateMilestoneEvidence', () => {
+  const template = {
+    schemaVersion: 1,
+    status: INCOMPLETE_VERIFICATION_STATUS,
+    milestones: [
+      {
+        id: 'first-runnable-scene',
+        status: INCOMPLETE_VERIFICATION_STATUS,
+        screenshots: [],
+        console: { errors: [], warnings: [] },
+        performance: { fps: null, frameTimeMs: null },
+        visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] },
+      },
+      {
+        id: 'systems-complete',
+        status: INCOMPLETE_VERIFICATION_STATUS,
+        screenshots: [],
+        console: { errors: [], warnings: [] },
+        performance: { fps: null, frameTimeMs: null },
+        visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] },
+      },
+      {
+        id: 'final-polish',
+        status: INCOMPLETE_VERIFICATION_STATUS,
+        screenshots: [],
+        console: { errors: [], warnings: [] },
+        performance: { fps: null, frameTimeMs: null },
+        visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] },
+      },
+    ],
+  };
+
+  const schemaVal = validateMilestoneEvidence(template);
+  assert.equal(schemaVal.valid, true, `Untouched template must be structurally valid: ${schemaVal.errors.join('; ')}`);
+});
+
+test('untouched generated bundle fails validateProjectMilestoneEvidence', () => {
+  const tmp = makeTmpDir();
+  try {
+    createValidProjectDirectory(tmp);
+    const evidencePath = path.join(tmp, EVIDENCE_FILENAME);
+    const template = {
+      schemaVersion: 1,
+      status: INCOMPLETE_VERIFICATION_STATUS,
+      milestones: [
+        {
+          id: 'first-runnable-scene',
+          status: INCOMPLETE_VERIFICATION_STATUS,
+          screenshots: [],
+          console: { errors: [], warnings: [] },
+          performance: { fps: null, frameTimeMs: null },
+          visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] },
+        },
+        {
+          id: 'systems-complete',
+          status: INCOMPLETE_VERIFICATION_STATUS,
+          screenshots: [],
+          console: { errors: [], warnings: [] },
+          performance: { fps: null, frameTimeMs: null },
+          visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] },
+        },
+        {
+          id: 'final-polish',
+          status: INCOMPLETE_VERIFICATION_STATUS,
+          screenshots: [],
+          console: { errors: [], warnings: [] },
+          performance: { fps: null, frameTimeMs: null },
+          visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] },
+        },
+      ],
+    };
+    fs.writeFileSync(evidencePath, JSON.stringify(template, null, 2), 'utf8');
+
+    const res = validateProjectMilestoneEvidence(tmp);
+    assert.equal(res.ok, false, 'Untouched evidence template must fail project completion validation');
+    assert.ok(res.errors.some((e) => /incomplete verification/.test(e)));
+  } finally {
+    rmTmpDir(tmp);
+  }
+});
+
+test('missing or malformed briefSha256 fails disk-level validation', () => {
+  const malformedShaValues = [
+    undefined,
+    null,
+    '',
+    '   ',
+    'ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890', // Uppercase
+    '1234567890abcdef', // Too short
+    'g'.repeat(64), // Non-hex
+  ];
+
+  for (const val of malformedShaValues) {
+    const tmp = makeTmpDir();
+    try {
+      createValidProjectDirectory(tmp);
+      const contractPath = path.join(tmp, BUILD_CONTRACT_FILENAME);
+      const contract = JSON.parse(fs.readFileSync(contractPath, 'utf8'));
+      if (val === undefined) {
+        delete contract.project.briefSha256;
+      } else {
+        contract.project.briefSha256 = val;
+      }
+      fs.writeFileSync(contractPath, JSON.stringify(contract, null, 2), 'utf8');
+
+      const res = validateProjectMilestoneEvidence(tmp);
+      assert.equal(res.ok, false, `briefSha256 '${val}' must be rejected by validateProjectMilestoneEvidence`);
+      assert.ok(res.errors.some((e) => /briefSha256/.test(e)));
+    } finally {
+      rmTmpDir(tmp);
+    }
+  }
+});

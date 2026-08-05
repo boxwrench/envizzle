@@ -660,7 +660,7 @@ This directory contains deterministic tech demo benchmark cases for evaluating A
 ## Workflow
 
 1. Select a benchmark case (e.g. \`dune-proven\` or \`alpine-signature\`).
-2. Pass the generated brief in \`bundle/<PROJECT>_TECHDEMO_PROMPT.md\` to the target builder agent.
+2. Provide the complete nine-file bundle in \`bundle/\` as the builder agent's workspace, with the Markdown brief (\`bundle/<PROJECT>_TECHDEMO_PROMPT.md\`) serving as the primary prompt.
 3. Once the builder agent completes implementation, run automated verification:
    \`\`\`bash
    node verify/verify_demo.mjs <project-dir> --report verify-report.json

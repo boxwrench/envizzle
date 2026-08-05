@@ -176,7 +176,7 @@ test('validateVerificationReport rejects partial captures on passed status', () 
   samplePartial.captures = ['evidence/final-polish/milestone_idle.png'];
   const val = validateVerificationReport(samplePartial);
   assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /captures/.test(e)));
+  assert.ok(val.errors.some((e) => /capture/i.test(e)));
 });
 
 test('validateVerificationReport rejects object captures', () => {
@@ -325,7 +325,7 @@ test('validateVerificationReport accepts a failed report with zero or a subset o
   samplePartial.gates.pass = false;
   samplePartial.gates.failures = ['setPose threw'];
   samplePartial.gates.metrics = { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
-  samplePartial.captures = ['milestone_idle.png'];
+  samplePartial.captures = ['evidence/final-polish/milestone_idle.png'];
   assert.equal(validateVerificationReport(samplePartial).valid, true, validateVerificationReport(samplePartial).errors.join('; '));
 });
 
