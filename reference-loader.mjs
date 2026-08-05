@@ -438,9 +438,9 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Duplicate CENTREPIECE_DESCRIPTION in mechanic '${name}' of references/mechanics.md`);
     }
 
-    const foundMechBoldMarkers = [...body.matchAll(/\*\*`([A-Z0-9_]+)`\*\*/g)].map((m) => m[1]);
+    const foundMechBoldMarkers = [...body.matchAll(/\*\*`([A-Za-z0-9_]+)`\*\*/g)].map((m) => m[1]);
     for (const mKey of foundMechBoldMarkers) {
-      if (mKey !== 'CENTREPIECE_DESCRIPTION') {
+      if (mKey !== 'CENTREPIECE_DESCRIPTION' && mKey !== 'centrepieceEffect') {
         throw new Error(`Unknown labeled token '${mKey}' in mechanic '${name}' of references/mechanics.md`);
       }
     }
@@ -480,7 +480,23 @@ export function loadReferenceCatalog(options = {}) {
       throw new Error(`Expected exactly 6 tokens in mechanic '${name}', found ${Object.keys(tokens).length}`);
     }
 
-    mechanics[name] = { name, tokens, rawMarkdown: section };
+    const effectMarker = '**`centrepieceEffect`**';
+    const effectIdx = body.indexOf(effectMarker);
+    if (effectIdx === -1) {
+      throw new Error(`Missing centrepieceEffect block in mechanic '${name}' of references/mechanics.md`);
+    }
+    const jsonMatch = body.substring(effectIdx).match(/```json\s*\n([\s\S]*?)\n```/);
+    if (!jsonMatch) {
+      throw new Error(`Missing or malformed fenced JSON block under centrepieceEffect in mechanic '${name}' of references/mechanics.md`);
+    }
+    let centrepieceEffect;
+    try {
+      centrepieceEffect = JSON.parse(jsonMatch[1]);
+    } catch (err) {
+      throw new Error(`Malformed centrepieceEffect JSON block in mechanic '${name}' of references/mechanics.md: ${err.message}`);
+    }
+
+    mechanics[name] = { name, tokens, centrepieceEffect, rawMarkdown: section };
   }
 
   for (const name of canonicalMechanicNames) {

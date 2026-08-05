@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,16 +10,20 @@ import {
 } from '../assemble.mjs';
 import { SHOWCASES } from '../selection.mjs';
 import {
+  BUILD_CONTRACT_SCHEMA_VERSION,
+  STAGE_IDS_IN_ORDER,
+  STAGE_STATUSES,
   BUILD_CONTRACT_FILENAME,
   EVIDENCE_FILENAME,
   HANDOFF_FILENAME,
-  BUILD_CONTRACT_MILESTONES,
+  BUILD_CONTRACT_STAGES,
   BUILD_CONTRACT_SOURCE_OF_TRUTH,
   BUILD_CONTRACT_IMPLEMENTATION_PLAN,
   BUILD_CONTRACT_ARCHITECTURE,
   BUILD_CONTRACT_APPROVED_PATTERNS,
   BUILD_CONTRACT_FORBIDDEN_PATTERNS,
   BUILD_CONTRACT_DIAGNOSTICS,
+  DIAGNOSTICS_CONTRACT_BY_PROFILE,
   BUILD_CONTRACT_REVIEW_CRITERIA_UNIVERSAL,
   BUILD_CONTRACT_ACCEPTANCE,
   PRODUCT_PRINCIPLE_SENTENCE,
@@ -28,19 +32,165 @@ import {
   createEvidenceTemplate,
   validateAssemblyArtifacts,
   validateBuildContract,
-  validateMilestoneEvidence,
+  validateStageEvidence,
   validateEvidenceContractBinding,
   renderContractSummary,
-  renderMilestoneInstructions,
+  renderStageEvidenceInstructions,
   renderProductPrinciple,
   renderArchitectureOwnership,
   renderImplementationStages,
   renderBabylonPatternGuidance,
   renderForbiddenPatterns,
   renderReviewCriteria,
+  renderVisualAcceptanceHierarchy,
   renderHandoff,
 } from '../build-contract.mjs';
 import { prepareBenchmark } from '../benchmark.mjs';
+
+// ---------------------------------------------------------------------------
+// Task 1: unified 5-stage evidence schema v2 (replaces the milestone(3)/stage(5) split).
+//
+// NOTE ON DEVIATION FROM THE TASK 1 BRIEF: the brief's Step 1 assumed a `buildSampleModel()`
+// helper already existed later in this file, built from `createCanonicalAssemblyModel(...)`
+// with a real selection/profile/biome fixture, and told Step 2's new test to call
+// `createBuildContract(buildSampleModel())`. No such helper exists anywhere in this file (it
+// was never added by an earlier task). Instead, every existing test in this file that needs a
+// real validated build contract already uses the established pattern
+// `assembleBrief(validSignature(), { rootDir: repoRoot }).buildContract` — `assembleBrief`
+// (imported above from ../assemble.mjs) internally calls `createCanonicalAssemblyModel(...)`
+// and then `createBuildContract(...)` on a real fixture, so that pattern already exercises
+// exactly what the brief wanted to exercise. Rather than inventing a second, parallel
+// model-construction helper that duplicates assemble.mjs's own assembly logic, the new test
+// below reuses the existing `assembleBrief`/`validSignature` pattern directly. `validSignature`
+// and `repoRoot` are declared further down in this file (after this block), but that is safe:
+// `node:test` collects `describe`/`test` registrations during module evaluation and only invokes
+// their callback bodies afterward, once the whole module (including `repoRoot`/`validSignature`)
+// has finished initializing.
+// ---------------------------------------------------------------------------
+
+function createValidPassedEvidence(briefSha256) {
+  return {
+    schemaVersion: BUILD_CONTRACT_SCHEMA_VERSION,
+    briefSha256,
+    status: 'passed',
+    stages: [
+      { id: 'backend-proof', status: 'passed', automatedChecks: ['rendererInfo() reports the selected backend and shader language'], artifacts: [], environment: { browserChannel: null, browserExecutable: null, headed: false, externalServer: null }, errors: [], warnings: [], reviewed: false, weaknesses: [], corrections: [], deviations: [] },
+      { id: 'terrain-kernel', status: 'passed', automatedChecks: ['terrainDiagnostics().renderOwner is "gpu"'], artifacts: [], environment: { browserChannel: null, browserExecutable: null, headed: false, externalServer: null }, errors: [], warnings: [], reviewed: false, weaknesses: [], corrections: [], deviations: [] },
+      { id: 'environment-composition', status: 'passed', automatedChecks: [], artifacts: ['environment_only.png', 'idle.png'], environment: { browserChannel: null, browserExecutable: null, headed: false, externalServer: null }, errors: [], warnings: [], reviewed: true, weaknesses: ['Foreground ripple detail repeats visibly at 15m.'], corrections: ['Added a second nonrepeating detail noise octave to the foreground band.'], deviations: [] },
+      { id: 'character-locomotion', status: 'passed', automatedChecks: ['setPose("idle") and setPose("locomotion") both succeed'], artifacts: ['idle.png', 'locomotion.png'], environment: { browserChannel: null, browserExecutable: null, headed: false, externalServer: null }, errors: [], warnings: [], reviewed: true, weaknesses: ['Foot planting lags the surface by roughly 2 frames on steep slopes.'], corrections: ['Tightened the IK settle time from 180ms to 90ms.'], deviations: [] },
+      { id: 'mechanic-final-polish', status: 'passed', automatedChecks: ['setPose("mechanic") succeeds'], artifacts: ['idle.png', 'locomotion.png', 'mechanic.png'], environment: { browserChannel: null, browserExecutable: null, headed: false, externalServer: null }, errors: [], warnings: ['Wake particle count drops noticeably below 15fps on integrated GPUs.'], reviewed: true, weaknesses: ['Wake crest curtain reads thin at gameplay distance.'], corrections: ['Doubled crest-curtain particle density and tightened its spawn radius.'], deviations: [] },
+    ],
+  };
+}
+
+describe('stage evidence schema v2', () => {
+  test('createEvidenceTemplate produces exactly 5 not-started stages in canonical order', () => {
+    const template = createEvidenceTemplate(null);
+    assert.equal(template.schemaVersion, 2);
+    assert.deepEqual(template.stages.map((s) => s.id), STAGE_IDS_IN_ORDER);
+    assert.deepEqual(STAGE_IDS_IN_ORDER, ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-final-polish']);
+    for (const stage of template.stages) {
+      assert.deepEqual(Object.keys(stage), ['id', 'status', 'automatedChecks', 'artifacts', 'environment', 'errors', 'warnings', 'reviewed', 'weaknesses', 'corrections', 'deviations']);
+      assert.equal(stage.status, 'not-started');
+      assert.deepEqual(stage.automatedChecks, []);
+      assert.deepEqual(stage.artifacts, []);
+      assert.equal(stage.environment, null);
+      assert.deepEqual(stage.errors, []);
+      assert.deepEqual(stage.warnings, []);
+      assert.equal(stage.reviewed, false);
+      assert.deepEqual(stage.weaknesses, []);
+      assert.deepEqual(stage.corrections, []);
+      assert.deepEqual(stage.deviations, []);
+    }
+    assert.equal(template.status, 'not-started');
+  });
+
+  test('a stage may pass while later stages remain not-started', () => {
+    const evidence = createEvidenceTemplate('a'.repeat(64));
+    evidence.stages[0].status = 'passed';
+    evidence.stages[0].automatedChecks = ['rendererInfo() reports the selected backend'];
+    const result = validateStageEvidence(evidence);
+    assert.equal(result.valid, true, result.errors.join('; '));
+  });
+
+  test('a later stage cannot pass unless every prior stage passed', () => {
+    const evidence = createEvidenceTemplate('a'.repeat(64));
+    evidence.stages[1].status = 'passed'; // terrain-kernel passed, backend-proof still not-started
+    const result = validateStageEvidence(evidence);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => /prior stage/i.test(e)));
+  });
+
+  test('failed and incomplete verification require a nonblank explanation in errors', () => {
+    const evidence = createEvidenceTemplate('a'.repeat(64));
+    evidence.stages[0].status = 'failed';
+    let result = validateStageEvidence(evidence);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => /nonblank explanation/i.test(e)));
+
+    evidence.stages[0].errors = ['WebGPU adapter request rejected: no compatible adapter.'];
+    result = validateStageEvidence(evidence);
+    assert.equal(result.valid, true, result.errors.join('; '));
+  });
+
+  test('visual stages cannot pass without required screenshot artifacts', () => {
+    const evidence = createEvidenceTemplate('a'.repeat(64));
+    evidence.stages[0].status = 'passed';
+    evidence.stages[1].status = 'passed';
+    evidence.stages[2].status = 'passed';
+    evidence.stages[2].reviewed = true;
+    evidence.stages[2].weaknesses = ['thin foreground detail'];
+    evidence.stages[2].corrections = ['added a detail octave'];
+    const result = validateStageEvidence(evidence);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => /environment_only\.png/.test(e)));
+  });
+
+  test('final project completion requires all five stages passed and top-level status passed', () => {
+    const evidence = createValidPassedEvidence('a'.repeat(64));
+    const result = validateStageEvidence(evidence);
+    assert.equal(result.valid, true, result.errors.join('; '));
+
+    const incomplete = createValidPassedEvidence('a'.repeat(64));
+    incomplete.stages[4].status = 'in-progress';
+    incomplete.status = 'passed';
+    const incompleteResult = validateStageEvidence(incomplete);
+    assert.equal(incompleteResult.valid, false);
+    assert.ok(incompleteResult.errors.some((e) => /status.*passed.*requires every stage/i.test(e)));
+  });
+
+  test('stage skipping is rejected: wrong IDs or wrong order fail validation', () => {
+    const evidence = createEvidenceTemplate('a'.repeat(64));
+    const reordered = { ...evidence, stages: [evidence.stages[1], evidence.stages[0], ...evidence.stages.slice(2)] };
+    const result = validateStageEvidence(reordered);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => /canonical order/i.test(e)));
+  });
+
+  test('build contract stages key is renamed from milestones and matches the 5 canonical IDs', () => {
+    // See the file-level NOTE ON DEVIATION above: buildSampleModel() does not exist in this
+    // file, so this reuses the established assembleBrief(validSignature(), ...) pattern used
+    // throughout the rest of this file to obtain a real, fully validated build contract.
+    const contract = assembleBrief(validSignature(), { rootDir: repoRoot }).buildContract;
+    assert.ok(!('milestones' in contract), 'contract must not contain a milestones key');
+    assert.deepEqual(contract.stages.map((s) => s.id), STAGE_IDS_IN_ORDER);
+    assert.deepEqual(contract.implementationPlan.map((s) => s.id), STAGE_IDS_IN_ORDER);
+    const validation = validateBuildContract(contract);
+    assert.equal(validation.valid, true, validation.errors.join('; '));
+  });
+
+  test('diagnostics contract defines backendProof() alongside rendererInfo()', () => {
+    const babylon = DIAGNOSTICS_CONTRACT_BY_PROFILE['babylon-webgpu'];
+    assert.deepEqual(Object.keys(babylon), ['hook', 'lifecycle', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics', 'backendProof']);
+    assert.deepEqual(babylon.backendProof.keys, [
+      'engineInitialized', 'activeBackend', 'activeShaderLanguage', 'materialCompilationAttempted', 'materialCompiledAgainstMesh',
+      'materialReady', 'requiredAttributes', 'presentVertexBuffers', 'declaredUniforms', 'declaredResources', 'manualBindings',
+      'scopedValidationErrors', 'uncapturedValidationErrors', 'deviceLosses', 'frameSubmitted', 'frameCompleted',
+    ]);
+    assert.equal(babylon.backendProof.activeBackend, 'webgpu');
+    assert.equal(babylon.backendProof.activeShaderLanguage, 'wgsl');
+  });
+});
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -103,10 +253,10 @@ test('all six canonical showcases produce valid deterministic build contracts', 
     const result = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
     const repeated = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
     const contractValidation = validateBuildContract(result.buildContract);
-    const evidenceValidation = validateMilestoneEvidence(result.evidenceTemplate);
+    const evidenceValidation = validateStageEvidence(result.evidenceTemplate);
     assert.equal(contractValidation.valid, true, `${name}: ${contractValidation.errors.join('; ')}`);
     assert.equal(evidenceValidation.valid, true, `${name}: ${evidenceValidation.errors.join('; ')}`);
-    assert.deepEqual(result.buildContract.milestones.map((milestone) => milestone.id), BUILD_CONTRACT_MILESTONES.map((milestone) => milestone.id));
+    assert.deepEqual(result.buildContract.stages.map((stage) => stage.id), BUILD_CONTRACT_STAGES.map((stage) => stage.id));
     assert.equal(result.brief, repeated.brief, `${name}: Markdown output is not deterministic`);
     assert.equal(JSON.stringify(result.buildContract, null, 2), JSON.stringify(repeated.buildContract, null, 2), `${name}: JSON output is not deterministic`);
     assert.equal(validateAssemblyArtifacts({ model: result.assemblyModel, contract: result.buildContract, brief: result.brief }).valid, true);
@@ -152,14 +302,14 @@ test('generated bundle contains deterministic contract and incomplete evidence t
     assert.equal(evidenceText.endsWith('\n'), true);
     assert.equal(validateBuildContract(JSON.parse(contractText)).valid, true);
     const evidence = JSON.parse(evidenceText);
-    assert.equal(evidence.status, 'incomplete verification');
-    assert.equal(validateMilestoneEvidence(evidence).valid, true);
-    assert.deepEqual(evidence.milestones.map((milestone) => milestone.id), ['first-runnable-scene', 'systems-complete', 'final-polish']);
+    assert.equal(evidence.status, 'not-started');
+    assert.equal(validateStageEvidence(evidence).valid, true);
+    assert.deepEqual(evidence.stages.map((stage) => stage.id), STAGE_IDS_IN_ORDER);
     const handoff = fs.readFileSync(path.join(tmpDir, HANDOFF_FILENAME), 'utf8');
     const brief = fs.readFileSync(path.join(tmpDir, assembled.fileName), 'utf8');
-    assert.match(handoff, /first-runnable-scene.*systems-complete.*final-polish/s);
+    assert.match(handoff, /backend-proof.*terrain-kernel.*environment-composition.*character-locomotion.*mechanic-final-polish/s);
     assert.match(handoff, /incomplete verification/);
-    assert.match(brief, /Implementation Milestones and Visual Self-Review/);
+    assert.match(brief, /Implementation Stages and Visual Self-Review/);
   } finally {
     removeTempDir(tmpDir);
   }
@@ -232,28 +382,28 @@ test('adversarial contract mutation: contradictory included and omitted sections
   assert.match(errors, /omitted|contradict/i);
 });
 
-test('adversarial contract mutation: missing, duplicate, and reordered milestones are rejected', () => {
-  const missing = assertInvalidContractMutation('missing milestone', (contract) => {
-    contract.milestones.pop();
+test('adversarial contract mutation: missing, duplicate, and reordered stages are rejected', () => {
+  const missing = assertInvalidContractMutation('missing stage', (contract) => {
+    contract.stages.pop();
   });
-  assert.match(missing, /milestones|exactly/i);
+  assert.match(missing, /stages|exactly/i);
 
-  const duplicate = assertInvalidContractMutation('duplicate milestone', (contract) => {
-    contract.milestones[1] = clone(contract.milestones[0]);
+  const duplicate = assertInvalidContractMutation('duplicate stage', (contract) => {
+    contract.stages[1] = clone(contract.stages[0]);
   });
-  assert.match(duplicate, /milestones|must equal/i);
+  assert.match(duplicate, /stages|must equal/i);
 
-  const reordered = assertInvalidContractMutation('reordered milestones', (contract) => {
-    [contract.milestones[0], contract.milestones[1]] = [contract.milestones[1], contract.milestones[0]];
+  const reordered = assertInvalidContractMutation('reordered stages', (contract) => {
+    [contract.stages[0], contract.stages[1]] = [contract.stages[1], contract.stages[0]];
   });
-  assert.match(reordered, /milestones|must equal/i);
+  assert.match(reordered, /stages|must equal/i);
 });
 
-test('adversarial contract mutation: milestone screenshot requirements cannot be removed', () => {
-  const errors = assertInvalidContractMutation('milestone screenshot requirement', (contract) => {
-    delete contract.milestones[0].requiredScreenshotEvidence;
+test('adversarial contract mutation: stage artifact requirements cannot be removed', () => {
+  const errors = assertInvalidContractMutation('stage artifact requirement', (contract) => {
+    delete contract.stages[2].requiredArtifacts;
   });
-  assert.match(errors, /milestones|missing|required/i);
+  assert.match(errors, /stages|missing|required/i);
 });
 
 test('contract rejects unknown keys at every schema level', () => {
@@ -269,7 +419,7 @@ test('contract rejects unknown keys at every schema level', () => {
     ['novelty budget', (contract) => { contract.creative.noveltyBudget.unexpected = true; }],
     ['coherence override', (contract) => { contract.creative.coherenceOverrides.push({ rule: 'new-rule', reason: 'new reason', unexpected: true }); }],
     ['acceptance', (contract) => { contract.acceptance.unexpected = true; }],
-    ['milestone', (contract) => { contract.milestones[0].unexpected = true; }],
+    ['stage', (contract) => { contract.stages[0].unexpected = true; }],
     ['sourceOfTruth', (contract) => { contract.sourceOfTruth.unexpected = true; }],
     ['architecture', (contract) => { contract.architecture.unexpected = true; }],
     ['architecture file ownership entry', (contract) => { contract.architecture.fileOwnership[0].unexpected = true; }],
@@ -286,31 +436,32 @@ test('contract rejects unknown keys at every schema level', () => {
   }
 });
 
-test('adversarial evidence mutation: false complete status without evidence is rejected', () => {
+test('adversarial evidence mutation: false passed status without evidence is rejected', () => {
   const evidence = createEvidenceTemplate();
-  evidence.status = 'complete';
+  evidence.status = 'passed';
   const before = JSON.stringify(evidence);
-  assert.notEqual(evidence.status, 'incomplete verification');
-  const validation = validateMilestoneEvidence(evidence);
+  assert.notEqual(evidence.status, 'not-started');
+  const validation = validateStageEvidence(evidence);
   assert.equal(JSON.stringify(evidence), before);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /complete|milestone/i);
+  assert.match(validation.errors.join('; '), /passed|stage/i);
 });
 
-test('adversarial evidence mutation: missing screenshot capability cannot silently pass', () => {
+test('adversarial evidence mutation: missing artifact capability cannot silently pass', () => {
   const evidence = createEvidenceTemplate();
-  evidence.status = 'complete';
-  for (const milestone of evidence.milestones) {
-    milestone.status = 'complete';
-    milestone.performance = { fps: 60, frameTimeMs: 16.67 };
-    milestone.visualSelfReview.reviewed = true;
+  evidence.status = 'passed';
+  for (const stage of evidence.stages) {
+    stage.status = 'passed';
+    stage.reviewed = true;
+    stage.weaknesses = ['placeholder weakness'];
+    stage.corrections = ['placeholder correction'];
   }
   const before = JSON.stringify(evidence);
-  assert.equal(evidence.milestones.every((milestone) => milestone.screenshots.length === 0), true);
-  const validation = validateMilestoneEvidence(evidence);
+  assert.equal(evidence.stages.every((stage) => stage.artifacts.length === 0), true);
+  const validation = validateStageEvidence(evidence);
   assert.equal(JSON.stringify(evidence), before);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /screenshot/i);
+  assert.match(validation.errors.join('; '), /artifact/i);
 });
 
 test('brief and generated JSON contract cross-validation rejects valid-shaped disagreement', () => {
@@ -482,112 +633,76 @@ test('smoke benchmark preparation produces three bundles whose copied verifiers 
   }
 });
 
-const createValidCompletedEvidence = () => ({
-  schemaVersion: 1,
-  status: 'complete',
-  briefSha256: null,
-  milestones: [
-    {
-      id: 'first-runnable-scene',
-      status: 'complete',
-      screenshots: ['milestone_idle.png'],
-      console: { errors: [], warnings: [] },
-      performance: { fps: 60, frameTimeMs: 16.67 },
-      visualSelfReview: { reviewed: true, weaknesses: ['No visible weakness observed.'], corrections: ['No correction required.'] },
-    },
-    {
-      id: 'systems-complete',
-      status: 'complete',
-      screenshots: ['milestone_locomotion.png', 'milestone_mechanic.png'],
-      console: { errors: [], warnings: [] },
-      performance: { fps: 60, frameTimeMs: 16.67 },
-      visualSelfReview: { reviewed: true, weaknesses: ['Slight particle clipping.'], corrections: ['Adjusted depth offset.'] },
-    },
-    {
-      id: 'final-polish',
-      status: 'complete',
-      screenshots: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
-      console: { errors: [], warnings: [] },
-      performance: { fps: 60, frameTimeMs: 16.67 },
-      visualSelfReview: { reviewed: true, weaknesses: ['Contrast could be higher.'], corrections: ['Adjusted contrast.'] },
-    },
-  ],
-});
+// NOTE: createValidPassedEvidence() (the schema-v2 replacement for the old 3-milestone
+// createValidCompletedEvidence() fixture) is declared near the top of this file, in the
+// "stage evidence schema v2" section, and reused here per the Task 1 brief's Step 6
+// instruction to keep exactly one definition.
 
-test('fully populated three-milestone completed evidence record validates', () => {
-  const ev = createValidCompletedEvidence();
-  const validation = validateMilestoneEvidence(ev);
+test('fully populated five-stage passed evidence record validates', () => {
+  const ev = createValidPassedEvidence(null);
+  const validation = validateStageEvidence(ev);
   assert.equal(validation.valid, true, `Evidence validation failed: ${validation.errors.join('; ')}`);
 });
 
-test('adversarial evidence mutation: first-runnable complete with only unrelated.png is rejected', () => {
-  const ev = createValidCompletedEvidence();
-  const before = JSON.stringify(ev.milestones[0].screenshots);
-  ev.milestones[0].screenshots = ['unrelated.png'];
-  assert.notEqual(JSON.stringify(ev.milestones[0].screenshots), before, 'screenshots field must be changed before testing');
-  const validation = validateMilestoneEvidence(ev);
+test('adversarial evidence mutation: environment-composition passed with only unrelated.png is rejected', () => {
+  const ev = createValidPassedEvidence('a'.repeat(64));
+  const before = JSON.stringify(ev.stages[2].artifacts);
+  ev.stages[2].artifacts = ['unrelated.png'];
+  assert.notEqual(JSON.stringify(ev.stages[2].artifacts), before, 'artifacts field must be changed before testing');
+  const validation = validateStageEvidence(ev);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /milestone_idle\.png|pose/i);
+  assert.match(validation.errors.join('; '), /environment_only\.png|idle\.png/i);
 });
 
-test('adversarial evidence mutation: systems-complete with only milestone_locomotion.png is rejected', () => {
-  const ev = createValidCompletedEvidence();
-  const before = JSON.stringify(ev.milestones[1].screenshots);
-  ev.milestones[1].screenshots = ['milestone_locomotion.png'];
-  assert.notEqual(JSON.stringify(ev.milestones[1].screenshots), before, 'screenshots field must be changed before testing');
-  const validation = validateMilestoneEvidence(ev);
+test('adversarial evidence mutation: character-locomotion passed with only locomotion.png is rejected', () => {
+  const ev = createValidPassedEvidence('a'.repeat(64));
+  const before = JSON.stringify(ev.stages[3].artifacts);
+  ev.stages[3].artifacts = ['locomotion.png'];
+  assert.notEqual(JSON.stringify(ev.stages[3].artifacts), before, 'artifacts field must be changed before testing');
+  const validation = validateStageEvidence(ev);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /requires at least 2 screenshot|milestone_mechanic\.png/i);
+  assert.match(validation.errors.join('; '), /idle\.png/i);
 });
 
-test('adversarial evidence mutation: final-polish with only one screenshot is rejected', () => {
-  const ev = createValidCompletedEvidence();
-  const before = JSON.stringify(ev.milestones[2].screenshots);
-  ev.milestones[2].screenshots = ['milestone_idle.png'];
-  assert.notEqual(JSON.stringify(ev.milestones[2].screenshots), before, 'screenshots field must be changed before testing');
-  const validation = validateMilestoneEvidence(ev);
+test('adversarial evidence mutation: mechanic-final-polish passed with only one artifact is rejected', () => {
+  const ev = createValidPassedEvidence('a'.repeat(64));
+  const before = JSON.stringify(ev.stages[4].artifacts);
+  ev.stages[4].artifacts = ['idle.png'];
+  assert.notEqual(JSON.stringify(ev.stages[4].artifacts), before, 'artifacts field must be changed before testing');
+  const validation = validateStageEvidence(ev);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /requires at least 3 screenshot|pose/i);
+  assert.match(validation.errors.join('; '), /locomotion\.png|mechanic\.png/i);
 });
 
-test('adversarial evidence mutation: duplicate screenshot filenames in completed milestone is rejected', () => {
-  const ev = createValidCompletedEvidence();
-  const before = JSON.stringify(ev.milestones[1].screenshots);
-  ev.milestones[1].screenshots = ['milestone_locomotion.png', 'milestone_locomotion.png'];
-  assert.notEqual(JSON.stringify(ev.milestones[1].screenshots), before, 'screenshots field must be changed before testing');
-  const validation = validateMilestoneEvidence(ev);
+test('adversarial evidence mutation: passed stage with empty weaknesses is rejected', () => {
+  const ev = createValidPassedEvidence('a'.repeat(64));
+  const before = JSON.stringify(ev.stages[2].weaknesses);
+  ev.stages[2].weaknesses = [];
+  assert.notEqual(JSON.stringify(ev.stages[2].weaknesses), before, 'weaknesses field must be changed before testing');
+  const validation = validateStageEvidence(ev);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /duplicate screenshot/i);
+  assert.match(validation.errors.join('; '), /nonblank weakness/i);
 });
 
-test('adversarial evidence mutation: completed milestone with empty weaknesses is rejected', () => {
-  const ev = createValidCompletedEvidence();
-  const before = JSON.stringify(ev.milestones[0].visualSelfReview.weaknesses);
-  ev.milestones[0].visualSelfReview.weaknesses = [];
-  assert.notEqual(JSON.stringify(ev.milestones[0].visualSelfReview.weaknesses), before, 'weaknesses field must be changed before testing');
-  const validation = validateMilestoneEvidence(ev);
+test('adversarial evidence mutation: passed stage with empty corrections is rejected', () => {
+  const ev = createValidPassedEvidence('a'.repeat(64));
+  const before = JSON.stringify(ev.stages[2].corrections);
+  ev.stages[2].corrections = [];
+  assert.notEqual(JSON.stringify(ev.stages[2].corrections), before, 'corrections field must be changed before testing');
+  const validation = validateStageEvidence(ev);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /empty weaknesses/i);
+  assert.match(validation.errors.join('; '), /nonblank correction/i);
 });
 
-test('adversarial evidence mutation: completed milestone with empty corrections is rejected', () => {
-  const ev = createValidCompletedEvidence();
-  const before = JSON.stringify(ev.milestones[0].visualSelfReview.corrections);
-  ev.milestones[0].visualSelfReview.corrections = [];
-  assert.notEqual(JSON.stringify(ev.milestones[0].visualSelfReview.corrections), before, 'corrections field must be changed before testing');
-  const validation = validateMilestoneEvidence(ev);
+test('adversarial evidence mutation: top-level passed status when one stage remains not passed is rejected', () => {
+  const ev = createValidPassedEvidence('a'.repeat(64));
+  const before = ev.stages[0].status;
+  ev.stages[0].status = 'incomplete verification';
+  ev.stages[0].errors = ['Forced failure for test: adapter request rejected.'];
+  assert.notEqual(ev.stages[0].status, before, 'stage status field must be changed before testing');
+  const validation = validateStageEvidence(ev);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /empty corrections/i);
-});
-
-test('adversarial evidence mutation: top-level complete status when one milestone remains incomplete is rejected', () => {
-  const ev = createValidCompletedEvidence();
-  const before = ev.milestones[0].status;
-  ev.milestones[0].status = 'incomplete verification';
-  assert.notEqual(ev.milestones[0].status, before, 'milestone status field must be changed before testing');
-  const validation = validateMilestoneEvidence(ev);
-  assert.equal(validation.valid, false);
-  assert.match(validation.errors.join('; '), /evidence\.status complete requires every milestone to be complete/i);
+  assert.match(validation.errors.join('; '), /evidence\.status passed requires every stage to have passed/i);
 });
 
 test('strict contract validation requires project.briefSha256 to be 64 lowercase hex characters', () => {
@@ -650,13 +765,13 @@ test('adversarial brief mutation: state-channel-only Markdown mutation in main b
   assert.match(agreement.errors.join('; '), /briefSha256|computed brief hash/i);
 });
 
-test('adversarial brief mutation: milestone-instruction-only Markdown mutation is rejected', () => {
+test('adversarial brief mutation: stage-instruction-only Markdown mutation is rejected', () => {
   const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
   const originalBrief = assembled.brief;
   const originalContractJson = JSON.stringify(assembled.buildContract);
   const originalModelJson = JSON.stringify(assembled.assemblyModel);
 
-  const mutatedBrief = originalBrief.replace('Work through the three milestones in order.', 'Work through the milestones in any order.');
+  const mutatedBrief = originalBrief.replace('Work through the five stages in order.', 'Work through the stages in any order.');
   assert.notEqual(mutatedBrief, originalBrief, 'Markdown brief bytes must change');
   assert.equal(JSON.stringify(assembled.buildContract), originalContractJson, 'Contract must remain untouched');
   assert.equal(JSON.stringify(assembled.assemblyModel), originalModelJson, 'Model must remain untouched');
@@ -693,7 +808,7 @@ test('build contract has exactly the 15 canonical top-level keys in order', () =
   const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
   const keys = Object.keys(assembled.buildContract);
   assert.deepEqual(keys, [
-    'schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'milestones',
+    'schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'stages',
     'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria',
   ]);
   assert.equal(keys.length, 15);
@@ -808,7 +923,7 @@ test('adversarial contract mutation: forbiddenPatterns blocking flag flipped is 
 
 test('implementationPlan contains exactly 5 stages in canonical ID and order, matching the frozen constant', () => {
   const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
-  assert.deepEqual(assembled.buildContract.implementationPlan.map((s) => s.id), ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-polish']);
+  assert.deepEqual(assembled.buildContract.implementationPlan.map((s) => s.id), ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-final-polish']);
   assert.deepEqual(assembled.buildContract.implementationPlan.map((s) => s.order), [1, 2, 3, 4, 5]);
   assert.deepEqual(assembled.buildContract.implementationPlan, BUILD_CONTRACT_IMPLEMENTATION_PLAN);
 });
@@ -887,11 +1002,14 @@ test('reviewCriteria universal slice matches the canonical frozen 12-category se
   ]);
 });
 
-test('reviewCriteria biomeSpecific is tolerant of absent biome tokens and defaults to an empty array for biomes without them', () => {
+test('reviewCriteria biomeSpecific is populated for every biome now that all six define the optional morphology tokens', () => {
   for (const name of Object.keys(SHOWCASES)) {
-    if (SHOWCASES[name].biome === 'Dune Desert') continue;
     const assembled = assembleBrief(canonicalShowcaseSpec(name), { rootDir: repoRoot });
-    assert.deepEqual(assembled.buildContract.reviewCriteria.biomeSpecific, []);
+    assert.equal(
+      assembled.buildContract.reviewCriteria.biomeSpecific.length,
+      2,
+      `${name} (biome ${SHOWCASES[name].biome}) should have 2 biomeSpecific entries`,
+    );
     assert.equal(validateBuildContract(assembled.buildContract).valid, true);
   }
 });
@@ -971,7 +1089,7 @@ test('adversarial contract mutation: reviewCriteria missing biomeSpecific key is
 test('evidence template briefSha256 defaults to null and validates', () => {
   const evidence = createEvidenceTemplate();
   assert.equal(evidence.briefSha256, null);
-  assert.equal(validateMilestoneEvidence(evidence).valid, true);
+  assert.equal(validateStageEvidence(evidence).valid, true);
 });
 
 test('adversarial evidence mutation: briefSha256 malformed string is rejected', () => {
@@ -979,15 +1097,15 @@ test('adversarial evidence mutation: briefSha256 malformed string is rejected', 
   const before = evidence.briefSha256;
   evidence.briefSha256 = 'not-a-valid-hash';
   assert.notEqual(evidence.briefSha256, before);
-  const validation = validateMilestoneEvidence(evidence);
+  const validation = validateStageEvidence(evidence);
   assert.equal(validation.valid, false);
   assert.match(validation.errors.join('; '), /briefSha256/i);
 });
 
-test('adversarial evidence mutation: completed evidence with a valid-looking briefSha256 still validates structurally', () => {
-  const ev = createValidCompletedEvidence();
+test('adversarial evidence mutation: passed evidence with a valid-looking briefSha256 still validates structurally', () => {
+  const ev = createValidPassedEvidence(null);
   ev.briefSha256 = 'a'.repeat(64);
-  const validation = validateMilestoneEvidence(ev);
+  const validation = validateStageEvidence(ev);
   assert.equal(validation.valid, true, validation.errors.join('; '));
 });
 
@@ -1030,7 +1148,7 @@ test('ACCEPTANCE_GATES.camera.hook and verificationHook.requiredHooks reference 
   assert.equal(BUILD_CONTRACT_ACCEPTANCE.camera.hook, 'window.__demo.cameraDiagnostics()');
   assert.doesNotMatch(BUILD_CONTRACT_ACCEPTANCE.camera.hook, /cameraNearestDepth/);
   assert.deepEqual(BUILD_CONTRACT_ACCEPTANCE.verificationHook.requiredHooks, [
-    'setPose', 'setCharacterVisible', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics', 'frameStats',
+    'setPose', 'setCharacterVisible', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics', 'frameStats', 'backendProof',
   ]);
   assert.doesNotMatch(BUILD_CONTRACT_ACCEPTANCE.verificationHook.requiredHooks.join(','), /cameraNearestDepth/);
 });
@@ -1096,7 +1214,7 @@ test('renderImplementationStages iterates all five stages in canonical order wit
   const contract = babylonContract();
   const rendered = renderImplementationStages(contract);
   assert.match(rendered, /^## Implementation Stages/);
-  const stageOrder = ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-polish'];
+  const stageOrder = ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-final-polish'];
   let lastIndex = -1;
   for (const id of stageOrder) {
     const index = rendered.indexOf(`### ${stageOrder.indexOf(id) + 1}. ${id}`);
@@ -1174,7 +1292,11 @@ test('renderForbiddenPatterns lists every forbidden pattern and groups profile-s
 });
 
 test('renderReviewCriteria includes all 12 universal categories and omits the Biome-Specific heading when biomeSpecific is empty', () => {
-  const contract = nonDuneContract();
+  // Every real biome now defines the optional morphology tokens (Task 12), so no live
+  // showcase produces an empty biomeSpecific array anymore. Force the case synthetically
+  // to keep renderReviewCriteria's omit-when-empty branch covered.
+  const base = nonDuneContract();
+  const contract = { ...base, reviewCriteria: { ...base.reviewCriteria, biomeSpecific: [] } };
   assert.deepEqual(contract.reviewCriteria.biomeSpecific, []);
   const rendered = renderReviewCriteria(contract);
   assert.match(rendered, /^## Review Criteria/);
@@ -1202,11 +1324,9 @@ test('renderHandoff no longer contains the old "needs nothing else" sentence and
   const rendered = renderHandoff({ fileName: 'X_TECHDEMO_PROMPT.md', builderAgent: 'Claude Code', contract });
   assert.doesNotMatch(rendered, /needs nothing else/i);
   assert.ok(rendered.includes(HANDOFF_STAGE_WORKFLOW_TEXT), 'must include the exact HANDOFF.md stage workflow text verbatim');
-  assert.match(rendered, /Read the entire bundle\. Implement one stage only\. Run that stage's automated checks\. Capture required evidence\. Inspect the screenshot\. Correct visible weaknesses\. Stop and report the result\. Do not start the next stage until the current stage passes\./);
-  assert.doesNotMatch(rendered, /Do not start the next stage until the current stage passes\.[\s\S]*Do not start the next stage until the current stage passes\./, 'workflow text must not be duplicated');
-  // Must not read as a single uninterrupted build-the-whole-demo instruction.
-  assert.doesNotMatch(rendered, /give this file to the coding agent, whole/i);
-  assert.match(rendered, /the build contract, the evidence record, this handoff, and the verifier/i);
+  assert.match(rendered, /Implement the five stages in order\./);
+  assert.doesNotMatch(rendered, /Do not ask the user for approval after every successful stage\.[\s\S]*Do not ask the user for approval after every successful stage\./, 'workflow text must not be duplicated');
+  assert.match(rendered, /the complete implementation brief/i);
 });
 
 test('assembleBrief wires every staged section and enables hard drift detection', () => {
@@ -1214,20 +1334,21 @@ test('assembleBrief wires every staged section and enables hard drift detection'
   const withoutFlag = validateAssemblyArtifacts({ model: assembled.assemblyModel, contract: assembled.buildContract, brief: assembled.brief });
   assert.equal(withoutFlag.valid, true, withoutFlag.errors.join('; '));
 
-  const withFlagOnRealBrief = validateAssemblyArtifacts({ model: assembled.assemblyModel, contract: assembled.buildContract, brief: assembled.brief, checkStagedSections: true });
-  assert.equal(withFlagOnRealBrief.valid, true, withFlagOnRealBrief.errors.join('; '));
+  const withFlag = validateAssemblyArtifacts({ model: assembled.assemblyModel, contract: assembled.buildContract, brief: assembled.brief, checkStagedSections: true });
+  assert.equal(withFlag.valid, true, withFlag.errors.join('; '));
 });
 
 function buildSyntheticStagedBrief(contract) {
   return [
     renderContractSummary(contract),
-    renderMilestoneInstructions(contract),
+    renderStageEvidenceInstructions(contract),
     renderProductPrinciple(contract),
     renderArchitectureOwnership(contract),
     renderImplementationStages(contract),
     renderBabylonPatternGuidance(contract),
     renderForbiddenPatterns(contract),
     renderReviewCriteria(contract),
+    renderVisualAcceptanceHierarchy(contract),
   ].join('\n');
 }
 
@@ -1275,4 +1396,30 @@ test('checkStagedSections:true rejects a synthetic brief with the product princi
   const result = validateAssemblyArtifacts({ model, contract: patchedContract, brief: strippedBrief, checkStagedSections: true });
   assert.equal(result.valid, false);
   assert.ok(result.errors.includes('brief does not contain the canonical product principle'));
+});
+
+test('renderHandoff instructs autonomous construction of the complete five-stage slice, not per-stage approval pauses', () => {
+  const contract = babylonContract();
+  const handoff = renderHandoff({ fileName: contract.project.briefFilename, builderAgent: 'test-agent', contract });
+  assert.ok(!/give this file to the coding agent, whole\. it needs nothing else/i.test(handoff));
+  assert.ok(/read the entire bundle/i.test(handoff));
+  assert.ok(/implement the five stages in order/i.test(handoff));
+  assert.ok(/do not ask the user for approval after every successful stage/i.test(handoff));
+  assert.ok(/stop and report only when/i.test(handoff));
+  for (const requiredFile of ['ENVIZZLE_BUILD.json', 'ENVIZZLE_EVIDENCE.json', 'HANDOFF.md', 'verify/']) {
+    assert.ok(handoff.includes(requiredFile));
+  }
+});
+
+test('renderVisualAcceptanceHierarchy renders the 5-item acceptance hierarchy with the entry-condition principle first', () => {
+  const contract = babylonContract();
+  const text = renderVisualAcceptanceHierarchy(contract);
+  assert.ok(text.includes('Technical correctness is the entry condition'));
+  const order = ['honest', 'selected biome', 'dramatic visual response', 'feel connected', 'Performance and implementation quality'];
+  let lastIndex = -1;
+  for (const phrase of order) {
+    const idx = text.indexOf(phrase);
+    assert.ok(idx > lastIndex, `expected "${phrase}" to appear after the previous hierarchy item`);
+    lastIndex = idx;
+  }
 });

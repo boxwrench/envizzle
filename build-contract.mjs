@@ -14,16 +14,15 @@ import {
   AMBITIONS,
   SHOWCASES,
   validateSelection,
+  normalizeProvenSignatureMoment,
 } from './selection.mjs';
 import { THRESHOLDS } from './verify/gates.mjs';
 
-export const BUILD_CONTRACT_SCHEMA_VERSION = 1;
 export const BUILD_CONTRACT_FILENAME = 'ENVIZZLE_BUILD.json';
 export const EVIDENCE_FILENAME = 'ENVIZZLE_EVIDENCE.json';
 export const HANDOFF_FILENAME = 'HANDOFF.md';
 export const ZERO_ASSET_STRATEGY_TEXT = '100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)';
 export const INCOMPLETE_VERIFICATION_STATUS = 'incomplete verification';
-export const COMPLETE_STATUS = 'complete';
 
 export const TERRAIN_ELEVATION_CONTRACT = Object.freeze({
   renderOwner: 'gpu',
@@ -42,6 +41,26 @@ export const RENDERER_DIAGNOSTICS_EXPECTED = Object.freeze({
 export const LIFECYCLE_STATUS_VALUES = Object.freeze(['initializing', 'ready', 'failed']);
 export const CAMERA_DIAGNOSTIC_METHODS = Object.freeze(['gpu-depth', 'cpu-height-with-gpu-parity']);
 
+export const BUILD_CONTRACT_SCHEMA_VERSION = 2;
+
+export const STAGE_IDS_IN_ORDER = Object.freeze([
+  'backend-proof',
+  'terrain-kernel',
+  'environment-composition',
+  'character-locomotion',
+  'mechanic-final-polish',
+]);
+
+export const STAGE_STATUSES = Object.freeze(['not-started', 'in-progress', 'passed', 'failed', 'incomplete verification']);
+export const STAGE_PASSED_STATUS = 'passed';
+export const STAGE_NOT_STARTED_STATUS = 'not-started';
+
+export const STAGE_EVIDENCE_KEYS = Object.freeze([
+  'id', 'status', 'automatedChecks', 'artifacts', 'environment', 'errors', 'warnings', 'reviewed', 'weaknesses', 'corrections', 'deviations',
+]);
+
+export const STAGE_ENVIRONMENT_KEYS = Object.freeze(['browserChannel', 'browserExecutable', 'headed', 'externalServer']);
+
 export const NOVELTY_BUDGET_KEYS = Object.freeze([
   'addsEngine',
   'addsAssetCategory',
@@ -53,16 +72,13 @@ export const NOVELTY_BUDGET_KEYS = Object.freeze([
 ]);
 
 export const REQUIRED_CAPTURE_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
-export const REQUIRED_CAPTURE_FILENAMES = Object.freeze([
-  'milestone_idle.png',
-  'milestone_locomotion.png',
-  'milestone_mechanic.png',
-]);
+export const REQUIRED_CAPTURE_FILENAMES = Object.freeze(['idle.png', 'locomotion.png', 'mechanic.png']);
+export const ENVIRONMENT_ONLY_CAPTURE_FILENAME = 'environment_only.png';
 
 const POSE_FILENAME_MAP = Object.freeze({
-  idle: 'milestone_idle.png',
-  locomotion: 'milestone_locomotion.png',
-  mechanic: 'milestone_mechanic.png',
+  idle: 'idle.png',
+  locomotion: 'locomotion.png',
+  mechanic: 'mechanic.png',
 });
 
 const REQUIRED_PROJECT_PATHS = Object.freeze([
@@ -83,7 +99,7 @@ const ACCEPTANCE_GATES = Object.freeze({
   verificationHook: Object.freeze({
     required: true,
     readiness: 'window.__demo starts initializing with ready false and becomes ready only after renderer, materials, validation, and one rendered frame succeed.',
-    requiredHooks: Object.freeze(['setPose', 'setCharacterVisible', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics', 'frameStats']),
+    requiredHooks: Object.freeze(['setPose', 'setCharacterVisible', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics', 'frameStats', 'backendProof']),
     lifecycle: Object.freeze({
       initial: Object.freeze({ ready: false, status: 'initializing', error: null }),
       statuses: LIFECYCLE_STATUS_VALUES,
@@ -129,9 +145,9 @@ const ACCEPTANCE_GATES = Object.freeze({
     required: true,
     buildContractFilename: BUILD_CONTRACT_FILENAME,
     evidenceFilename: EVIDENCE_FILENAME,
-    requiredStatus: COMPLETE_STATUS,
-    requiredMilestones: Object.freeze(['first-runnable-scene', 'systems-complete', 'final-polish']),
-    requirement: 'Final verification requires complete milestone evidence, canonical current-run screenshots, console evidence, performance values, reviewed weaknesses, and corrections.',
+    requiredStatus: STAGE_PASSED_STATUS,
+    requiredStages: STAGE_IDS_IN_ORDER,
+    requirement: 'Final verification requires all five stages passed, canonical current-run screenshots, console evidence, performance values, reviewed weaknesses, and corrections.',
   }),
   environmentVisuals: Object.freeze({
     required: true,
@@ -149,112 +165,7 @@ const ACCEPTANCE_GATES = Object.freeze({
   }),
 });
 
-const MILESTONE_DEFINITIONS = Object.freeze([
-  Object.freeze({
-    id: 'first-runnable-scene',
-    title: 'First runnable scene',
-    requiredChecks: Object.freeze([
-      'production build succeeds',
-      'development server starts and the scene renders',
-      'camera operates',
-      'character or focal subject is visible',
-      'no blocking browser or console errors exist',
-    ]),
-    requiredScreenshotEvidence: Object.freeze({
-      required: true,
-      minimumScreenshots: 1,
-      requiredPoses: Object.freeze(['idle']),
-    }),
-    requiredConsoleEvidence: Object.freeze({
-      required: true,
-      blockingErrors: 0,
-    }),
-    requiredPerformanceEvidence: Object.freeze({
-      required: true,
-      fields: Object.freeze(['fps', 'frameTimeMs']),
-    }),
-    requiredVisualSelfReview: Object.freeze({
-      required: true,
-      inspectScreenshot: true,
-      fields: Object.freeze(['reviewed', 'weaknesses', 'corrections']),
-    }),
-    completion: Object.freeze({
-      completeStatus: COMPLETE_STATUS,
-      incompleteStatus: INCOMPLETE_VERIFICATION_STATUS,
-      completeRequires: Object.freeze(['all required checks pass', 'screenshot evidence is preserved', 'visual weaknesses are corrected']),
-    }),
-  }),
-  Object.freeze({
-    id: 'systems-complete',
-    title: 'Systems complete',
-    requiredChecks: Object.freeze([
-      'core mechanic is demonstrated',
-      'required interactions are demonstrated',
-      'state-channel effects are visible',
-      'Signature Moment is demonstrated when enabled',
-      'baseline restoration or disabled behavior is demonstrated where applicable',
-    ]),
-    requiredScreenshotEvidence: Object.freeze({
-      required: true,
-      minimumScreenshots: 2,
-      requiredPoses: Object.freeze(['locomotion', 'mechanic']),
-    }),
-    requiredConsoleEvidence: Object.freeze({
-      required: true,
-      blockingErrors: 0,
-    }),
-    requiredPerformanceEvidence: Object.freeze({
-      required: true,
-      fields: Object.freeze(['fps', 'frameTimeMs']),
-    }),
-    requiredVisualSelfReview: Object.freeze({
-      required: true,
-      inspectScreenshot: true,
-      fields: Object.freeze(['reviewed', 'weaknesses', 'corrections']),
-    }),
-    completion: Object.freeze({
-      completeStatus: COMPLETE_STATUS,
-      incompleteStatus: INCOMPLETE_VERIFICATION_STATUS,
-      completeRequires: Object.freeze(['all required checks pass', 'screenshot evidence is preserved', 'visual weaknesses are corrected']),
-    }),
-  }),
-  Object.freeze({
-    id: 'final-polish',
-    title: 'Final polish',
-    requiredChecks: Object.freeze([
-      'composition, lighting, materials, and atmosphere are reviewed',
-      'visual hierarchy and mechanic readability are reviewed',
-      'performance information and console output are reviewed',
-      'creative identity and scope discipline are reviewed',
-      'final evidence is preserved in the output bundle or project handoff',
-    ]),
-    requiredScreenshotEvidence: Object.freeze({
-      required: true,
-      minimumScreenshots: 3,
-      requiredPoses: REQUIRED_CAPTURE_POSES,
-    }),
-    requiredConsoleEvidence: Object.freeze({
-      required: true,
-      blockingErrors: 0,
-    }),
-    requiredPerformanceEvidence: Object.freeze({
-      required: true,
-      fields: Object.freeze(['fps', 'frameTimeMs']),
-    }),
-    requiredVisualSelfReview: Object.freeze({
-      required: true,
-      inspectScreenshot: true,
-      fields: Object.freeze(['reviewed', 'weaknesses', 'corrections']),
-    }),
-    completion: Object.freeze({
-      completeStatus: COMPLETE_STATUS,
-      incompleteStatus: INCOMPLETE_VERIFICATION_STATUS,
-      completeRequires: Object.freeze(['all required checks pass', 'all final evidence is preserved', 'visual weaknesses are corrected']),
-    }),
-  }),
-]);
-
-const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'milestones', 'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria'];
+const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'stages', 'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria'];
 
 const PROJECT_KEYS = ['name', 'briefFilename', 'briefSha256', 'renderingProfile', 'engine', 'shaderLanguage', 'shaderLanguageExtension', 'materialApi', 'renderingParadigm', 'assetStrategy', 'assetStrategyText', 'targetHardware', 'coreInteractionSentence'];
 const SELECTION_KEYS = ['creativeMode', 'path', 'baseShowcase', 'ambition', 'includedSections', 'omittedOptionalSections', 'extraSections', 'biome', 'archetype', 'mechanic', 'camera', 'renderingProfile', 'cameraAdjustments', 'changedAxes'];
@@ -264,7 +175,6 @@ const BASELINE_KEYS = ['baseline', 'recoveryMechanism', 'recoveryOutcome'];
 const CREATIVE_KEYS = ['creativeSpark', 'signatureMoment', 'noveltyBudget', 'coherenceOverrides'];
 const SIGNATURE_KEYS = ['enabled', 'text', 'reusedSystem', 'verificationPose', 'instruction'];
 const ACCEPTANCE_KEYS = ['requiredProjectPaths', 'productionBuild', 'verificationHook', 'renderer', 'terrain', 'runtime', 'captures', 'imageGates', 'camera', 'evidence', 'environmentVisuals', 'poseDifferences', 'report'];
-const MILESTONE_KEYS = ['id', 'title', 'requiredChecks', 'requiredScreenshotEvidence', 'requiredConsoleEvidence', 'requiredPerformanceEvidence', 'requiredVisualSelfReview', 'completion'];
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -462,7 +372,7 @@ const FORBIDDEN_PATTERN_SUPPRESSED_INIT_FAILURE = { id: 'suppressed-initializati
 const FORBIDDEN_PATTERN_PLACEHOLDER_CHARACTER = { id: 'placeholder-character', blocking: true, reason: 'Shipping a primitive box, capsule, or sphere stand-in instead of an intentional procedural silhouette defeats the character-locomotion stage.', detection: 'visual-review' };
 const FORBIDDEN_PATTERN_INDISTINGUISHABLE_POSES = { id: 'indistinguishable-poses', blocking: true, reason: 'Idle, locomotion, and mechanic captures must be visually distinguishable from each other; identical or near-identical poses indicate the pose system is not wired up.', detection: 'visual-review' };
 const FORBIDDEN_PATTERN_RENDER_LOOP_ALLOCATION = { id: 'render-loop-allocation', blocking: true, reason: 'Allocating new objects, arrays, or materials inside the per-frame render loop causes garbage-collection stalls and masks true performance.', detection: 'source-only' };
-const FORBIDDEN_PATTERN_INCOMPLETE_EVIDENCE = { id: 'incomplete-evidence', blocking: true, reason: 'Marking a milestone complete without the required screenshots, console findings, performance values, or visual self-review is a false completion claim.', detection: 'evidence-record' };
+const FORBIDDEN_PATTERN_INCOMPLETE_EVIDENCE = { id: 'incomplete-evidence', blocking: true, reason: 'Marking a stage passed without the required screenshots, console findings, performance values, or visual self-review is a false completion claim.', detection: 'evidence-record' };
 const FORBIDDEN_PATTERN_CONTINUE_AFTER_FAILED_STAGE = { id: 'continue-after-failed-stage', blocking: true, reason: 'Starting the next implementation stage while the current stage has not passed its automated and visual checks violates the one-stage-at-a-time workflow.', detection: 'process' };
 
 export const FORBIDDEN_PATTERNS_BY_PROFILE = deepFreeze({
@@ -556,19 +466,27 @@ const IMPLEMENTATION_PLAN = deepFreeze([
     doNotProceedUntilPassed: true,
   },
   {
-    id: 'mechanic-polish',
+    id: 'mechanic-final-polish',
     order: 5,
     goal: 'Implement the centrepiece mechanic, add particles and secondary effects, finalize materials, lighting, and performance, and complete all evidence for final review.',
     allowedScope: ['centrepiece mechanic', 'particles and secondary effects', 'final materials', 'final lighting', 'performance cleanup', 'complete evidence', 'final visual review'],
-    requiredOutputs: ['the centrepiece mechanic is demonstrated and visibly affects the scene', 'particles and secondary effects are present where specified', 'final materials and lighting are applied', 'performance is reviewed and recorded', 'all required evidence is complete across all three milestones'],
+    requiredOutputs: ['the centrepiece mechanic is demonstrated and visibly affects the scene', 'particles and secondary effects are present where specified', 'final materials and lighting are applied', 'performance is reviewed and recorded', 'all required evidence is complete across all five stages'],
     approvedPatternIds: [],
     forbiddenPatternIds: ['indistinguishable-poses', 'render-loop-allocation', 'incomplete-evidence', 'continue-after-failed-stage'],
-    automatedChecks: ['setPose("mechanic") succeeds', 'no blocking console or GPU errors', 'all three milestones report complete status with full evidence'],
+    automatedChecks: ['setPose("mechanic") succeeds', 'no blocking console or GPU errors', 'all five stages report passed status with full evidence'],
     visualChecks: ['the mechanic capture is immediately distinguishable from both the idle and locomotion captures'],
-    stopConditions: ['do not report the demo complete while any milestone evidence is missing or any visual weakness is uncorrected'],
+    stopConditions: ['do not report the demo complete while any stage evidence is missing or any visual weakness is uncorrected'],
     requiredEvidence: ['mechanic pose screenshot distinguishable from idle and locomotion', 'final performance values', 'final visual self-review'],
     doNotProceedUntilPassed: true,
   },
+]);
+
+const STAGE_EVIDENCE_REQUIREMENTS = deepFreeze([
+  { id: 'backend-proof', order: 1, title: 'Backend proof', requiresReview: false, requiredArtifacts: [], minWeaknesses: 0, minCorrections: 0 },
+  { id: 'terrain-kernel', order: 2, title: 'Terrain kernel', requiresReview: false, requiredArtifacts: [], minWeaknesses: 0, minCorrections: 0 },
+  { id: 'environment-composition', order: 3, title: 'Environment composition', requiresReview: true, requiredArtifacts: ['environment_only.png', 'idle.png'], minWeaknesses: 1, minCorrections: 1 },
+  { id: 'character-locomotion', order: 4, title: 'Character locomotion', requiresReview: true, requiredArtifacts: ['idle.png', 'locomotion.png'], minWeaknesses: 1, minCorrections: 1 },
+  { id: 'mechanic-final-polish', order: 5, title: 'Mechanic and final polish', requiresReview: true, requiredArtifacts: ['idle.png', 'locomotion.png', 'mechanic.png'], minWeaknesses: 1, minCorrections: 1 },
 ]);
 
 const DIAGNOSTICS_LIFECYCLE = deepFreeze({
@@ -592,6 +510,17 @@ const CAMERA_DIAGNOSTICS_CONTRACT = deepFreeze({
   minNearestDepthM: 0.30,
 });
 
+const BACKEND_PROOF_KEYS = Object.freeze([
+  'engineInitialized', 'activeBackend', 'activeShaderLanguage', 'materialCompilationAttempted', 'materialCompiledAgainstMesh',
+  'materialReady', 'requiredAttributes', 'presentVertexBuffers', 'declaredUniforms', 'declaredResources', 'manualBindings',
+  'scopedValidationErrors', 'uncapturedValidationErrors', 'deviceLosses', 'frameSubmitted', 'frameCompleted',
+]);
+
+const BACKEND_PROOF_BY_PROFILE = deepFreeze({
+  'babylon-webgpu': { keys: BACKEND_PROOF_KEYS, activeBackend: 'webgpu', activeShaderLanguage: 'wgsl', requiredAttributes: ['position', 'normal'] },
+  'three-webgl2': { keys: BACKEND_PROOF_KEYS, activeBackend: 'webgl2', activeShaderLanguage: 'glsl-es-300', requiredAttributes: ['position', 'normal'] },
+});
+
 export const DIAGNOSTICS_CONTRACT_BY_PROFILE = deepFreeze({
   'babylon-webgpu': {
     hook: 'window.__demo',
@@ -606,6 +535,7 @@ export const DIAGNOSTICS_CONTRACT_BY_PROFILE = deepFreeze({
     },
     terrainDiagnostics: TERRAIN_DIAGNOSTICS_CONTRACT,
     cameraDiagnostics: CAMERA_DIAGNOSTICS_CONTRACT,
+    backendProof: BACKEND_PROOF_BY_PROFILE['babylon-webgpu'],
   },
   'three-webgl2': {
     hook: 'window.__demo',
@@ -620,6 +550,7 @@ export const DIAGNOSTICS_CONTRACT_BY_PROFILE = deepFreeze({
     },
     terrainDiagnostics: TERRAIN_DIAGNOSTICS_CONTRACT,
     cameraDiagnostics: CAMERA_DIAGNOSTICS_CONTRACT,
+    backendProof: BACKEND_PROOF_BY_PROFILE['three-webgl2'],
   },
 });
 
@@ -635,7 +566,7 @@ const REVIEW_CRITERIA_UNIVERSAL = deepFreeze([
   { category: 'mechanic-readability', questions: ['Is the centrepiece mechanic immediately distinguishable from idle and locomotion when captured?', 'Does the mechanic visibly affect the state-buffer-driven surface when enabled?'] },
   { category: 'placeholder-detection', questions: ['Are there any unstyled default materials, missing textures, or debug-only primitives visible?', 'Does anything in the frame look like scaffolding rather than a finished demo?'] },
   { category: 'visual-hierarchy', questions: ['Does the eye land on the character or mechanic first, not on background noise?', 'Is lighting and contrast used to separate subject from environment?'] },
-  { category: 'scope-discipline', questions: ["Does the captured scene match the current stage's allowed scope, with no later-stage systems built ahead of schedule?", "Is anything visible that the current milestone's requiredOutputs do not yet justify?"] },
+  { category: 'scope-discipline', questions: ["Does the captured scene match the current stage's allowed scope, with no later-stage systems built ahead of schedule?", "Is anything visible that the current stage's requiredOutputs do not yet justify?"] },
 ]);
 
 const REVIEW_CRITERIA_KEYS = ['universal', 'biomeSpecific'];
@@ -758,7 +689,7 @@ export function createCanonicalAssemblyModel({
       coherenceOverrides: clone(coherenceOverrides || []).sort((a, b) => String(a.rule).localeCompare(String(b.rule))),
     },
     acceptance: clone(ACCEPTANCE_GATES),
-    milestones: clone(MILESTONE_DEFINITIONS),
+    stages: clone(STAGE_EVIDENCE_REQUIREMENTS),
     sourceOfTruth: clone(SOURCE_OF_TRUTH),
     architecture: clone(ARCHITECTURE_BY_PROFILE[profile.id]),
     approvedPatterns: clone(APPROVED_PATTERNS_BY_PROFILE[profile.id]),
@@ -783,14 +714,19 @@ export function createEvidenceTemplate(briefSha256 = null) {
   return {
     schemaVersion: BUILD_CONTRACT_SCHEMA_VERSION,
     briefSha256,
-    status: INCOMPLETE_VERIFICATION_STATUS,
-    milestones: MILESTONE_DEFINITIONS.map(({ id }) => ({
+    status: STAGE_NOT_STARTED_STATUS,
+    stages: STAGE_EVIDENCE_REQUIREMENTS.map(({ id }) => ({
       id,
-      status: INCOMPLETE_VERIFICATION_STATUS,
-      screenshots: [],
-      console: { errors: [], warnings: [] },
-      performance: { fps: null, frameTimeMs: null },
-      visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] },
+      status: STAGE_NOT_STARTED_STATUS,
+      automatedChecks: [],
+      artifacts: [],
+      environment: null,
+      errors: [],
+      warnings: [],
+      reviewed: false,
+      weaknesses: [],
+      corrections: [],
+      deviations: [],
     })),
   };
 }
@@ -910,7 +846,12 @@ function validateCreative(contract, errors) {
   const sig = contract.creative.signatureMoment;
   if (typeof sig.enabled !== 'boolean') errors.push('creative.signatureMoment.enabled must be boolean');
   if (typeof sig.text !== 'string' || typeof sig.reusedSystem !== 'string' || !REQUIRED_CAPTURE_POSES.includes(sig.verificationPose) || !nonEmptyString(sig.instruction)) errors.push('creative.signatureMoment contains invalid fields');
-  if (contract.selection?.creativeMode === 'proven' && (sig.enabled !== false || sig.text !== '' || sig.reusedSystem !== '')) errors.push('Proven mode must encode no independent Signature Moment');
+  if (contract.selection?.creativeMode === 'proven') {
+    const canonical = normalizeProvenSignatureMoment();
+    if (sig.enabled !== canonical.enabled || sig.text !== canonical.text || sig.reusedSystem !== canonical.reusedSystem || sig.verificationPose !== canonical.verificationPose) {
+      errors.push('Proven mode must encode the canonical empty signatureMoment');
+    }
+  }
   if ((contract.selection?.creativeMode === 'signature' || contract.selection?.creativeMode === 'experimental') && (sig.enabled !== true || !nonEmptyString(sig.text) || !nonEmptyString(sig.reusedSystem))) errors.push('Signature and Experimental modes require exactly one bounded Signature Moment');
   if (!exactKeys(contract.creative.noveltyBudget, NOVELTY_BUDGET_KEYS, 'creative.noveltyBudget', errors)) return;
   for (const key of NOVELTY_BUDGET_KEYS) if (contract.creative.noveltyBudget[key] !== false) errors.push(`creative.noveltyBudget.${key} must be false`);
@@ -961,7 +902,7 @@ export function validateBuildContract(contract) {
   validateTerrainElevation(contract, errors);
   validateCreative(contract, errors);
   compareCanonical(contract.acceptance, ACCEPTANCE_GATES, 'acceptance', errors);
-  compareCanonical(contract.milestones, MILESTONE_DEFINITIONS, 'milestones', errors);
+  compareCanonical(contract.stages, STAGE_EVIDENCE_REQUIREMENTS, 'stages', errors);
   compareCanonical(contract.sourceOfTruth, SOURCE_OF_TRUTH, 'sourceOfTruth', errors);
   const architectureCanonical = isPlainObject(contract.project) ? ARCHITECTURE_BY_PROFILE[contract.project.renderingProfile] : undefined;
   if (architectureCanonical) {
@@ -1001,91 +942,85 @@ export function validateBuildContract(contract) {
   return { valid: errors.length === 0, errors };
 }
 
-function validateEvidenceMilestone(milestone, index, errors) {
-  const label = `milestones[${index}]`;
-  if (!exactKeys(milestone, ['id', 'status', 'screenshots', 'console', 'performance', 'visualSelfReview'], label, errors)) return;
-  if (!['first-runnable-scene', 'systems-complete', 'final-polish'].includes(milestone.id)) errors.push(`${label}.id is invalid`);
-  if (![INCOMPLETE_VERIFICATION_STATUS, COMPLETE_STATUS].includes(milestone.status)) errors.push(`${label}.status is invalid`);
-  if (!Array.isArray(milestone.screenshots) || milestone.screenshots.some((file) => !isSafeRelativePath(file))) errors.push(`${label}.screenshots must contain safe relative filenames`);
-  if (exactKeys(milestone.console, ['errors', 'warnings'], `${label}.console`, errors)) {
-    for (const field of ['errors', 'warnings']) if (!Array.isArray(milestone.console[field]) || milestone.console[field].some((value) => typeof value !== 'string')) errors.push(`${label}.console.${field} must be an array of strings`);
+function validateStageEnvironment(environment, label, errors) {
+  if (environment === null) return;
+  if (!exactKeys(environment, STAGE_ENVIRONMENT_KEYS, label, errors)) return;
+  if (environment.browserChannel !== null && typeof environment.browserChannel !== 'string') errors.push(`${label}.browserChannel must be null or a string`);
+  if (environment.browserExecutable !== null && typeof environment.browserExecutable !== 'string') errors.push(`${label}.browserExecutable must be null or a string`);
+  if (typeof environment.headed !== 'boolean') errors.push(`${label}.headed must be boolean`);
+  if (environment.externalServer !== null && typeof environment.externalServer !== 'string') errors.push(`${label}.externalServer must be null or a string`);
+}
+
+function validateOneStageEvidence(stage, index, requirements, priorStagesAllPassed, errors) {
+  const label = `stages[${index}]`;
+  if (!exactKeys(stage, STAGE_EVIDENCE_KEYS, label, errors)) return;
+  if (stage.id !== requirements.id) errors.push(`${label}.id must be '${requirements.id}'`);
+  if (!STAGE_STATUSES.includes(stage.status)) errors.push(`${label}.status is invalid`);
+  if (!Array.isArray(stage.automatedChecks) || stage.automatedChecks.some((v) => typeof v !== 'string')) errors.push(`${label}.automatedChecks must be an array of strings`);
+  if (!Array.isArray(stage.artifacts) || stage.artifacts.some((v) => !isSafeRelativePath(v))) errors.push(`${label}.artifacts must contain safe relative filenames`);
+  validateStageEnvironment(stage.environment, `${label}.environment`, errors);
+  if (!Array.isArray(stage.errors) || stage.errors.some((v) => typeof v !== 'string')) errors.push(`${label}.errors must be an array of strings`);
+  if (!Array.isArray(stage.warnings) || stage.warnings.some((v) => typeof v !== 'string')) errors.push(`${label}.warnings must be an array of strings`);
+  if (typeof stage.reviewed !== 'boolean') errors.push(`${label}.reviewed must be boolean`);
+  for (const field of ['weaknesses', 'corrections', 'deviations']) {
+    if (!Array.isArray(stage[field]) || stage[field].some((v) => typeof v !== 'string')) errors.push(`${label}.${field} must be an array of strings`);
   }
-  if (exactKeys(milestone.performance, ['fps', 'frameTimeMs'], `${label}.performance`, errors)) {
-    for (const field of ['fps', 'frameTimeMs']) if (!(milestone.performance[field] === null || (typeof milestone.performance[field] === 'number' && Number.isFinite(milestone.performance[field]) && milestone.performance[field] >= 0))) errors.push(`${label}.performance.${field} must be a non-negative finite number or null`);
+
+  if ((stage.status === 'failed' || stage.status === 'incomplete verification')) {
+    if (!Array.isArray(stage.errors) || !stage.errors.some((e) => typeof e === 'string' && e.trim() !== '')) {
+      errors.push(`${label} with status '${stage.status}' requires a nonblank explanation in errors`);
+    }
   }
-  if (exactKeys(milestone.visualSelfReview, ['reviewed', 'weaknesses', 'corrections'], `${label}.visualSelfReview`, errors)) {
-    if (typeof milestone.visualSelfReview.reviewed !== 'boolean') errors.push(`${label}.visualSelfReview.reviewed must be boolean`);
-    for (const field of ['weaknesses', 'corrections']) if (!Array.isArray(milestone.visualSelfReview[field]) || milestone.visualSelfReview[field].some((value) => typeof value !== 'string')) errors.push(`${label}.visualSelfReview.${field} must be an array of strings`);
-  }
-  if (milestone.status === COMPLETE_STATUS) {
-    const def = MILESTONE_DEFINITIONS.find((d) => d.id === milestone.id);
-    if (!def) {
-      errors.push(`${label} cannot be complete without valid milestone definition`);
-      return;
+
+  if (stage.status === 'passed') {
+    if (!priorStagesAllPassed) {
+      errors.push(`${label} cannot pass because a prior stage has not passed`);
     }
-    if (!Array.isArray(milestone.screenshots)) {
-      errors.push(`${label} cannot be complete without screenshots array`);
-    } else {
-      const uniqueScreenshots = new Set(milestone.screenshots);
-      if (uniqueScreenshots.size !== milestone.screenshots.length) {
-        errors.push(`${label} cannot contain duplicate screenshot filenames`);
-      }
-      const minCount = def.requiredScreenshotEvidence.minimumScreenshots;
-      if (milestone.screenshots.length < minCount) {
-        errors.push(`${label} requires at least ${minCount} screenshot(s) when complete`);
-      }
-      for (const pose of def.requiredScreenshotEvidence.requiredPoses) {
-        const expectedFilename = POSE_FILENAME_MAP[pose];
-        if (expectedFilename && !milestone.screenshots.includes(expectedFilename)) {
-          errors.push(`${label} missing required pose screenshot '${expectedFilename}' for pose '${pose}'`);
-        }
+    if (Array.isArray(stage.errors) && stage.errors.length > 0) {
+      errors.push(`${label} cannot pass with a nonempty errors list`);
+    }
+    for (const filename of requirements.requiredArtifacts) {
+      if (!Array.isArray(stage.artifacts) || !stage.artifacts.includes(filename)) {
+        errors.push(`${label} requires artifact '${filename}' to pass`);
       }
     }
-    if (!isPlainObject(milestone.console) || !Array.isArray(milestone.console.errors) || milestone.console.errors.length > 0) {
-      errors.push(`${label} cannot be complete with console errors`);
-    }
-    if (!isPlainObject(milestone.performance) ||
-        milestone.performance.fps === null || typeof milestone.performance.fps !== 'number' || !Number.isFinite(milestone.performance.fps) || milestone.performance.fps < 0 ||
-        milestone.performance.frameTimeMs === null || typeof milestone.performance.frameTimeMs !== 'number' || !Number.isFinite(milestone.performance.frameTimeMs) || milestone.performance.frameTimeMs < 0) {
-      errors.push(`${label} cannot be complete without non-null non-negative finite performance evidence`);
-    }
-    if (!isPlainObject(milestone.visualSelfReview) || milestone.visualSelfReview.reviewed !== true) {
-      errors.push(`${label} cannot be complete without visual self-review`);
-    } else {
-      if (!Array.isArray(milestone.visualSelfReview.weaknesses) || milestone.visualSelfReview.weaknesses.length === 0 || milestone.visualSelfReview.weaknesses.some((w) => typeof w !== 'string' || w.trim() === '')) {
-        errors.push(`${label} cannot be complete with empty weaknesses`);
+    if (requirements.requiresReview) {
+      if (stage.reviewed !== true) errors.push(`${label} cannot pass without reviewed set to true`);
+      if (!Array.isArray(stage.weaknesses) || stage.weaknesses.filter((w) => w.trim() !== '').length < requirements.minWeaknesses) {
+        errors.push(`${label} requires at least ${requirements.minWeaknesses} nonblank weakness(es) to pass`);
       }
-      if (!Array.isArray(milestone.visualSelfReview.corrections) || milestone.visualSelfReview.corrections.length === 0 || milestone.visualSelfReview.corrections.some((c) => typeof c !== 'string' || c.trim() === '')) {
-        errors.push(`${label} cannot be complete with empty corrections`);
+      if (!Array.isArray(stage.corrections) || stage.corrections.filter((c) => c.trim() !== '').length < requirements.minCorrections) {
+        errors.push(`${label} requires at least ${requirements.minCorrections} nonblank correction(s) to pass`);
       }
     }
   }
 }
 
-export function validateMilestoneEvidence(evidence) {
+export function validateStageEvidence(evidence) {
   const errors = [];
   if (!isPlainObject(evidence)) return { valid: false, errors: ['Evidence record must be a plain object'] };
-  if (!exactKeys(evidence, ['schemaVersion', 'briefSha256', 'status', 'milestones'], 'evidence', errors)) return { valid: false, errors };
+  if (!exactKeys(evidence, ['schemaVersion', 'briefSha256', 'status', 'stages'], 'evidence', errors)) return { valid: false, errors };
   if (evidence.schemaVersion !== BUILD_CONTRACT_SCHEMA_VERSION) errors.push(`evidence.schemaVersion must be ${BUILD_CONTRACT_SCHEMA_VERSION}`);
-  if (![INCOMPLETE_VERIFICATION_STATUS, COMPLETE_STATUS].includes(evidence.status)) errors.push(`evidence.status must be '${INCOMPLETE_VERIFICATION_STATUS}' or '${COMPLETE_STATUS}'`);
+  if (!STAGE_STATUSES.includes(evidence.status)) errors.push(`evidence.status must be one of: ${STAGE_STATUSES.join(', ')}`);
   if (!(evidence.briefSha256 === null || (typeof evidence.briefSha256 === 'string' && /^[0-9a-f]{64}$/.test(evidence.briefSha256)))) {
     errors.push('evidence.briefSha256 must be null or exactly 64 lowercase hexadecimal characters');
   }
-  if (!Array.isArray(evidence.milestones)) {
-    errors.push('evidence.milestones must be an array');
+  if (!Array.isArray(evidence.stages)) {
+    errors.push('evidence.stages must be an array');
+    return { valid: errors.length === 0, errors };
+  }
+  const actualIds = evidence.stages.map((s) => (isPlainObject(s) ? s.id : undefined));
+  if (JSON.stringify(actualIds) !== JSON.stringify(STAGE_IDS_IN_ORDER)) {
+    errors.push(`evidence.stages must contain exactly these stage IDs in canonical order: ${STAGE_IDS_IN_ORDER.join(', ')}`);
   } else {
-    const expectedIds = MILESTONE_DEFINITIONS.map(({ id }) => id);
-    const actualIds = evidence.milestones.map((milestone) => milestone?.id);
-    if (JSON.stringify(actualIds) !== JSON.stringify(expectedIds)) errors.push('evidence.milestones must contain the three milestone IDs in canonical order');
-    const seen = new Set();
-    evidence.milestones.forEach((milestone, index) => {
-      if (seen.has(milestone?.id)) errors.push(`evidence.milestones contains duplicate ID '${milestone?.id}'`);
-      seen.add(milestone?.id);
-      validateEvidenceMilestone(milestone, index, errors);
+    let priorStagesAllPassed = true;
+    evidence.stages.forEach((stage, index) => {
+      validateOneStageEvidence(stage, index, STAGE_EVIDENCE_REQUIREMENTS[index], priorStagesAllPassed, errors);
+      priorStagesAllPassed = priorStagesAllPassed && isPlainObject(stage) && stage.status === 'passed';
     });
-    const allComplete = evidence.milestones.length === MILESTONE_DEFINITIONS.length && evidence.milestones.every((milestone) => milestone.status === COMPLETE_STATUS);
-    if (evidence.status === COMPLETE_STATUS && !allComplete) errors.push('evidence.status complete requires every milestone to be complete');
-    if (evidence.status === INCOMPLETE_VERIFICATION_STATUS && allComplete) errors.push('evidence.status must be complete when every milestone is complete');
+    const allPassed = evidence.stages.length === STAGE_IDS_IN_ORDER.length && evidence.stages.every((s) => isPlainObject(s) && s.status === 'passed');
+    if (evidence.status === 'passed' && !allPassed) errors.push('evidence.status passed requires every stage to have passed');
+    if (evidence.status !== 'passed' && allPassed) errors.push('evidence.status must be passed when every stage has passed');
   }
   scanForNonFiniteOrAbsolute(evidence, 'evidence', errors);
   return { valid: errors.length === 0, errors };
@@ -1093,7 +1028,6 @@ export function validateMilestoneEvidence(evidence) {
 
 /**
  * Cross-checks evidence.briefSha256 against contract.project.briefSha256.
- * Not yet wired into any pass/fail gate — that wiring lands in a later task.
  */
 export function validateEvidenceContractBinding(contract, evidence, errors) {
   if (!isPlainObject(contract) || !isPlainObject(contract.project) || typeof contract.project.briefSha256 !== 'string') {
@@ -1127,25 +1061,32 @@ export function renderContractSummary(contract) {
 - **Camera proof:** \`${contract.acceptance.camera.hook}\`; allowed methods ${contract.acceptance.camera.allowedMethods.join(', ')}; clipping threshold ${contract.acceptance.camera.clippingThresholdM} m.
 - **Creative constraints:** spark ${JSON.stringify(contract.creative.creativeSpark)}; Signature Moment ${JSON.stringify(contract.creative.signatureMoment)}; novelty budget ${JSON.stringify(contract.creative.noveltyBudget)}
 - **Acceptance gates:** ${JSON.stringify(contract.acceptance)}
-- **Milestones:** ${contract.milestones.map(({ id }) => id).join(', ')}; missing required evidence is recorded as \`${INCOMPLETE_VERIFICATION_STATUS}\`.
+- **Stages:** ${contract.stages.map(({ id }) => id).join(', ')}; missing required evidence is recorded as \`incomplete verification\`.
 `;
 }
 
-export function renderMilestoneInstructions(contract) {
+export function renderStageEvidenceInstructions(contract) {
   const lines = [
-    '## Implementation Milestones and Visual Self-Review',
+    '## Implementation Stages and Visual Self-Review',
     '',
-    `Work through the three milestones in order. Preserve screenshots, console findings, performance values, visible weaknesses, and corrective actions in \`${EVIDENCE_FILENAME}\`. Missing screenshot capability or missing required evidence must be recorded exactly as **${INCOMPLETE_VERIFICATION_STATUS}** and must never be converted into a pass. The verifier overwrites canonical current-run screenshots before checking evidence existence.`,
+    `Work through the five stages in order. Preserve automated checks, artifacts, environment, console findings, visible weaknesses, and corrective actions in \`${EVIDENCE_FILENAME}\`. A stage may pass while later stages remain \`not-started\`; a later stage may never pass while an earlier stage has not passed. Missing evidence must be recorded exactly as **incomplete verification** and must never be converted into a pass.`,
     '',
   ];
-  for (const [index, milestone] of contract.milestones.entries()) {
-    lines.push(`### ${index + 1}. ${milestone.title} (\`${milestone.id}\`)`, '');
-    lines.push(`- **Required checks:** ${milestone.requiredChecks.join('; ')}.`);
-    lines.push(`- **Screenshot evidence:** capture at least ${milestone.requiredScreenshotEvidence.minimumScreenshots} screenshot(s); required poses: ${milestone.requiredScreenshotEvidence.requiredPoses.join(', ')}.`);
-    lines.push(`- **Console evidence:** record console findings; blocking errors allowed: ${milestone.requiredConsoleEvidence.blockingErrors}.`);
-    lines.push(`- **Performance evidence:** record ${milestone.requiredPerformanceEvidence.fields.join(' and ')}.`);
-    lines.push(`- **Visual self-review:** inspect each required screenshot, set reviewed, record visible weaknesses, and record the corrections made.`);
-    lines.push(`- **Completion:** use \`${milestone.completion.completeStatus}\` only after every check and evidence requirement is satisfied; otherwise use \`${milestone.completion.incompleteStatus}\`.`);
+  for (const stage of contract.implementationPlan) {
+    const requirements = STAGE_EVIDENCE_REQUIREMENTS.find((s) => s.id === stage.id);
+    lines.push(`### ${stage.order}. ${requirements.title} (\`${stage.id}\`)`, '');
+    lines.push(`- **Goal:** ${stage.goal}`);
+    lines.push(`- **Required outputs:** ${stage.requiredOutputs.join('; ')}.`);
+    if (requirements.requiredArtifacts.length > 0) {
+      lines.push(`- **Required artifacts:** ${requirements.requiredArtifacts.join(', ')}.`);
+    }
+    if (requirements.requiresReview) {
+      lines.push(`- **Visual self-review:** inspect the required artifacts, set \`reviewed\` to true, record at least ${requirements.minWeaknesses} nonblank weakness(es), and record at least ${requirements.minCorrections} correction(s) made after inspection.`);
+      if (stage.id === 'environment-composition') {
+        lines.push(`- **Review checklist:** see the Environment Composition Review section in this brief (bundled into this brief's review-criteria rendering — do not skip it).`);
+      }
+    }
+    lines.push(`- **Completion:** use \`passed\` only after every automated check, required artifact, and (where required) visual self-review is satisfied; otherwise use \`not-started\`, \`in-progress\`, \`failed\`, or \`incomplete verification\` with a nonblank explanation in \`errors\`.`);
     lines.push('');
   }
   return lines.join('\n');
@@ -1154,8 +1095,6 @@ export function renderMilestoneInstructions(contract) {
 export const PRODUCT_PRINCIPLE_SENTENCE = 'The builder implements an already-designed system. It may make bounded implementation decisions inside each approved stage, but it may not redesign the renderer, terrain ownership, shader integration, fallback strategy, module responsibilities, readiness lifecycle, verification interfaces, or stage order.';
 
 export const TERRAIN_ELEVATION_OWNERSHIP_MEANING_TEXT = 'Render terrain vertices must enter the terrain vertex shader at base height y = 0. Apply procedural elevation exactly once, on the GPU. The CPU may mirror the same height function only for physics, camera clearance, and foot planting. CPU-built render vertices must not be pre-displaced.';
-
-export const HANDOFF_STAGE_WORKFLOW_TEXT = "Read the entire bundle. Implement one stage only. Run that stage's automated checks. Capture required evidence. Inspect the screenshot. Correct visible weaknesses. Stop and report the result. Do not start the next stage until the current stage passes.";
 
 const BABYLON_PATTERNS_DOC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'references', 'babylon-webgpu-patterns.md');
 const BABYLON_PATTERN_EXAMPLE_HEADING = '## Positive Pattern Example: Minimal WGSL ShaderMaterial';
@@ -1358,25 +1297,97 @@ export function renderReviewCriteria(contract) {
   return lines.join('\n');
 }
 
-export function renderHandoff({ fileName, builderAgent, contract }) {
-  const builderAgentLabel = builderAgent || 'the coding agent named by the user';
-  return `# Handoff
+export const HANDOFF_STAGE_WORKFLOW_TEXT = [
+  'Read the entire bundle.',
+  '',
+  'Implement the five stages in order.',
+  '',
+  'At each stage:',
+  '- implement only that stage\'s permitted scope;',
+  '- run the stage verifier (`node verify/verify_demo.mjs . --stage <stage-id>`);',
+  '- capture required evidence;',
+  '- inspect screenshots when required;',
+  '- record weaknesses;',
+  '- make a correction;',
+  '- rerun verification;',
+  '- proceed automatically only if the stage passes.',
+  '',
+  'Do not ask the user for approval after every successful stage.',
+  '',
+  'Stop and report only when:',
+  '- generated artifacts contradict one another;',
+  '- a stage cannot pass;',
+  '- continuing requires violating the contract;',
+  '- a required capability is unavailable.',
+  '',
+  'After all five stages pass, run final whole-slice verification (`node verify/verify_demo.mjs .`) and report the playable result.',
+].join('\n');
 
-- **Complete bundle:** consume the entire generated bundle: \`${fileName}\`, \`${BUILD_CONTRACT_FILENAME}\`, \`${EVIDENCE_FILENAME}\`, \`${HANDOFF_FILENAME}\`, and \`verify/\`.
-- **Brief:** \`${fileName}\` — consume this brief together with the build contract, the evidence record, this handoff, and the verifier; no single file stands alone.
-- **Build contract:** \`${BUILD_CONTRACT_FILENAME}\` — machine-readable contract generated from the same validated assembly result as the brief.
-- **Evidence record:** \`${EVIDENCE_FILENAME}\` — preserve milestone screenshots, console findings, performance values, weaknesses, and corrections here.
-- **Verifier:** \`verify/\` — run it after each stage; it is part of the required bundle, not an optional extra.
-- **Agent:** ${builderAgentLabel}
-- **Coding-agent workflow:** consume the entire bundle; build the first terrain frame; run verification immediately; inspect and correct the idle screenshot; continue to systems-complete; run verification again; complete final polish; populate all evidence fields; run final verification; never claim completion while any failure or incomplete-verification reason remains.
-- **Workflow:** ${HANDOFF_STAGE_WORKFLOW_TEXT}
-- **Milestone workflow:** complete \`first-runnable-scene\`, then \`systems-complete\`, then \`final-polish\`; inspect screenshots and correct visible weaknesses at every milestone.
-- **Incomplete verification:** missing screenshot capability or required evidence must be recorded exactly as \`${INCOMPLETE_VERIFICATION_STATUS}\`; it is never a pass.
-- **When the agent says it is done:** \`npm install -D playwright pngjs && node verify/verify_demo.mjs .\`
-- **On failure:** the verifier lists each problem. Hand the list back to the agent and have it fix and re-run. Do not accept the demo with failures outstanding.
-- **Frame times are reported, not gated** — a slow demo is a decision for you, not a build failure.
-- **Engine version pinning:** When installing the engine during a generated project build, pin the exact resolved engine version in \`package.json\` and the lockfile, record that version in \`DECISIONS.md\`, and avoid floating CDN imports.
-- **Mode decisions:** Record in \`DECISIONS.md\`: creative mode, base showcase or custom path, creative spark or surprise me, final Signature Moment, existing system reused by Signature Moment, any Experimental changed axis, compatibility checks performed, and permitted implementation deviations.
+export function renderHandoff({ fileName, builderAgent, contract }) {
+  const stageCommands = STAGE_IDS_IN_ORDER.map((id) => `  node verify/verify_demo.mjs . --stage ${id}`).join('\n');
+  return `# Handoff${builderAgent ? ` — ${builderAgent}` : ''}
+
+Read the entire bundle before writing any code. No single file stands alone:
+
+- \`${fileName}\` — the complete implementation brief.
+- \`${BUILD_CONTRACT_FILENAME}\` — the machine-checkable build contract (schema v${BUILD_CONTRACT_SCHEMA_VERSION}).
+- \`${EVIDENCE_FILENAME}\` — the five-stage evidence record you fill in as you verify.
+- \`${HANDOFF_FILENAME}\` — this file.
+- \`verify/\` — the complete verifier; do not modify it.
+
+## Workflow
+
+${HANDOFF_STAGE_WORKFLOW_TEXT}
+
+## Verifier commands
+
+Per-stage:
+${stageCommands}
+
+Final whole-slice verification (requires all five stages already passed):
+  node verify/verify_demo.mjs .
+
+Install the verifier's dev dependencies once before running it: \`npm install -D playwright pngjs\`.
+
+## Notes
+
+- Frame times are reported, never gated — verification often runs on software rendering.
+- Pin the exact engine version you build against and record it in \`DECISIONS.md\`.
+- Incomplete verification: missing required evidence or failed checks are recorded in \`ENVIZZLE_EVIDENCE.json\`; incomplete verification is never a pass.
+- The product is a visually impressive playable procedural slice; technical correctness is the entry condition, not the goal. See "Visual Acceptance Hierarchy" in ${fileName}.
+`;
+}
+
+export const PRODUCT_VISUAL_PRINCIPLE_SENTENCE = 'Technical correctness is the entry condition. The product is a visually impressive playable procedural slice.';
+
+export function renderVisualAcceptanceHierarchy() {
+  return `## Visual Acceptance Hierarchy
+
+${PRODUCT_VISUAL_PRINCIPLE_SENTENCE}
+
+1. The required backend and runtime are honest.
+2. The environment immediately reads as the selected biome.
+3. The centrepiece interaction produces a dramatic visual response.
+4. Character, terrain, effects, lighting, and camera feel connected.
+5. Performance and implementation quality are acceptable.
+
+Technical diagnostics never substitute for visual success. A demo with a perfect \`rendererInfo()\` capture and a generic, illegible environment or mechanic has not met the bar.
+`;
+}
+
+export function renderCentrepieceEffect(contract, mechanic) {
+  const effect = mechanic.centrepieceEffect;
+  const layerLines = effect.layers.map((l) => `- \`${l.id}\` (${l.type}, ${l.id === effect.dominantLayerId ? 'DOMINANT' : 'supporting'}): ${l.purpose}`).join('\n');
+  return `## Centrepiece Effect: ${effect.name}
+
+**Visual goal:** ${effect.visualGoal}
+
+**Shared driver:** every layer below reads from the same ${effect.sharedDriver}; they must never drift out of sync with each other.
+
+${layerLines}
+
+**Readability requirements:**
+${effect.readabilityRequirements.map((r) => `- ${r}`).join('\n')}
 `;
 }
 
@@ -1410,8 +1421,8 @@ export function validateAssemblyArtifacts({ model, contract, brief, checkStagedS
   if (!brief.includes(renderContractSummary(contract))) {
     errors.push('brief does not contain the canonical build-contract summary');
   }
-  if (!brief.includes(renderMilestoneInstructions(contract))) {
-    errors.push('brief does not contain the canonical milestone instructions');
+  if (!brief.includes(renderStageEvidenceInstructions(contract))) {
+    errors.push('brief does not contain the canonical stage evidence instructions');
   }
   if (checkStagedSections) {
     if (!brief.includes(renderProductPrinciple(contract))) {
@@ -1432,13 +1443,16 @@ export function validateAssemblyArtifacts({ model, contract, brief, checkStagedS
     if (!brief.includes(renderReviewCriteria(contract))) {
       errors.push('brief does not contain the canonical review criteria');
     }
+    if (!brief.includes(renderVisualAcceptanceHierarchy(contract))) {
+      errors.push('brief does not contain the canonical visual acceptance hierarchy');
+    }
   }
 
   return { valid: errors.length === 0, errors };
 }
 
 export const BUILD_CONTRACT_ACCEPTANCE = ACCEPTANCE_GATES;
-export const BUILD_CONTRACT_MILESTONES = MILESTONE_DEFINITIONS;
+export const BUILD_CONTRACT_STAGES = STAGE_EVIDENCE_REQUIREMENTS;
 export const BUILD_CONTRACT_SOURCE_OF_TRUTH = SOURCE_OF_TRUTH;
 export const BUILD_CONTRACT_IMPLEMENTATION_PLAN = IMPLEMENTATION_PLAN;
 export const BUILD_CONTRACT_ARCHITECTURE = ARCHITECTURE_BY_PROFILE;

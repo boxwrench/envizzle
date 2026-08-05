@@ -124,6 +124,18 @@ transient click, and a generative drone on a 3-note pedal.
 0.6 m along the wind azimuth, plus 2–4 ravens circling at 40–90 m on a boids flock with
 a 25 m separation radius. No butterflies; this is a cold biome and inhabitants sell that.
 
+**`MORPHOLOGY_ANTI_PATTERNS`** — Do not represent the snowfield as a single uniform white
+plane, repeated identical drift shapes, sharp unweathered polygon ridgelines, or cornices
+that read as flat cutouts rather than overhanging mass.
+
+**`VISUAL_REVIEW_QUESTIONS`** — Do windward slopes show wind-packed, harder-edged snow
+distinct from soft, deep-drifted lee slopes, do cornices read as overhanging, undercut
+mass rather than a flat white cutout, are rock outcrops breaking through the snowpack at
+multiple scales rather than only at the peak, does blowing or settling snow read as
+connected to a consistent wind direction, is there a visible boundary between wind-scoured
+ridge and drift-filled bowl, and does distant terrain layer behind atmospheric haze rather
+than popping in at full contrast?
+
 **`FOOT_INTERACTION`** — displace snow by 6–9 cm and kick a 0.3 m spray puff of 40–60
 GPU particles, fired from the single touchdown call site so it cannot desynchronise.
 
@@ -232,6 +244,18 @@ band-limited impulse train at 1.7 Hz, and a generative pentatonic chord bed at 6
 butterflies over flower patches at 0.8–2.2 m with a 1.4 Hz wing flutter, dandelion pollen
 motes at 900 particles within 40 m illuminated by sun shafts, and a procedural steam
 train crossing the viaduct every 75 s.
+
+**`MORPHOLOGY_ANTI_PATTERNS`** — Do not represent the valley as a flat lawn with scattered
+identical trees, a single repeated hillock shape, perfectly parallel terraced fields, or
+foliage silhouettes that read as one uniform green mass with no internal shape.
+
+**`VISUAL_REVIEW_QUESTIONS`** — Does the valley floor show at least three distinct scales
+of undulation (broad basin, rolling mid-scale hills, small foreground mounds), do
+terraced or cultivated areas follow the underlying contour rather than a mechanically
+uniform grid, do individual tree clusters read as distinct silhouettes rather than one
+flat green mass, is there a clear near/mid/far layering with atmospheric softening on
+distant ridgelines, and does directional sunlight create visible form-revealing shadow on
+the hillsides rather than flat toon-shaded color?
 
 **`FOOT_INTERACTION`** — flatten blades in a 0.28 m radius and write the trample channel,
 releasing 3–6 pollen motes per step.
@@ -452,6 +476,19 @@ rumble tied to the storm distance.
 gulls on a boids flock at 8–40 m, and a school of 200 fish under the surface within 25 m
 that scatters when the character wades within 3 m.
 
+**`MORPHOLOGY_ANTI_PATTERNS`** — Do not represent the seabed as a flat blue plane with a
+tiled normal-map ripple, identical repeated coral or rock clusters, a shoreline that is a
+straight or perfectly smooth curve, or surf that is a static foam texture with no
+wave-driven motion.
+
+**`VISUAL_REVIEW_QUESTIONS`** — Does the shelf show a readable depth gradient from
+shallow, lit, colorful water to deep, dark, desaturated water, do reef or rock formations
+vary in scale and read as distinct clusters rather than one repeated module, does the
+shoreline show irregular, non-repeating curvature rather than a smooth arc, does surf or
+foam visibly respond to the shoreline's actual shape rather than sitting as a static band,
+and is there a visible caustic or light-shaft effect connecting the surface to the seabed
+at shallow depth?
+
 **`FOOT_INTERACTION`** — splash a 0.4 m radius crown, write foam and turbidity, and leave
 a print in the bed that the scour channel erases over roughly 40 s.
 
@@ -561,6 +598,18 @@ sparse detuned drone a tritone apart.
 **`ATMOSPHERIC_LIFE_SPEC`** — embers at 3000 GPU particles rising on the thermal field
 with a 6 s lifetime, ash fall at 4000 particles drifting down at 0.4 m/s, and heat shimmer
 as a screen-space distortion of up to 5 px above vents. No fauna.
+
+**`MORPHOLOGY_ANTI_PATTERNS`** — Do not represent the terrain as a single symmetric cone
+volcano, uniform grey rock with no lava-flow history, a lava surface that is one flat
+glowing plane, or ash fall that is a uniform screen-space tint with no directional drift.
+
+**`VISUAL_REVIEW_QUESTIONS`** — Does the caldera or vent read as an asymmetric, collapsed,
+or breached form rather than a perfect cone, do old lava flows show layered, directional
+solidified-rock morphology distinct from active flow, does active lava show a cooling
+crust with visible glowing cracks rather than one uniform emissive color, does ambient
+light pick up warm bounce light from nearby lava onto adjacent rock and atmosphere, and
+does ash or smoke drift in a consistent wind direction and vary in density with distance
+from the source?
 
 **`FOOT_INTERACTION`** — crack the crust in a 0.22 m radius, write fracture and
 temperature, and expose a brief bright fissure that seals over roughly 8 s.
@@ -676,6 +725,19 @@ under the lamps, and a sparse minor-seventh pad at 48 BPM.
 **`ATMOSPHERIC_LIFE_SPEC`** — rain at 20 000 GPU particles inside 40 m with a wind-sheared
 fall, steam plumes from 3–5 vents rising to 6 m, moths orbiting two of the lamps at 12–20
 per lamp, and one distant train crossing the rail deck every 90 s.
+
+**`MORPHOLOGY_ANTI_PATTERNS`** — Do not represent the skyline as identical repeated tower
+modules at one uniform height, a flat unlit silhouette against a plain sky, streets that
+are a single flat asphalt-colored plane, or neon signage that is one uniform emissive
+color with no variation.
+
+**`VISUAL_REVIEW_QUESTIONS`** — Does the skyline show varied building heights, footprints,
+and massing rather than a repeated module, do windows or signage show varied color
+temperature and on/off density rather than one uniform glow, does street-level detail
+(wet reflections, steam, debris) read at close range without looking like a flat texture,
+does atmospheric haze or fog separate near, mid, and far skyline layers with distinct
+contrast falloff, and does at least one hero structure break the skyline's silhouette
+rhythm as a clear focal landmark?
 
 **`FOOT_INTERACTION`** — displace a 0.3 m puddle crown, write ripple and disturbance,
 and throw 15–25 spray droplets that catch the nearest lamp.

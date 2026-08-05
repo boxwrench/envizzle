@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SHOWCASES, CORE_SECTIONS, validateSelection } from './selection.mjs';
+import { SHOWCASES, CORE_SECTIONS, validateSelection, normalizeProvenSignatureMoment } from './selection.mjs';
 import { validateAssemblySpec } from './assemble.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -274,12 +274,7 @@ export function buildCaseAssemblySpec(caseId) {
   };
 
   if (caseDef.creativeMode === 'proven') {
-    selection.signatureMoment = {
-      enabled: false,
-      text: '',
-      reusedSystem: '',
-      verificationPose: 'locomotion',
-    };
+    selection.signatureMoment = normalizeProvenSignatureMoment();
   }
 
   const selConflicts = validateSelection(selection);

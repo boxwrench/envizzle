@@ -11,25 +11,39 @@ declaring anything a pass.
 ## Running it
 
 ```bash
-node verify/verify_demo.mjs [path-to-generated-demo] [--browser-channel chrome] [--headed]
+node verify/verify_demo.mjs [path-to-generated-demo] [options]
+node verify/verify_demo.mjs . --stage backend-proof
+node verify/verify_demo.mjs . --stage terrain-kernel
+node verify/verify_demo.mjs . --stage environment-composition
+node verify/verify_demo.mjs . --stage character-locomotion
+node verify/verify_demo.mjs . --stage mechanic-final-polish
+node verify/verify_demo.mjs .   # no --stage: final whole-slice verification
 ```
+
+Options: `--browser-channel <chrome|chromium|msedge>`, `--browser-executable <path>`
+(mutually exclusive with `--browser-channel`), `--headed`, `--external-server <url>`
+(uses an already-running dev server instead of spawning one — does not spawn or kill
+a server), `--report <path>`, `--screenshots <dir>`.
 
 Defaults to the current working directory if no path is given. It:
 
 1. Audits the directory for required files (index.html, package.json,
    vite.config.js, DECISIONS.md, PERF.md, src/main.js).
 2. Runs npx vite build and fails on any build error.
-3. Boots a local vite dev server and launches Chromium via Playwright with
-   WebGPU flags enabled. Use --browser-channel chrome to select the supported
-   Chrome channel, or --headed to show the browser window.
+3. Boots a local vite dev server (or connects to `--external-server`) and
+   launches Chromium via Playwright with WebGPU flags enabled.
 4. Waits for the window.__demo hook (see below). A browser without WebGPU is
    reported as an operational error; a demo that falls back after WebGPU is
    available is a failed verification.
 5. Waits for truthful readiness, then checks renderer, terrain, camera, and
-   frame diagnostics plus runtime/console errors.
-6. Cycles through the idle, locomotion, and mechanic poses. For each,
-   captures a screenshot with the character visible and one with it hidden,
-   and writes screenshots/milestone_<pose>.png.
+   frame diagnostics plus runtime/console errors. When verifying `backend-proof`
+   (scoped or final), also validates `backendProof()` (see below).
+6. Cycles through only the poses required by the selected `--stage` (all three —
+   idle, locomotion, mechanic — for a final run). For each, captures a screenshot
+   with the character visible and one with it hidden; the idle pose's
+   character-hidden capture is written as `environment_only.png`, and the
+   character-visible captures are written as `idle.png`, `locomotion.png`, and
+   `mechanic.png`.
 7. Runs evaluateGates (see gates.mjs) over everything captured and reports
    pass/fail.
 
@@ -51,6 +65,7 @@ window.__demo = {
   terrainDiagnostics() {},
   cameraDiagnostics() {},
   frameStats() {},
+  backendProof() {},
 };
 ```
 
@@ -71,6 +86,16 @@ the camera diagnostic must report its method, nearest depth, and terrain
 clearance. Without this hook the orchestrator cannot drive poses, inspect
 readiness, or isolate the character for the visibility gate — so it fails fast
 and explicitly instead of quietly skipping checks and reporting success.
+
+`backendProof()` is the one-time, richer forensic proof read by the
+`backend-proof` stage (and by the final whole-slice run): engine
+initialization, the active backend and shader language, material compilation
+attempted and ready against the representative mesh, which required vertex
+buffers are actually present, every declared uniform and resource,
+`manualBindings: false`, empty scoped/uncaptured validation-error and
+device-loss lists, and a submitted, completed frame. It deliberately overlaps
+`rendererInfo()` on backend/shader-language — `rendererInfo()` is the small,
+cheap, repeatedly-polled summary; `backendProof()` is the one-shot record.
 
 ## The gates (`gates.mjs`)
 

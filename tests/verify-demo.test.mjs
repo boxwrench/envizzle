@@ -9,6 +9,8 @@ import { assembleBrief } from '../assemble.mjs';
 import { buildCaseAssemblySpec } from '../benchmark-cases.mjs';
 import { parseVerifyCliArgs, verifyDemo, isBlockingGpuMessage } from '../verify/verify_demo.mjs';
 
+import { gradient, withBlob } from './fixtures/make-synthetic.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const REQUIRED_PATHS = ['index.html', 'package.json', 'vite.config.js', 'DECISIONS.md', 'PERF.md', 'src/main.js'];
@@ -16,30 +18,64 @@ const DEFAULT_RENDERER_INFO = { backend: 'webgpu', shaderLanguage: 'wgsl', mater
 const DEFAULT_DEMO_STATE = { status: 'ready', ready: true, error: null };
 const DEFAULT_TERRAIN_DIAGNOSTICS = { renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'gpu-readback', paritySamples: 8, parityMaxErrorM: 0.012 };
 const DEFAULT_CAMERA_DIAGNOSTICS = { method: 'gpu-depth', nearestDepthM: 5, terrainClearanceM: 4.5 };
-const COMPLETE_SCREENSHOTS = {
-  'first-runnable-scene': ['milestone_idle.png'],
-  'systems-complete': ['milestone_locomotion.png', 'milestone_mechanic.png'],
-  'final-polish': ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
-};
+
+function plusCharacter(img, cx, cy, armLen, armThick, [r, g, b] = [255, 0, 0]) {
+  const out = { width: img.width, height: img.height, data: Uint8Array.from(img.data) };
+  const paint = (x, y) => {
+    if (x < 0 || y < 0 || x >= out.width || y >= out.height) return;
+    const i = (y * out.width + x) * 4;
+    out.data[i] = r; out.data[i + 1] = g; out.data[i + 2] = b;
+  };
+  for (let y = cy - armLen; y <= cy + armLen; y++) {
+    for (let x = cx - armThick; x <= cx + armThick; x++) paint(x, y);
+  }
+  for (let x = cx - armLen; x <= cx + armLen; x++) {
+    for (let y = cy - armThick; y <= cy + armThick; y++) paint(x, y);
+  }
+  return out;
+}
+
+function gatePassingPngBuffer(withChar = true, pose = 'idle') {
+  const base = gradient(300, 300);
+  const colorMap = { idle: [255, 0, 0], locomotion: [0, 255, 0], mechanic: [0, 0, 255] };
+  const img = withChar ? plusCharacter(base, 150, 150, 45, 15, colorMap[pose] ?? [255, 0, 0]) : base;
+  const png = new PNG({ width: img.width, height: img.height });
+  Buffer.from(img.data).copy(png.data);
+  return PNG.sync.write(png);
+}
+
+function tinyPngBuffer() {
+  const png = new PNG({ width: 2, height: 2 });
+  png.data.fill(120);
+  return PNG.sync.write(png);
+}
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const validAssembly = () => JSON.parse(fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'assemblies', 'signature-alpine.json'), 'utf8'));
 
 function makeCompleteEvidence(assembled) {
   const evidence = clone(assembled.evidenceTemplate);
-  evidence.status = 'complete';
+  evidence.status = 'passed';
   evidence.briefSha256 = assembled.buildContract.project.briefSha256;
-  for (const milestone of evidence.milestones) {
-    milestone.status = 'complete';
-    milestone.screenshots = COMPLETE_SCREENSHOTS[milestone.id].slice();
-    milestone.console = { errors: [], warnings: [] };
-    milestone.performance = { fps: 60, frameTimeMs: 16.67 };
-    milestone.visualSelfReview = {
-      reviewed: true,
-      weaknesses: ['Slight contrast variation remains.'],
-      corrections: ['Balanced the final lighting pass.'],
-    };
-  }
+  evidence.stages[0].status = 'passed';
+  evidence.stages[0].automatedChecks = ['rendererInfo() reports selected backend'];
+  evidence.stages[1].status = 'passed';
+  evidence.stages[1].automatedChecks = ['terrainDiagnostics().renderOwner is "gpu"'];
+  evidence.stages[2].status = 'passed';
+  evidence.stages[2].artifacts = ['environment_only.png', 'idle.png'];
+  evidence.stages[2].reviewed = true;
+  evidence.stages[2].weaknesses = ['Slight contrast variation remains.'];
+  evidence.stages[2].corrections = ['Balanced the final lighting pass.'];
+  evidence.stages[3].status = 'passed';
+  evidence.stages[3].artifacts = ['idle.png', 'locomotion.png'];
+  evidence.stages[3].reviewed = true;
+  evidence.stages[3].weaknesses = ['Foot planting lags.'];
+  evidence.stages[3].corrections = ['Tightened IK settle time.'];
+  evidence.stages[4].status = 'passed';
+  evidence.stages[4].artifacts = ['idle.png', 'locomotion.png', 'mechanic.png'];
+  evidence.stages[4].reviewed = true;
+  evidence.stages[4].weaknesses = ['Wake crest curtain thin.'];
+  evidence.stages[4].corrections = ['Doubled crest density.'];
   return evidence;
 }
 
@@ -106,68 +142,6 @@ async function withShim(shim, fn) {
   }
 }
 
-function tinyPngBuffer() {
-  const png = new PNG({ width: 2, height: 2 });
-  png.data.fill(120);
-  return PNG.sync.write(png);
-}
-
-function makeFakePlaywright({
-  gpuAvailable = true,
-  webgl2Available = true,
-  demoState = { status: 'ready', ready: true, error: null },
-  rendererInfo = { backend: 'webgpu', shaderLanguage: 'wgsl', materialsReady: true, renderedFrames: 1, validationErrors: [] },
-  rendererInfoAfterDrain,
-  terrainDiagnostics = { renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'gpu-readback', paritySamples: 8, parityMaxErrorM: 0.012 },
-  cameraDiagnostics = { method: 'gpu-depth', nearestDepthM: 5, terrainClearanceM: 4.5 },
-  frameStats = { medianMs: 10, p99Ms: 15, samples: 100 },
-  onDrain,
-  onPageError,
-} = {}) {
-  let drained = false;
-  let launchOptions = null;
-  const listeners = new Map();
-  const emit = (type, text) => listeners.get(type)?.forEach((listener) => listener({ type: () => 'error', text: () => text, message: text }));
-  const page = {
-    on(type, listener) {
-      if (!listeners.has(type)) listeners.set(type, []);
-      listeners.get(type).push(listener);
-    },
-    async goto() {
-      if (onPageError) listeners.get('pageerror')?.forEach((listener) => listener({ message: onPageError }));
-    },
-    async waitForFunction() {},
-    async waitForTimeout(ms) {
-      if (ms === 1 || ms === 250) {
-        drained = true;
-        onDrain?.(emit);
-      }
-    },
-    async screenshot() { return tinyPngBuffer(); },
-    async evaluate(fn) {
-      const source = fn.toString();
-      if (source.includes('webgl2')) return webgl2Available ? { available: true, reason: null } : { available: false, reason: 'WebGL2 context unavailable' };
-      if (source.includes('navigator.gpu')) return gpuAvailable ? { available: true, reason: null } : { available: false, reason: 'navigator.gpu is undefined' };
-      if (source.includes('window.__demo.status')) return demoState;
-      if (source.includes('rendererInfo')) return drained && rendererInfoAfterDrain ? rendererInfoAfterDrain : rendererInfo;
-      if (source.includes('cameraDiagnostics')) return cameraDiagnostics;
-      if (source.includes('terrainDiagnostics')) return terrainDiagnostics;
-      if (source.includes('frameStats')) return frameStats;
-      return undefined;
-    },
-  };
-  const browser = {
-    async newPage() { return page; },
-    async close() {},
-    isConnected() { return true; },
-  };
-  return {
-    playwright: { chromium: { async launch(options) { launchOptions = options; return browser; } } },
-    getLaunchOptions() { return launchOptions; },
-    getGpuAvailability() { return gpuAvailable; },
-  };
-}
-
 async function run(project, fake, options = {}) {
   const shim = makeNpxShim();
   try {
@@ -189,6 +163,95 @@ function cleanup(project) {
   fs.rmSync(project.dir, { recursive: true, force: true });
 }
 
+function makeFakePlaywright({
+  gpuAvailable = true,
+  webgl2Available = true,
+  demoState = { status: 'ready', ready: true, error: null },
+  rendererInfo = { backend: 'webgpu', shaderLanguage: 'wgsl', materialsReady: true, renderedFrames: 1, validationErrors: [] },
+  rendererInfoAfterDrain,
+  terrainDiagnostics = { renderOwner: 'gpu', renderMeshBaseHeight: 0, parityMethod: 'gpu-readback', paritySamples: 8, parityMaxErrorM: 0.012 },
+  cameraDiagnostics = { method: 'gpu-depth', nearestDepthM: 5, terrainClearanceM: 4.5 },
+  frameStats = { medianMs: 10, p99Ms: 15, samples: 100 },
+  backendProof = {
+    engineInitialized: true,
+    activeBackend: 'webgpu',
+    activeShaderLanguage: 'wgsl',
+    materialCompilationAttempted: true,
+    materialCompiledAgainstMesh: true,
+    materialReady: true,
+    requiredAttributes: ['position', 'normal'],
+    presentVertexBuffers: { position: true, normal: true },
+    declaredUniforms: ['world', 'viewProjection'],
+    declaredResources: [],
+    manualBindings: false,
+    scopedValidationErrors: [],
+    uncapturedValidationErrors: [],
+    deviceLosses: [],
+    frameSubmitted: true,
+    frameCompleted: true,
+  },
+  onDrain,
+  onPageError,
+} = {}) {
+  let drained = false;
+  let launchOptions = null;
+  let currentPose = 'idle';
+  let characterVisible = true;
+  const listeners = new Map();
+  const emit = (type, text) => listeners.get(type)?.forEach((listener) => listener({ type: () => 'error', text: () => text, message: text }));
+  const page = {
+    on(type, listener) {
+      if (!listeners.has(type)) listeners.set(type, []);
+      listeners.get(type).push(listener);
+    },
+    async goto() {
+      if (onPageError) listeners.get('pageerror')?.forEach((listener) => listener({ message: onPageError }));
+    },
+    async waitForFunction() {},
+    async waitForTimeout(ms) {
+      if (ms === 1 || ms === 250) {
+        drained = true;
+        onDrain?.(emit);
+      }
+    },
+    async screenshot() { return gatePassingPngBuffer(characterVisible, currentPose); },
+    async evaluate(fn, arg) {
+      const source = fn.toString();
+      if (source.includes('setCharacterVisible(false)') || (typeof arg === 'boolean' && !arg)) {
+        characterVisible = false;
+        return undefined;
+      }
+      if (source.includes('setCharacterVisible(true)') || (typeof arg === 'boolean' && arg)) {
+        characterVisible = true;
+        return undefined;
+      }
+      if (source.includes('setPose') || typeof arg === 'string') {
+        if (arg) currentPose = arg;
+        return undefined;
+      }
+      if (source.includes('webgl2')) return webgl2Available ? { available: true, reason: null } : { available: false, reason: 'WebGL2 context unavailable' };
+      if (source.includes('navigator.gpu')) return gpuAvailable ? { available: true, reason: null } : { available: false, reason: 'navigator.gpu is undefined' };
+      if (source.includes('window.__demo.status')) return demoState;
+      if (source.includes('backendProof')) return backendProof;
+      if (source.includes('rendererInfo')) return drained && rendererInfoAfterDrain ? rendererInfoAfterDrain : rendererInfo;
+      if (source.includes('cameraDiagnostics')) return cameraDiagnostics;
+      if (source.includes('terrainDiagnostics')) return terrainDiagnostics;
+      if (source.includes('frameStats')) return frameStats;
+      return undefined;
+    },
+  };
+  const browser = {
+    async newPage() { return page; },
+    async close() {},
+    isConnected() { return true; },
+  };
+  return {
+    playwright: { chromium: { async launch(options) { launchOptions = options; return browser; } } },
+    getLaunchOptions() { return launchOptions; },
+    getGpuAvailability() { return gpuAvailable; },
+  };
+}
+
 test('Task 7 CLI flags parse strictly and matcher keeps unrelated console text informational', () => {
   const parsed = parseVerifyCliArgs(['demo', '--browser-channel', 'chrome', '--headed']);
   assert.equal(parsed.browserChannel, 'chrome');
@@ -198,6 +261,25 @@ test('Task 7 CLI flags parse strictly and matcher keeps unrelated console text i
   assert.equal(isBlockingGpuMessage('ordinary warning about scene colors'), false);
   assert.equal(isBlockingGpuMessage('UNCAPTURED validation ERROR from the device'), true);
   assert.equal(isBlockingGpuMessage('GPUValidationError: duplicate binding'), true);
+});
+
+test('parseVerifyCliArgs accepts --browser-channel chromium and msedge in addition to chrome', () => {
+  assert.equal(parseVerifyCliArgs(['.', '--browser-channel', 'chromium']).browserChannel, 'chromium');
+  assert.equal(parseVerifyCliArgs(['.', '--browser-channel', 'msedge']).browserChannel, 'msedge');
+});
+
+test('parseVerifyCliArgs accepts --browser-executable <path>', () => {
+  const parsed = parseVerifyCliArgs(['.', '--browser-executable', 'C:\\Program Files\\Chrome\\chrome.exe']);
+  assert.equal(parsed.browserExecutable, 'C:\\Program Files\\Chrome\\chrome.exe');
+});
+
+test('parseVerifyCliArgs rejects combining --browser-channel and --browser-executable', () => {
+  assert.throws(() => parseVerifyCliArgs(['.', '--browser-channel', 'chrome', '--browser-executable', 'x']), /cannot combine/i);
+});
+
+test('parseVerifyCliArgs accepts --external-server <url> and does not spawn a dev server', () => {
+  const parsed = parseVerifyCliArgs(['.', '--external-server', 'http://localhost:5173']);
+  assert.equal(parsed.externalServer, 'http://localhost:5173');
 });
 
 test('missing browser WebGPU capability is operational, not a failed demo', async () => {
@@ -323,12 +405,12 @@ test('ordinary page and console errors are blocking runtime failures', async () 
 });
 
 test('incomplete evidence cannot pass and always carries the canonical final-pass message', async () => {
-  const project = makeProject({ evidenceMutator: (evidence) => { evidence.milestones[0].performance.fps = null; } });
+  const project = makeProject({ evidenceMutator: (evidence) => { evidence.stages[0].status = 'not-started'; } });
   try {
     const result = await run(project, null, { skipBrowser: true });
     assert.equal(result.status, 'failed');
     assert.equal(result.pass, false);
-    assert.ok(result.failures.some((message) => message === 'incomplete verification: milestone or stage evidence is not complete'));
+    assert.ok(result.failures.some((message) => /incomplete verification/i.test(message)));
   } finally {
     cleanup(project);
   }
@@ -366,6 +448,131 @@ test('--browser-channel and --headed reach browser launch and report environment
     assert.equal(launchOptions.headless, false);
     assert.equal(result.report.environment.browserChannel, 'chrome');
     assert.equal(result.report.environment.headed, true);
+  } finally {
+    cleanup(project);
+  }
+});
+
+test('parseVerifyCliArgs accepts --stage with a canonical stage id', () => {
+  const parsed = parseVerifyCliArgs(['.', '--stage', 'backend-proof']);
+  assert.equal(parsed.stage, 'backend-proof');
+});
+
+test('parseVerifyCliArgs rejects an unknown --stage value', () => {
+  assert.throws(() => parseVerifyCliArgs(['.', '--stage', 'not-a-stage']), /Unsupported --stage/);
+});
+
+test('parseVerifyCliArgs defaults --stage to null (whole-slice mode)', () => {
+  const parsed = parseVerifyCliArgs(['.']);
+  assert.equal(parsed.stage, null);
+});
+
+test('stage backend-proof does not require terrain or character evidence to pass', async () => {
+  const project = makeProject();
+  const fake = makeFakePlaywright();
+  try {
+    const result = await run(project, fake, { stage: 'backend-proof' });
+    assert.equal(result.status, 'passed', JSON.stringify(result.failures));
+  } finally {
+    cleanup(project);
+  }
+});
+
+test('stage backend-proof fails when backendProof() reports a mismatched backend, manual bindings, or a nonempty validation-error list', async () => {
+  const project = makeProject();
+  const fake = makeFakePlaywright({
+    backendProof: {
+      engineInitialized: true,
+      activeBackend: 'webgl2', // mismatched: contract requires babylon-webgpu
+      activeShaderLanguage: 'wgsl',
+      materialCompilationAttempted: true,
+      materialCompiledAgainstMesh: true,
+      materialReady: true,
+      requiredAttributes: ['position', 'normal'],
+      presentVertexBuffers: { position: true, normal: true },
+      declaredUniforms: ['world', 'viewProjection'],
+      declaredResources: [],
+      manualBindings: true, // forbidden
+      scopedValidationErrors: ['pipeline creation failed'], // must be empty
+      uncapturedValidationErrors: [],
+      deviceLosses: [],
+      frameSubmitted: true,
+      frameCompleted: true,
+    },
+  });
+  try {
+    const result = await run(project, fake, { stage: 'backend-proof' });
+    assert.equal(result.status, 'failed');
+    assert.ok(result.failures.some((f) => /activeBackend/.test(f)));
+    assert.ok(result.failures.some((f) => /manualBindings/.test(f)));
+    assert.ok(result.failures.some((f) => /scopedValidationErrors/.test(f)));
+  } finally {
+    cleanup(project);
+  }
+});
+
+test('stage terrain-kernel does not require character or mechanic captures', async () => {
+  const project = makeProject();
+  const fake = makeFakePlaywright();
+  try {
+    const result = await run(project, fake, { stage: 'terrain-kernel' });
+    assert.equal(result.status, 'passed', JSON.stringify(result.failures));
+  } finally {
+    cleanup(project);
+  }
+});
+
+test('stage environment-composition passes when evidence and artifacts are valid', async () => {
+  const project = makeProject();
+  const fake = makeFakePlaywright();
+  try {
+    const result = await run(project, fake, { stage: 'environment-composition' });
+    assert.equal(result.status, 'passed', JSON.stringify(result.failures));
+  } finally {
+    cleanup(project);
+  }
+});
+
+test('stage character-locomotion requires idle and locomotion captures', async () => {
+  const project = makeProject();
+  const fake = makeFakePlaywright();
+  const shotsDir = path.join(project.dir, 'screenshots');
+  fs.mkdirSync(shotsDir, { recursive: true });
+  fs.writeFileSync(path.join(shotsDir, 'environment_only.png'), gatePassingPngBuffer(false));
+  try {
+    const result = await run(project, fake, { stage: 'character-locomotion' });
+    assert.equal(result.status, 'passed', JSON.stringify(result.failures));
+  } finally {
+    cleanup(project);
+  }
+});
+
+test('stage mechanic-final-polish requires mechanic capture and prior stages passed in evidence', async () => {
+  const project = makeProject({
+    evidenceMutator: (ev) => {
+      ev.stages[0].status = 'not-started';
+    },
+  });
+  const fake = makeFakePlaywright();
+  try {
+    const result = await run(project, fake, { stage: 'mechanic-final-polish' });
+    assert.equal(result.status, 'failed');
+    assert.ok(result.failures.some((f) => /prior stage|has not passed/i.test(f)));
+  } finally {
+    cleanup(project);
+  }
+});
+
+test('no-stage (final) mode requires all five stages passed in evidence', async () => {
+  const project = makeProject({
+    evidenceMutator: (ev) => {
+      ev.stages[0].status = 'not-started';
+    },
+  });
+  const fake = makeFakePlaywright();
+  try {
+    const result = await run(project, fake, { stage: null });
+    assert.equal(result.status, 'failed');
   } finally {
     cleanup(project);
   }

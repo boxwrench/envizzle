@@ -8,7 +8,9 @@ import { SHOWCASES } from '../selection.mjs';
 import {
   validateBuildContract as realValidateBuildContract,
   createBuildContract as realCreateBuildContract,
-  validateMilestoneEvidence as realValidateMilestoneEvidence,
+  validateStageEvidence as realValidateStageEvidence,
+  createEvidenceTemplate as realCreateEvidenceTemplate,
+  STAGE_IDS_IN_ORDER,
 } from '../build-contract.mjs';
 import {
   validateBuildContractStandalone,
@@ -82,7 +84,7 @@ test('standalone validator agrees with the real validator on every canonical sho
     assert.equal(real.valid, true, `${name}: real validator unexpectedly rejected: ${real.errors.join('; ')}`);
     assert.equal(standalone.valid, true, `${name}: standalone validator unexpectedly rejected: ${standalone.errors.join('; ')}`);
 
-    const realEvidence = realValidateMilestoneEvidence(result.evidenceTemplate);
+    const realEvidence = realValidateStageEvidence(result.evidenceTemplate);
     const standaloneEvidence = validateEvidenceStandalone(result.evidenceTemplate);
     assert.equal(realEvidence.valid, true, `${name}: real evidence validator unexpectedly rejected: ${realEvidence.errors.join('; ')}`);
     assert.equal(standaloneEvidence.valid, true, `${name}: standalone evidence validator unexpectedly rejected: ${standaloneEvidence.errors.join('; ')}`);
@@ -100,6 +102,36 @@ test('standalone validator agrees with the real validator across mode coverage (
     assert.equal(realValidateBuildContract(contract).valid, true);
     assert.equal(validateBuildContractStandalone(contract).valid, true);
   }
+});
+
+test('vendored contractSchema.mjs accepts the same schema-v2 contract/evidence build-contract.mjs produces', () => {
+  const model = assembleBrief(canonicalShowcaseSpec('Alpine Dawn'), { rootDir: repoRoot }).assemblyModel;
+  const contract = realCreateBuildContract(model);
+  const canonical = realValidateBuildContract(contract);
+  const vendored = validateBuildContractStandalone(contract);
+  assert.equal(canonical.valid, true, canonical.errors.join('; '));
+  assert.equal(vendored.valid, true, vendored.errors.join('; '));
+
+  const evidence = realCreateEvidenceTemplate(contract.project.briefSha256);
+  const canonicalEvidence = realValidateStageEvidence(evidence);
+  const vendoredEvidence = validateEvidenceStandalone(evidence);
+  assert.equal(canonicalEvidence.valid, true, canonicalEvidence.errors.join('; '));
+  assert.equal(vendoredEvidence.valid, true, vendoredEvidence.errors.join('; '));
+  assert.deepEqual(evidence.stages.map((s) => s.id), STAGE_IDS_IN_ORDER);
+});
+
+test('the pinned babylon-webgpu engine string is identical in selection.mjs and the vendored verify/contractSchema.mjs', () => {
+  const selectionSource = fs.readFileSync(path.join(repoRoot, 'selection.mjs'), 'utf8');
+  const contractSchemaSource = fs.readFileSync(path.join(repoRoot, 'verify', 'contractSchema.mjs'), 'utf8');
+  const engineMatch = selectionSource.match(/engine: '([^']+)',\s*\n\s*shaderLang: 'WGSL'/);
+  assert.ok(engineMatch, 'expected to find the babylon-webgpu engine string in selection.mjs');
+  const pinnedEngine = engineMatch[1];
+  assert.match(pinnedEngine, /^Babylon\.js \d/, 'the engine string must pin an exact Babylon.js version, not "latest stable"');
+  assert.ok(
+    contractSchemaSource.includes(`engine: '${pinnedEngine}'`),
+    'verify/contractSchema.mjs must vendor the exact same pinned babylon-webgpu engine string as selection.mjs',
+  );
+  assert.equal(SHOWCASES['Alpine Dawn'].renderingProfile, 'babylon-webgpu');
 });
 
 const assertBothReject = (label, mutate) => {
@@ -194,9 +226,9 @@ test('standalone validator agrees with the real validator: unknown key injected 
   });
 });
 
-test('standalone validator agrees with the real validator: reordered milestones are rejected by both', () => {
-  assertBothReject('reordered milestones', (contract) => {
-    [contract.milestones[0], contract.milestones[1]] = [contract.milestones[1], contract.milestones[0]];
+test('standalone validator agrees with the real validator: reordered stages are rejected by both', () => {
+  assertBothReject('reordered stages', (contract) => {
+    [contract.stages[0], contract.stages[1]] = [contract.stages[1], contract.stages[0]];
   });
 });
 
@@ -208,75 +240,58 @@ test('standalone validator agrees with the real validator: tampered sourceOfTrut
 
 // --- Evidence ---------------------------------------------------------------
 
-const createValidCompletedEvidence = () => ({
-  schemaVersion: 1,
-  status: 'complete',
-  briefSha256: 'a'.repeat(64),
-  milestones: [
-    {
-      id: 'first-runnable-scene',
-      status: 'complete',
-      screenshots: ['milestone_idle.png'],
-      console: { errors: [], warnings: [] },
-      performance: { fps: 60, frameTimeMs: 16.67 },
-      visualSelfReview: { reviewed: true, weaknesses: ['No visible weakness observed.'], corrections: ['No correction required.'] },
-    },
-    {
-      id: 'systems-complete',
-      status: 'complete',
-      screenshots: ['milestone_locomotion.png', 'milestone_mechanic.png'],
-      console: { errors: [], warnings: [] },
-      performance: { fps: 60, frameTimeMs: 16.67 },
-      visualSelfReview: { reviewed: true, weaknesses: ['Slight particle clipping.'], corrections: ['Adjusted depth offset.'] },
-    },
-    {
-      id: 'final-polish',
-      status: 'complete',
-      screenshots: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
-      console: { errors: [], warnings: [] },
-      performance: { fps: 60, frameTimeMs: 16.67 },
-      visualSelfReview: { reviewed: true, weaknesses: ['Contrast could be higher.'], corrections: ['Adjusted contrast.'] },
-    },
-  ],
+function createValidPassedEvidence(briefSha256 = 'a'.repeat(64)) {
+  return {
+    schemaVersion: 2,
+    briefSha256,
+    status: 'passed',
+    stages: [
+      { id: 'backend-proof', status: 'passed', automatedChecks: ['rendererInfo() reports selected backend'], artifacts: [], environment: null, errors: [], warnings: [], reviewed: false, weaknesses: [], corrections: [], deviations: [] },
+      { id: 'terrain-kernel', status: 'passed', automatedChecks: ['terrainDiagnostics().renderOwner is "gpu"'], artifacts: [], environment: null, errors: [], warnings: [], reviewed: false, weaknesses: [], corrections: [], deviations: [] },
+      { id: 'environment-composition', status: 'passed', automatedChecks: [], artifacts: ['environment_only.png', 'idle.png'], environment: null, errors: [], warnings: [], reviewed: true, weaknesses: ['Foreground detail repeats.'], corrections: ['Added detail octave.'], deviations: [] },
+      { id: 'character-locomotion', status: 'passed', automatedChecks: ['setPose("idle") and setPose("locomotion") succeed'], artifacts: ['idle.png', 'locomotion.png'], environment: null, errors: [], warnings: [], reviewed: true, weaknesses: ['Foot planting lags.'], corrections: ['Tightened IK settle time.'], deviations: [] },
+      { id: 'mechanic-final-polish', status: 'passed', automatedChecks: ['setPose("mechanic") succeeds'], artifacts: ['idle.png', 'locomotion.png', 'mechanic.png'], environment: null, errors: [], warnings: [], reviewed: true, weaknesses: ['Wake crest curtain thin.'], corrections: ['Doubled crest density.'], deviations: [] },
+    ],
+  };
+}
+
+test('standalone evidence validator agrees with the real evidence validator: passed/correct record is accepted by both', () => {
+  const evidence = createValidPassedEvidence();
+  assert.equal(realValidateStageEvidence(evidence).valid, true, realValidateStageEvidence(evidence).errors.join('; '));
+  assert.equal(validateEvidenceStandalone(evidence).valid, true, validateEvidenceStandalone(evidence).errors.join('; '));
 });
 
-test('standalone evidence validator agrees with the real evidence validator: complete/correct record is accepted by both', () => {
-  const evidence = createValidCompletedEvidence();
-  assert.equal(realValidateMilestoneEvidence(evidence).valid, true);
-  assert.equal(validateEvidenceStandalone(evidence).valid, true);
-});
-
-test('standalone evidence validator agrees with the real evidence validator: missing milestone is rejected by both', () => {
-  const evidence = createValidCompletedEvidence();
-  evidence.milestones.pop();
-  const real = realValidateMilestoneEvidence(evidence);
+test('standalone evidence validator agrees with the real evidence validator: missing stage is rejected by both', () => {
+  const evidence = createValidPassedEvidence();
+  evidence.stages.pop();
+  const real = realValidateStageEvidence(evidence);
   const standalone = validateEvidenceStandalone(evidence);
   assert.equal(real.valid, false);
   assert.equal(standalone.valid, false);
 });
 
 test('standalone evidence validator agrees with the real evidence validator: missing required pose screenshot is rejected by both', () => {
-  const evidence = createValidCompletedEvidence();
-  evidence.milestones[0].screenshots = ['unrelated.png'];
-  const real = realValidateMilestoneEvidence(evidence);
+  const evidence = createValidPassedEvidence();
+  evidence.stages[2].artifacts = ['unrelated.png'];
+  const real = realValidateStageEvidence(evidence);
   const standalone = validateEvidenceStandalone(evidence);
   assert.equal(real.valid, false);
   assert.equal(standalone.valid, false);
 });
 
 test('standalone evidence validator agrees with the real evidence validator: malformed briefSha256 is rejected by both', () => {
-  const evidence = createValidCompletedEvidence();
+  const evidence = createValidPassedEvidence();
   evidence.briefSha256 = 'not-a-sha';
-  const real = realValidateMilestoneEvidence(evidence);
+  const real = realValidateStageEvidence(evidence);
   const standalone = validateEvidenceStandalone(evidence);
   assert.equal(real.valid, false);
   assert.equal(standalone.valid, false);
 });
 
-test('standalone evidence validator agrees with the real evidence validator: complete status without all milestones complete is rejected by both', () => {
-  const evidence = createValidCompletedEvidence();
-  evidence.milestones[0].status = 'incomplete verification';
-  const real = realValidateMilestoneEvidence(evidence);
+test('standalone evidence validator agrees with the real evidence validator: passed status without all stages passed is rejected by both', () => {
+  const evidence = createValidPassedEvidence();
+  evidence.stages[0].status = 'incomplete verification';
+  const real = realValidateStageEvidence(evidence);
   const standalone = validateEvidenceStandalone(evidence);
   assert.equal(real.valid, false);
   assert.equal(standalone.valid, false);

@@ -929,8 +929,8 @@ test('adversarial test: camera/frame-stat hook throwing is a demo defect (status
       result.failures.some((f) => /camera\/frame-stat hook/i.test(f)),
       `expected a camera/frame-stat hook failure message, got: ${result.failures.join(' | ')}`,
     );
-    // The three pose captures still happened before the camera hook ran.
-    assert.equal(result.report.captures.length, 3);
+    // The four pose/environment captures still happened before the camera hook ran.
+    assert.equal(result.report.captures.length, 4);
   } finally {
     shim.cleanup();
     fs.rmSync(projectDir, { recursive: true, force: true });
@@ -1121,10 +1121,16 @@ test('adversarial test: connected page.goto() failure blocks success even when e
       result.report.gates.failures.some((f) => /Failed to load demo page/i.test(f)),
       `expected the navigation failure inside report.gates.failures, got: ${result.report.gates.failures.join(' | ')}`,
     );
-    assert.equal(result.report.captures.length, 3, 'later captures must still have succeeded, proving the navigation failure alone caused the block');
+    assert.equal(result.report.captures.length, 4, 'later captures must still have succeeded, proving the navigation failure alone caused the block');
     assert.equal(result.report.runtime.hookReady, true, 'hook readiness must still have succeeded, proving the navigation failure alone caused the block');
   } finally {
     shim.cleanup();
     fs.rmSync(projectDir, { recursive: true, force: true });
   }
+});
+
+test('evaluateGates tolerates cameraDiagnostics: null, terrainDiagnostics: null, and empty frames for stage backend-proof', () => {
+  const result = evaluateGates({ frames: [], cameraDiagnostics: null, terrainDiagnostics: null, frameStats: okStats, stage: 'backend-proof' });
+  assert.equal(result.pass, true, JSON.stringify(result.failures));
+  assert.ok(result.info.some((i) => /skipped/i.test(i)));
 });

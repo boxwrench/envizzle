@@ -4,7 +4,10 @@ import {
   validateSelection,
   formatStateChannelContract,
   SHOWCASES,
+  normalizeProvenSignatureMoment,
 } from '../selection.mjs';
+import { assembleBrief } from '../assemble.mjs';
+import { validateBuildContract } from '../build-contract.mjs';
 
 /** Helper to derive a clean valid selection directly from SHOWCASES registry entry */
 function deriveSelection(showcaseName, creativeMode = 'signature') {
@@ -375,4 +378,29 @@ test('Tidal Shelf landing-depression mapping is correctly authored and formatted
     /^\* \*\*`landing-depression`\*\* → \*\*`B`\*\* \(bed scour depth 0 -> 0\.22 m\): landing depression becomes bed-scour depth$/m,
     'Formatted Tidal Shelf contract line mismatch',
   );
+});
+
+test('normalizeProvenSignatureMoment returns the exact canonical Proven shape', () => {
+  assert.deepEqual(normalizeProvenSignatureMoment(), { enabled: false, text: '', reusedSystem: '', verificationPose: 'mechanic' });
+});
+
+test('selection.mjs and build-contract.mjs cannot disagree on what a valid Proven signatureMoment looks like', () => {
+  const provenSelection = deriveSelection('Alpine Dawn', 'proven');
+  provenSelection.signatureMoment = normalizeProvenSignatureMoment();
+  const selectionFindings = validateSelection(provenSelection).filter((f) => f.severity === 'error');
+  assert.equal(selectionFindings.length, 0, JSON.stringify(selectionFindings));
+
+  const spec = {
+    selection: provenSelection,
+    creativeSpark: '',
+    builderAgent: 'Claude Code',
+    extraSectionMarkdown: {},
+  };
+  const { buildContract } = assembleBrief(spec);
+  const contractValidation = validateBuildContract(buildContract);
+  assert.equal(contractValidation.valid, true, contractValidation.errors.join('; '));
+  assert.deepEqual(buildContract.creative.signatureMoment.enabled, false);
+  assert.deepEqual(buildContract.creative.signatureMoment.text, '');
+  assert.deepEqual(buildContract.creative.signatureMoment.reusedSystem, '');
+  assert.equal(buildContract.creative.signatureMoment.verificationPose, 'mechanic');
 });

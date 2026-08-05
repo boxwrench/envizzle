@@ -9,9 +9,7 @@
 // constant set inside a standalone bundle module).
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = 1;
-const INCOMPLETE_VERIFICATION_STATUS = 'incomplete verification';
-const COMPLETE_STATUS = 'complete';
+const SCHEMA_VERSION = 2;
 
 const CREATIVE_MODES = ['proven', 'signature', 'experimental'];
 const SELECTION_PATHS = ['showcase', 'base-showcase', 'fully-custom'];
@@ -22,9 +20,9 @@ const RENDERING_PARADIGMS = ['AAA Photoreal', 'Ghibli-Style Painterly Anime'];
 
 const NOVELTY_BUDGET_KEYS = ['addsEngine', 'addsAssetCategory', 'addsPersistentBuffer', 'addsMajorRenderPass', 'addsSimulationSubsystem', 'addsInput', 'increasesAmbition'];
 const REQUIRED_CAPTURE_POSES = ['idle', 'locomotion', 'mechanic'];
-const POSE_FILENAME_MAP = { idle: 'milestone_idle.png', locomotion: 'milestone_locomotion.png', mechanic: 'milestone_mechanic.png' };
+const POSE_FILENAME_MAP = { idle: 'idle.png', locomotion: 'locomotion.png', mechanic: 'mechanic.png' };
 
-const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'milestones', 'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria'];
+const CONTRACT_TOP_KEYS = ['schemaVersion', 'project', 'selection', 'stateChannels', 'terrainElevation', 'creative', 'acceptance', 'stages', 'sourceOfTruth', 'architecture', 'approvedPatterns', 'forbiddenPatterns', 'implementationPlan', 'diagnostics', 'reviewCriteria'];
 const PROJECT_KEYS = ['name', 'briefFilename', 'briefSha256', 'renderingProfile', 'engine', 'shaderLanguage', 'shaderLanguageExtension', 'materialApi', 'renderingParadigm', 'assetStrategy', 'assetStrategyText', 'targetHardware', 'coreInteractionSentence'];
 const SELECTION_KEYS = ['creativeMode', 'path', 'baseShowcase', 'ambition', 'includedSections', 'omittedOptionalSections', 'extraSections', 'biome', 'archetype', 'mechanic', 'camera', 'renderingProfile', 'cameraAdjustments', 'changedAxes'];
 const STATE_CHANNEL_KEYS = ['enabled', 'omittedBehavior', 'channels'];
@@ -33,16 +31,25 @@ const BASELINE_KEYS = ['baseline', 'recoveryMechanism', 'recoveryOutcome'];
 const CREATIVE_KEYS = ['creativeSpark', 'signatureMoment', 'noveltyBudget', 'coherenceOverrides'];
 const SIGNATURE_KEYS = ['enabled', 'text', 'reusedSystem', 'verificationPose', 'instruction'];
 const ACCEPTANCE_KEYS = ['requiredProjectPaths', 'productionBuild', 'verificationHook', 'renderer', 'terrain', 'runtime', 'captures', 'imageGates', 'camera', 'evidence', 'environmentVisuals', 'poseDifferences', 'report'];
-const MILESTONE_KEYS = ['id', 'title', 'requiredChecks', 'requiredScreenshotEvidence', 'requiredConsoleEvidence', 'requiredPerformanceEvidence', 'requiredVisualSelfReview', 'completion'];
-const MILESTONE_IDS_IN_ORDER = ['first-runnable-scene', 'systems-complete', 'final-polish'];
+const STAGE_STATUSES = ['not-started', 'in-progress', 'passed', 'failed', 'incomplete verification'];
+const STAGE_IDS_IN_ORDER = ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-final-polish'];
+const STAGE_EVIDENCE_KEYS = ['id', 'status', 'automatedChecks', 'artifacts', 'environment', 'errors', 'warnings', 'reviewed', 'weaknesses', 'corrections', 'deviations'];
+const STAGE_ENVIRONMENT_KEYS = ['browserChannel', 'browserExecutable', 'headed', 'externalServer'];
+const STAGE_EVIDENCE_REQUIREMENTS = [
+  { id: 'backend-proof', requiresReview: false, requiredArtifacts: [], minWeaknesses: 0, minCorrections: 0 },
+  { id: 'terrain-kernel', requiresReview: false, requiredArtifacts: [], minWeaknesses: 0, minCorrections: 0 },
+  { id: 'environment-composition', requiresReview: true, requiredArtifacts: ['environment_only.png', 'idle.png'], minWeaknesses: 1, minCorrections: 1 },
+  { id: 'character-locomotion', requiresReview: true, requiredArtifacts: ['idle.png', 'locomotion.png'], minWeaknesses: 1, minCorrections: 1 },
+  { id: 'mechanic-final-polish', requiresReview: true, requiredArtifacts: ['idle.png', 'locomotion.png', 'mechanic.png'], minWeaknesses: 1, minCorrections: 1 },
+];
 
 const ARCHITECTURE_KEYS = ['fileOwnership', 'terrainElevationOwnership', 'deviationPolicy'];
 const FILE_OWNERSHIP_ENTRY_KEYS = ['path', 'responsibility'];
 const APPROVED_PATTERN_KEYS = ['id', 'requirement', 'detection'];
 const FORBIDDEN_PATTERN_KEYS = ['id', 'blocking', 'reason', 'detection'];
 const IMPLEMENTATION_STAGE_KEYS = ['id', 'order', 'goal', 'allowedScope', 'requiredOutputs', 'approvedPatternIds', 'forbiddenPatternIds', 'automatedChecks', 'visualChecks', 'stopConditions', 'requiredEvidence', 'doNotProceedUntilPassed'];
-const IMPLEMENTATION_STAGE_IDS_IN_ORDER = ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-polish'];
-const DIAGNOSTICS_KEYS = ['hook', 'lifecycle', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics'];
+const IMPLEMENTATION_STAGE_IDS_IN_ORDER = ['backend-proof', 'terrain-kernel', 'environment-composition', 'character-locomotion', 'mechanic-final-polish'];
+const DIAGNOSTICS_KEYS = ['hook', 'lifecycle', 'rendererInfo', 'terrainDiagnostics', 'cameraDiagnostics', 'backendProof'];
 const REVIEW_CRITERIA_KEYS = ['universal', 'biomeSpecific'];
 const REVIEW_CRITERIA_CATEGORY_KEYS = ['category', 'questions'];
 const UNIVERSAL_REVIEW_CATEGORIES = ['biome-identity', 'composition', 'terrain-quality', 'lod-continuity', 'material-quality', 'character-silhouette', 'character-scale', 'locomotion-readability', 'mechanic-readability', 'placeholder-detection', 'visual-hierarchy', 'scope-discipline'];
@@ -94,11 +101,22 @@ const RENDERER_INFO_BY_PROFILE = {
   'three-webgl2': { keys: ['backend', 'shaderLanguage', 'materialsReady', 'renderedFrames', 'validationErrors'], backend: 'webgl2', shaderLanguage: 'glsl-es-300', materialsReadyRequired: true, minRenderedFrames: 1, maxValidationErrors: 0 },
 };
 
+const BACKEND_PROOF_KEYS = [
+  'engineInitialized', 'activeBackend', 'activeShaderLanguage', 'materialCompilationAttempted', 'materialCompiledAgainstMesh',
+  'materialReady', 'requiredAttributes', 'presentVertexBuffers', 'declaredUniforms', 'declaredResources', 'manualBindings',
+  'scopedValidationErrors', 'uncapturedValidationErrors', 'deviceLosses', 'frameSubmitted', 'frameCompleted',
+];
+
+const BACKEND_PROOF_BY_PROFILE = {
+  'babylon-webgpu': { keys: BACKEND_PROOF_KEYS, activeBackend: 'webgpu', activeShaderLanguage: 'wgsl', requiredAttributes: ['position', 'normal'] },
+  'three-webgl2': { keys: BACKEND_PROOF_KEYS, activeBackend: 'webgl2', activeShaderLanguage: 'glsl-es-300', requiredAttributes: ['position', 'normal'] },
+};
+
 // Mirrors selection.mjs's RENDERING_PROFILES engine/shaderLang/shaderLangExt/materialApi tuple
 // (exactly 2 fixed entries) — same Tier-2 "small/stable/2-entry-table" criterion already applied
 // to RENDERER_INFO_BY_PROFILE above, applied consistently to the project.* rendering tuple too.
 const PROJECT_FIELDS_BY_PROFILE = {
-  'babylon-webgpu': { engine: 'Babylon.js latest stable, WebGPU only', shaderLanguage: 'WGSL', shaderLanguageExtension: 'wgsl', materialApi: 'Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL' },
+  'babylon-webgpu': { engine: 'Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only', shaderLanguage: 'WGSL', shaderLanguageExtension: 'wgsl', materialApi: 'Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL' },
   'three-webgl2': { engine: 'Three.js latest stable, WebGLRenderer (WebGL2 only)', shaderLanguage: 'GLSL ES 3.00 raw modules', shaderLanguageExtension: 'glsl', materialApi: 'Three.js RawShaderMaterial on WebGLRenderer' },
 };
 
@@ -307,28 +325,18 @@ function validateAcceptanceShape(acceptance, errors) {
   if (isPlainObject(acceptance.report) && !nonEmptyString(acceptance.report.filename)) errors.push(`${label}.report.filename must be non-empty`);
 }
 
-function validateMilestonesShape(milestones, errors) {
-  const label = 'milestones';
-  if (!Array.isArray(milestones) || milestones.length !== MILESTONE_IDS_IN_ORDER.length) {
-    errors.push(`${label} must contain exactly ${MILESTONE_IDS_IN_ORDER.length} entries`);
+function validateStagesShape(stages, errors) {
+  const label = 'stages';
+  if (!Array.isArray(stages) || stages.length !== STAGE_EVIDENCE_REQUIREMENTS.length) {
+    errors.push(`${label} must contain exactly ${STAGE_EVIDENCE_REQUIREMENTS.length} entries`);
     return;
   }
-  const actualIds = milestones.map((m) => (isPlainObject(m) ? m.id : undefined));
-  if (JSON.stringify(actualIds) !== JSON.stringify(MILESTONE_IDS_IN_ORDER)) errors.push(`${label} must contain exactly these IDs in order: ${MILESTONE_IDS_IN_ORDER.join(', ')}`);
-  milestones.forEach((milestone, index) => {
+  const actualIds = stages.map((s) => (isPlainObject(s) ? s.id : undefined));
+  if (JSON.stringify(actualIds) !== JSON.stringify(STAGE_IDS_IN_ORDER)) errors.push(`${label} must contain exactly these IDs in order: ${STAGE_IDS_IN_ORDER.join(', ')}`);
+  stages.forEach((stage, index) => {
     const entryLabel = `${label}[${index}]`;
-    if (!exactKeys(milestone, MILESTONE_KEYS, entryLabel, errors)) return;
-    if (!nonEmptyString(milestone.title)) errors.push(`${entryLabel}.title must be non-empty`);
-    if (!isStringArray(milestone.requiredChecks) || milestone.requiredChecks.length === 0) errors.push(`${entryLabel}.requiredChecks must be a non-empty string array`);
-    if (!isPlainObject(milestone.requiredScreenshotEvidence) || typeof milestone.requiredScreenshotEvidence.minimumScreenshots !== 'number' || !isStringArray(milestone.requiredScreenshotEvidence.requiredPoses)) {
-      errors.push(`${entryLabel}.requiredScreenshotEvidence is malformed`);
-    }
-    if (!isPlainObject(milestone.requiredConsoleEvidence) || milestone.requiredConsoleEvidence.blockingErrors !== 0) errors.push(`${entryLabel}.requiredConsoleEvidence must require zero blocking errors`);
-    if (!isPlainObject(milestone.requiredPerformanceEvidence) || !isStringArray(milestone.requiredPerformanceEvidence.fields)) errors.push(`${entryLabel}.requiredPerformanceEvidence is malformed`);
-    if (!isPlainObject(milestone.requiredVisualSelfReview) || !isStringArray(milestone.requiredVisualSelfReview.fields)) errors.push(`${entryLabel}.requiredVisualSelfReview is malformed`);
-    if (!isPlainObject(milestone.completion) || milestone.completion.completeStatus !== COMPLETE_STATUS || milestone.completion.incompleteStatus !== INCOMPLETE_VERIFICATION_STATUS) {
-      errors.push(`${entryLabel}.completion must use the canonical complete/incomplete status strings`);
-    }
+    const req = STAGE_EVIDENCE_REQUIREMENTS[index];
+    if (isPlainObject(stage) && stage.id !== req.id) errors.push(`${entryLabel}.id must be '${req.id}'`);
   });
 }
 
@@ -411,6 +419,12 @@ function validateDiagnosticsShape(diagnostics, renderingProfile, errors) {
   } else if (isPlainObject(diagnostics.rendererInfo)) {
     errors.push(`${label}.rendererInfo cannot be validated without a valid renderingProfile`);
   }
+  const backendProofCanonical = BACKEND_PROOF_BY_PROFILE[renderingProfile];
+  if (backendProofCanonical) {
+    compareCanonical(diagnostics.backendProof, backendProofCanonical, `${label}.backendProof`, errors);
+  } else if (isPlainObject(diagnostics.backendProof)) {
+    errors.push(`${label}.backendProof cannot be validated without a valid renderingProfile`);
+  }
 }
 
 function validateReviewCriteriaShape(reviewCriteria, errors) {
@@ -460,7 +474,7 @@ export function validateBuildContractStandalone(contract) {
   validateTerrainElevationShape(contract.terrainElevation, errors);
   validateCreativeShape(contract.creative, contract.selection, errors);
   validateAcceptanceShape(contract.acceptance, errors);
-  validateMilestonesShape(contract.milestones, errors);
+  validateStagesShape(contract.stages, errors);
   compareCanonical(contract.sourceOfTruth, SOURCE_OF_TRUTH, 'sourceOfTruth', errors);
   validateArchitectureShape(contract.architecture, errors);
   validatePatternListShape(contract.approvedPatterns, APPROVED_PATTERN_KEYS, 'approvedPatterns', errors);
@@ -477,88 +491,89 @@ export function validateBuildContractStandalone(contract) {
 // Evidence record (ENVIZZLE_EVIDENCE.json)
 // ---------------------------------------------------------------------------
 
-function validateEvidenceMilestoneShape(milestone, index, errors) {
-  const label = `milestones[${index}]`;
-  if (!exactKeys(milestone, ['id', 'status', 'screenshots', 'console', 'performance', 'visualSelfReview'], label, errors)) return;
-  if (!MILESTONE_IDS_IN_ORDER.includes(milestone.id)) errors.push(`${label}.id is invalid`);
-  if (![INCOMPLETE_VERIFICATION_STATUS, COMPLETE_STATUS].includes(milestone.status)) errors.push(`${label}.status is invalid`);
-  if (!Array.isArray(milestone.screenshots) || milestone.screenshots.some((file) => !isSafeRelativePath(file))) errors.push(`${label}.screenshots must contain safe relative filenames`);
-  if (exactKeys(milestone.console, ['errors', 'warnings'], `${label}.console`, errors)) {
-    for (const field of ['errors', 'warnings']) if (!isStringArray(milestone.console[field])) errors.push(`${label}.console.${field} must be an array of strings`);
-  }
-  if (exactKeys(milestone.performance, ['fps', 'frameTimeMs'], `${label}.performance`, errors)) {
-    for (const field of ['fps', 'frameTimeMs']) {
-      const value = milestone.performance[field];
-      if (!(value === null || (typeof value === 'number' && Number.isFinite(value) && value >= 0))) errors.push(`${label}.performance.${field} must be a non-negative finite number or null`);
-    }
-  }
-  if (exactKeys(milestone.visualSelfReview, ['reviewed', 'weaknesses', 'corrections'], `${label}.visualSelfReview`, errors)) {
-    if (typeof milestone.visualSelfReview.reviewed !== 'boolean') errors.push(`${label}.visualSelfReview.reviewed must be boolean`);
-    for (const field of ['weaknesses', 'corrections']) if (!isStringArray(milestone.visualSelfReview[field])) errors.push(`${label}.visualSelfReview.${field} must be an array of strings`);
-  }
-  if (milestone.status !== COMPLETE_STATUS) return;
+function validateStageEnvironmentShape(environment, label, errors) {
+  if (environment === null) return;
+  if (!exactKeys(environment, STAGE_ENVIRONMENT_KEYS, label, errors)) return;
+  if (environment.browserChannel !== null && typeof environment.browserChannel !== 'string') errors.push(`${label}.browserChannel must be null or a string`);
+  if (environment.browserExecutable !== null && typeof environment.browserExecutable !== 'string') errors.push(`${label}.browserExecutable must be null or a string`);
+  if (typeof environment.headed !== 'boolean') errors.push(`${label}.headed must be boolean`);
+  if (environment.externalServer !== null && typeof environment.externalServer !== 'string') errors.push(`${label}.externalServer must be null or a string`);
+}
 
-  if (!Array.isArray(milestone.screenshots)) {
-    errors.push(`${label} cannot be complete without screenshots array`);
-  } else {
-    const uniqueScreenshots = new Set(milestone.screenshots);
-    if (uniqueScreenshots.size !== milestone.screenshots.length) errors.push(`${label} cannot contain duplicate screenshot filenames`);
-    const requiredPosesByMilestone = { 'first-runnable-scene': ['idle'], 'systems-complete': ['locomotion', 'mechanic'], 'final-polish': REQUIRED_CAPTURE_POSES };
-    const requiredPoses = requiredPosesByMilestone[milestone.id] || [];
-    if (milestone.screenshots.length < requiredPoses.length) errors.push(`${label} requires at least ${requiredPoses.length} screenshot(s) when complete`);
-    for (const pose of requiredPoses) {
-      const expectedFilename = POSE_FILENAME_MAP[pose];
-      if (expectedFilename && !milestone.screenshots.includes(expectedFilename)) errors.push(`${label} missing required pose screenshot '${expectedFilename}' for pose '${pose}'`);
+function validateOneStageEvidenceShape(stage, index, requirements, priorStagesAllPassed, errors) {
+  const label = `stages[${index}]`;
+  if (!exactKeys(stage, STAGE_EVIDENCE_KEYS, label, errors)) return;
+  if (stage.id !== requirements.id) errors.push(`${label}.id must be '${requirements.id}'`);
+  if (!STAGE_STATUSES.includes(stage.status)) errors.push(`${label}.status is invalid`);
+  if (!Array.isArray(stage.automatedChecks) || stage.automatedChecks.some((v) => typeof v !== 'string')) errors.push(`${label}.automatedChecks must be an array of strings`);
+  if (!Array.isArray(stage.artifacts) || stage.artifacts.some((v) => !isSafeRelativePath(v))) errors.push(`${label}.artifacts must contain safe relative filenames`);
+  validateStageEnvironmentShape(stage.environment, `${label}.environment`, errors);
+  if (!Array.isArray(stage.errors) || stage.errors.some((v) => typeof v !== 'string')) errors.push(`${label}.errors must be an array of strings`);
+  if (!Array.isArray(stage.warnings) || stage.warnings.some((v) => typeof v !== 'string')) errors.push(`${label}.warnings must be an array of strings`);
+  if (typeof stage.reviewed !== 'boolean') errors.push(`${label}.reviewed must be boolean`);
+  for (const field of ['weaknesses', 'corrections', 'deviations']) {
+    if (!Array.isArray(stage[field]) || stage[field].some((v) => typeof v !== 'string')) errors.push(`${label}.${field} must be an array of strings`);
+  }
+
+  if (stage.status === 'failed' || stage.status === 'incomplete verification') {
+    if (!Array.isArray(stage.errors) || !stage.errors.some((e) => typeof e === 'string' && e.trim() !== '')) {
+      errors.push(`${label} with status '${stage.status}' requires a nonblank explanation in errors`);
     }
   }
-  if (!isPlainObject(milestone.console) || !Array.isArray(milestone.console.errors) || milestone.console.errors.length > 0) {
-    errors.push(`${label} cannot be complete with console errors`);
-  }
-  if (!isPlainObject(milestone.performance) ||
-      milestone.performance.fps === null || typeof milestone.performance.fps !== 'number' || !Number.isFinite(milestone.performance.fps) || milestone.performance.fps < 0 ||
-      milestone.performance.frameTimeMs === null || typeof milestone.performance.frameTimeMs !== 'number' || !Number.isFinite(milestone.performance.frameTimeMs) || milestone.performance.frameTimeMs < 0) {
-    errors.push(`${label} cannot be complete without non-null non-negative finite performance evidence`);
-  }
-  if (!isPlainObject(milestone.visualSelfReview) || milestone.visualSelfReview.reviewed !== true) {
-    errors.push(`${label} cannot be complete without visual self-review`);
-  } else {
-    if (!Array.isArray(milestone.visualSelfReview.weaknesses) || milestone.visualSelfReview.weaknesses.length === 0 || milestone.visualSelfReview.weaknesses.some((w) => typeof w !== 'string' || w.trim() === '')) {
-      errors.push(`${label} cannot be complete with empty weaknesses`);
+
+  if (stage.status === 'passed') {
+    if (!priorStagesAllPassed) {
+      errors.push(`${label} cannot pass because a prior stage has not passed`);
     }
-    if (!Array.isArray(milestone.visualSelfReview.corrections) || milestone.visualSelfReview.corrections.length === 0 || milestone.visualSelfReview.corrections.some((c) => typeof c !== 'string' || c.trim() === '')) {
-      errors.push(`${label} cannot be complete with empty corrections`);
+    if (Array.isArray(stage.errors) && stage.errors.length > 0) {
+      errors.push(`${label} cannot pass with a nonempty errors list`);
+    }
+    for (const filename of requirements.requiredArtifacts) {
+      if (!Array.isArray(stage.artifacts) || !stage.artifacts.includes(filename)) {
+        errors.push(`${label} requires artifact '${filename}' to pass`);
+      }
+    }
+    if (requirements.requiresReview) {
+      if (stage.reviewed !== true) errors.push(`${label} cannot pass without reviewed set to true`);
+      if (!Array.isArray(stage.weaknesses) || stage.weaknesses.filter((w) => w.trim() !== '').length < requirements.minWeaknesses) {
+        errors.push(`${label} requires at least ${requirements.minWeaknesses} nonblank weakness(es) to pass`);
+      }
+      if (!Array.isArray(stage.corrections) || stage.corrections.filter((c) => c.trim() !== '').length < requirements.minCorrections) {
+        errors.push(`${label} requires at least ${requirements.minCorrections} correction(s) to pass`);
+      }
     }
   }
 }
 
 /**
  * Standalone structural validation of an ENVIZZLE_EVIDENCE.json record: schemaVersion, status,
- * briefSha256, and the 3-milestone shape (with the completion-implies-evidence rules).
+ * briefSha256, and the 5-stage shape (with stage-gating rules).
  */
 export function validateEvidenceStandalone(evidence) {
   const errors = [];
   if (!isPlainObject(evidence)) return { valid: false, errors: ['Evidence record must be a plain object'] };
-  if (!exactKeys(evidence, ['schemaVersion', 'status', 'briefSha256', 'milestones'], 'evidence', errors)) return { valid: false, errors };
+  if (!exactKeys(evidence, ['schemaVersion', 'briefSha256', 'status', 'stages'], 'evidence', errors)) return { valid: false, errors };
   if (evidence.schemaVersion !== SCHEMA_VERSION) errors.push(`evidence.schemaVersion must be ${SCHEMA_VERSION}`);
-  if (![INCOMPLETE_VERIFICATION_STATUS, COMPLETE_STATUS].includes(evidence.status)) errors.push(`evidence.status must be '${INCOMPLETE_VERIFICATION_STATUS}' or '${COMPLETE_STATUS}'`);
+  if (!STAGE_STATUSES.includes(evidence.status)) errors.push(`evidence.status must be one of: ${STAGE_STATUSES.join(', ')}`);
   if (!(evidence.briefSha256 === null || (typeof evidence.briefSha256 === 'string' && /^[0-9a-f]{64}$/.test(evidence.briefSha256)))) {
     errors.push('evidence.briefSha256 must be null or exactly 64 lowercase hexadecimal characters');
   }
-  if (!Array.isArray(evidence.milestones)) {
-    errors.push('evidence.milestones must be an array');
+  if (!Array.isArray(evidence.stages)) {
+    errors.push('evidence.stages must be an array');
+    return { valid: errors.length === 0, errors };
+  }
+  const actualIds = evidence.stages.map((s) => (isPlainObject(s) ? s.id : undefined));
+  if (JSON.stringify(actualIds) !== JSON.stringify(STAGE_IDS_IN_ORDER)) {
+    errors.push(`evidence.stages must contain exactly these stage IDs in canonical order: ${STAGE_IDS_IN_ORDER.join(', ')}`);
   } else {
-    const actualIds = evidence.milestones.map((milestone) => (isPlainObject(milestone) ? milestone.id : undefined));
-    if (JSON.stringify(actualIds) !== JSON.stringify(MILESTONE_IDS_IN_ORDER)) errors.push('evidence.milestones must contain the three milestone IDs in canonical order');
-    const seen = new Set();
-    evidence.milestones.forEach((milestone, index) => {
-      const id = isPlainObject(milestone) ? milestone.id : undefined;
-      if (seen.has(id)) errors.push(`evidence.milestones contains duplicate ID '${id}'`);
-      seen.add(id);
-      validateEvidenceMilestoneShape(milestone, index, errors);
+    let priorStagesAllPassed = true;
+    evidence.stages.forEach((stage, index) => {
+      validateOneStageEvidenceShape(stage, index, STAGE_EVIDENCE_REQUIREMENTS[index], priorStagesAllPassed, errors);
+      priorStagesAllPassed = priorStagesAllPassed && isPlainObject(stage) && stage.status === 'passed';
     });
-    const allComplete = evidence.milestones.length === MILESTONE_IDS_IN_ORDER.length && evidence.milestones.every((milestone) => isPlainObject(milestone) && milestone.status === COMPLETE_STATUS);
-    if (evidence.status === COMPLETE_STATUS && !allComplete) errors.push('evidence.status complete requires every milestone to be complete');
-    if (evidence.status === INCOMPLETE_VERIFICATION_STATUS && allComplete) errors.push('evidence.status must be complete when every milestone is complete');
+    const allPassed = evidence.stages.length === STAGE_IDS_IN_ORDER.length && evidence.stages.every((s) => isPlainObject(s) && s.status === 'passed');
+    if (evidence.status === 'passed' && !allPassed) errors.push('evidence.status passed requires every stage to have passed');
+    if (evidence.status !== 'passed' && allPassed) errors.push('evidence.status must be passed when every stage has passed');
   }
   scanForNonFiniteOrAbsolute(evidence, 'evidence', errors);
   return { valid: errors.length === 0, errors };

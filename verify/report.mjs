@@ -25,7 +25,7 @@ const REQUIRED_TOP_KEYS = [
 // Task 7's verify_demo.mjs wiring, which does not exist yet, and older/simpler
 // report shapes (e.g. the static benchmark fixtures on disk) never had it —
 // so it is allowed, strictly validated when present, but not mandatory.
-const OPTIONAL_TOP_KEYS = ['environment'];
+const OPTIONAL_TOP_KEYS = ['environment', 'stage'];
 
 const ALLOWED_TOP_KEYS = new Set([...REQUIRED_TOP_KEYS, ...OPTIONAL_TOP_KEYS]);
 
@@ -65,7 +65,15 @@ function keySetError(obj, requiredKeys, optionalKeys, label) {
 
 const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const REQUIRED_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
-export const REQUIRED_CAPTURE_FILENAMES = Object.freeze(['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png']);
+export const REQUIRED_CAPTURE_FILENAMES = Object.freeze(['idle.png', 'locomotion.png', 'mechanic.png']);
+export const ALLOWED_CAPTURE_FILENAMES = Object.freeze(['idle.png', 'locomotion.png', 'mechanic.png', 'environment_only.png']);
+const STAGE_REQUIREMENTS = Object.freeze({
+  'backend-proof': { requiresTerrain: false, requiresCaptures: false, requiredArtifacts: [] },
+  'terrain-kernel': { requiresTerrain: true, requiresCaptures: false, requiredArtifacts: [] },
+  'environment-composition': { requiresTerrain: true, requiresCaptures: true, requiredArtifacts: ['environment_only.png', 'idle.png'] },
+  'character-locomotion': { requiresTerrain: true, requiresCaptures: true, requiredArtifacts: ['idle.png', 'locomotion.png'] },
+  'mechanic-final-polish': { requiresTerrain: true, requiresCaptures: true, requiredArtifacts: ['idle.png', 'locomotion.png', 'mechanic.png'] },
+});
 const ALLOWED_CAMERA_METHODS = Object.freeze(['gpu-depth', 'cpu-height-with-gpu-parity']);
 
 export function containsLeak(str) {
@@ -241,7 +249,7 @@ export function validateVerificationReport(report) {
     for (const c of report.captures) {
       if (typeof c !== 'string' || !isSafeRelativePath(c)) {
         errors.push('captures must be an array of safe relative filename strings');
-      } else if (!REQUIRED_CAPTURE_FILENAMES.includes(c)) {
+      } else if (!ALLOWED_CAPTURE_FILENAMES.includes(c)) {
         errors.push(`Unknown capture filename '${c}'; only the known milestone capture filenames are permitted`);
       } else if (seenCaptures.has(c)) {
         errors.push(`Duplicate capture filename '${c}'`);
@@ -257,13 +265,19 @@ export function validateVerificationReport(report) {
     if (!isPlainObject(report.environment)) {
       errors.push('environment must be null or a plain object');
     } else {
-      const envErr = keySetError(report.environment, ['browserChannel', 'headed', 'webgpuCapable'], [], 'environment');
+      const envErr = keySetError(report.environment, ['browserChannel', 'headed', 'webgpuCapable'], ['browserExecutable', 'externalServer'], 'environment');
       if (envErr) errors.push(envErr);
       if (report.environment.browserChannel !== null && typeof report.environment.browserChannel !== 'string') {
         errors.push('environment.browserChannel must be a string or null');
       }
       if (typeof report.environment.browserChannel === 'string' && containsLeak(report.environment.browserChannel)) {
         errors.push('environment.browserChannel contains path, stack, or credential leakage');
+      }
+      if ('browserExecutable' in report.environment && report.environment.browserExecutable !== null && typeof report.environment.browserExecutable !== 'string') {
+        errors.push('environment.browserExecutable must be a string or null');
+      }
+      if ('externalServer' in report.environment && report.environment.externalServer !== null && typeof report.environment.externalServer !== 'string') {
+        errors.push('environment.externalServer must be a string or null');
       }
       if (typeof report.environment.headed !== 'boolean') {
         errors.push('environment.headed must be a boolean');
@@ -491,24 +505,31 @@ export function validateVerificationReport(report) {
     if (Array.isArray(report.gates?.failures) && report.gates.failures.length > 0) {
       errors.push('Contradictory state: status is "passed" but gates.failures is not empty');
     }
-    const samples = report.gates?.metrics?.frameStats?.samples;
-    if (typeof samples !== 'number' || !Number.isInteger(samples) || samples < 1) {
-      errors.push('Passed report must contain a positive integer sample count in gates.metrics.frameStats.samples');
+    const stageReqs = report.stage ? STAGE_REQUIREMENTS[report.stage] : null;
+    const requiresTerrain = !stageReqs || stageReqs.requiresTerrain;
+    const reqArtifacts = stageReqs ? stageReqs.requiredArtifacts : REQUIRED_CAPTURE_FILENAMES;
+    const reqPoses = stageReqs ? ['idle', 'locomotion', 'mechanic'].filter((p) => reqArtifacts.includes(`${p}.png`)) : REQUIRED_POSES;
+
+    if (requiresTerrain) {
+      const samples = report.gates?.metrics?.frameStats?.samples;
+      if (typeof samples !== 'number' || !Number.isInteger(samples) || samples < 1) {
+        errors.push('Passed report must contain a positive integer sample count in gates.metrics.frameStats.samples');
+      }
     }
     const captureSet = new Set(Array.isArray(report.captures) ? report.captures : []);
-    if (captureSet.size !== 3 || !REQUIRED_CAPTURE_FILENAMES.every((f) => captureSet.has(f))) {
-      errors.push(`Passed report must contain exactly the three required capture filenames [${REQUIRED_CAPTURE_FILENAMES.join(', ')}] once each`);
+    if (!reqArtifacts.every((f) => captureSet.has(f))) {
+      errors.push(`Passed report must contain required capture filenames [${reqArtifacts.join(', ')}]`);
     }
 
     const frames = report.gates?.metrics?.frames || [];
-    if (frames.length !== 3) {
+    if (!report.stage && frames.length !== 3) {
       errors.push(`Passed report must contain exactly 3 frame metric records, got ${frames.length}`);
     }
     const frameNames = new Set(frames.map((f) => f.name));
-    if (frameNames.size !== 3) {
+    if (frameNames.size !== frames.length) {
       errors.push('Passed report frames contain duplicate pose names');
     }
-    for (const pose of REQUIRED_POSES) {
+    for (const pose of reqPoses) {
       if (!frameNames.has(pose)) {
         errors.push(`Passed report is missing frame metric evidence for required pose '${pose}'`);
       }
@@ -524,30 +545,34 @@ export function validateVerificationReport(report) {
         errors.push(`Passed frame '${f.name}' missing finite characterAreaFraction`);
       }
     }
-    const fs = report.gates?.metrics?.frameStats;
-    if (typeof fs?.medianMs !== 'number' || !Number.isFinite(fs.medianMs) || fs.medianMs < 0) {
-      errors.push('Passed report missing finite non-negative frameStats.medianMs');
-    }
-    if (typeof fs?.p99Ms !== 'number' || !Number.isFinite(fs.p99Ms) || fs.p99Ms < 0) {
-      errors.push('Passed report missing finite non-negative frameStats.p99Ms');
-    }
 
-    // Camera diagnostics are required by the canonical metrics schema for a passed report.
-    const m = report.gates?.metrics;
-    const cd = m?.cameraDiagnostics;
-    if (!isPlainObject(cd)) {
-      errors.push('Passed report missing cameraDiagnostics');
-    } else {
-      if (!ALLOWED_CAMERA_METHODS.includes(cd.method)) {
-        errors.push('Passed report gates.metrics.cameraDiagnostics.method must be a valid method');
+    if (requiresTerrain) {
+      const fs = report.gates?.metrics?.frameStats;
+      if (typeof fs?.medianMs !== 'number' || !Number.isFinite(fs.medianMs) || fs.medianMs < 0) {
+        errors.push('Passed report missing finite non-negative frameStats.medianMs');
       }
-      if (typeof cd.nearestDepthM !== 'number' || !Number.isFinite(cd.nearestDepthM) || cd.nearestDepthM < 0) {
-        errors.push('Passed report gates.metrics.cameraDiagnostics.nearestDepthM must be a finite non-negative number');
+      if (typeof fs?.p99Ms !== 'number' || !Number.isFinite(fs.p99Ms) || fs.p99Ms < 0) {
+        errors.push('Passed report missing finite non-negative frameStats.p99Ms');
       }
-      if (typeof cd.terrainClearanceM !== 'number' || !Number.isFinite(cd.terrainClearanceM) || cd.terrainClearanceM <= 0) {
-        errors.push('Passed report gates.metrics.cameraDiagnostics.terrainClearanceM must be a finite positive number');
+
+      // Camera diagnostics are required by the canonical metrics schema for a passed report.
+      const m = report.gates?.metrics;
+      const cd = m?.cameraDiagnostics;
+      if (!isPlainObject(cd)) {
+        errors.push('Passed report missing cameraDiagnostics');
+      } else {
+        if (!ALLOWED_CAMERA_METHODS.includes(cd.method)) {
+          errors.push('Passed report gates.metrics.cameraDiagnostics.method must be a valid method');
+        }
+        if (typeof cd.nearestDepthM !== 'number' || !Number.isFinite(cd.nearestDepthM) || cd.nearestDepthM < 0) {
+          errors.push('Passed report gates.metrics.cameraDiagnostics.nearestDepthM must be a finite non-negative number');
+        }
+        if (typeof cd.terrainClearanceM !== 'number' || !Number.isFinite(cd.terrainClearanceM) || cd.terrainClearanceM <= 0) {
+          errors.push('Passed report gates.metrics.cameraDiagnostics.terrainClearanceM must be a finite positive number');
+        }
       }
     }
+    const m = report.gates?.metrics;
     if (m && 'rendererDiagnostics' in m && m.rendererDiagnostics !== null && isPlainObject(m.rendererDiagnostics)) {
       const rd = m.rendererDiagnostics;
       if (Array.isArray(rd.validationErrors) && rd.validationErrors.length > 0) {
@@ -614,7 +639,13 @@ export function normalizeVerificationReport(report) {
       browserChannel: typeof report.environment.browserChannel === 'string'
         ? sanitizePathOrString(report.environment.browserChannel)
         : null,
+      browserExecutable: typeof report.environment.browserExecutable === 'string'
+        ? sanitizePathOrString(report.environment.browserExecutable)
+        : null,
       headed: Boolean(report.environment.headed),
+      externalServer: typeof report.environment.externalServer === 'string'
+        ? sanitizePathOrString(report.environment.externalServer)
+        : null,
       webgpuCapable: Boolean(report.environment.webgpuCapable),
     };
   }
@@ -690,6 +721,7 @@ export function normalizeVerificationReport(report) {
       ? report.captures.map((c) => (typeof c === 'string' ? sanitizePathOrString(c) : String(c)))
       : [],
     environment: environmentNorm,
+    ...(report.stage !== undefined ? { stage: report.stage } : {}),
     gates: {
       pass: Boolean(report.gates?.pass),
       failures: Array.isArray(report.gates?.failures)
@@ -766,6 +798,7 @@ export function createVerificationReport({
   },
   status = null,
   benchmark = null,
+  stage = null,
 }) {
   const computedStatus = status || (
     build.ok && runtime.hookReady && (runtime.errors || []).length === 0 && gates.pass
@@ -785,6 +818,7 @@ export function createVerificationReport({
     runtime,
     captures,
     environment,
+    ...(stage !== null ? { stage } : {}),
     gates,
     benchmark,
   };

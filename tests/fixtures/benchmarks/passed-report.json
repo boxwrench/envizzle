@@ -24,9 +24,9 @@
                                ]
                 },
     "captures":  [
-                     "milestone_idle.png",
-                     "milestone_locomotion.png",
-                     "milestone_mechanic.png"
+                     "idle.png",
+                     "locomotion.png",
+                     "mechanic.png"
                  ],
     "gates":  {
                   "pass":  true,

@@ -87,3 +87,19 @@ Each category below is a `reviewCriteria.universal` entry in the build contract,
 ## Biome-Specific Criteria
 
 Beyond the twelve universal categories above, the build contract's `reviewCriteria.biomeSpecific` adds any morphology anti-patterns and biome-specific review questions defined for the selected biome (for example, the Dune Desert anti-pattern list in `references/biomes.md`). Apply these alongside the universal checklist, not instead of it — a scene can pass every universal question and still fail a biome-specific one, such as representing dunes as a repeated primitive shape rather than a continuous ridge form.
+
+## Environment Composition Review
+
+Before capturing the second (post-correction) screenshot, inspect the first `environment_only.png` against every question below. Silence on a question is not a pass — write down what you actually see.
+
+- **Biome identity:** Does the frame read as the selected biome within one second, with no caption?
+- **Large-scale form:** Is the dominant landform (dune field, valley wall, reef shelf, caldera, skyline block) immediately legible at a glance?
+- **Medium-scale form:** Do secondary features (ridgelines, terraces, shoreline breaks, district blocks) read as distinct from the dominant form rather than blending into noise?
+- **Fine-scale form:** Does close-range surface detail (ripples, foliage, rubble, cracked pavement) avoid looking like a tiling texture repeat?
+- **Hero composition:** Is there one unmistakable focal element the eye lands on first?
+- **Foreground/midground/background separation:** Can you point to where each layer starts and ends without hesitating?
+- **Lighting reveals form:** Does the light direction actually carve out the large-scale form's windward/lee, sunlit/shadowed, or lit/unlit distinction, rather than flatting everything to one value?
+- **Atmospheric depth:** Does distance fade, haze, or color-temperature shift make the background read as farther away than the foreground?
+- **Visual anti-patterns:** Call out, by name, whether any of the biome's documented anti-patterns (see `biomes.md`) are present.
+
+Record every weakness found, even minor ones — an empty weaknesses list is itself a review failure per the evidence contract (`environment-composition` requires at least one nonblank weakness to pass). Make at least one correction in response, then re-run `node verify/verify_demo.mjs . --stage environment-composition` to capture the corrected `environment_only.png`/`idle.png` before recording the stage as `passed`.

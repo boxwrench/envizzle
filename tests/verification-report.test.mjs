@@ -24,7 +24,7 @@ const validReportSample = () => ({
   requiredPaths: ['index.html', 'package.json'],
   build: { ok: true, error: null },
   runtime: { hookReady: true, errors: [] },
-  captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+  captures: ['idle.png', 'locomotion.png', 'mechanic.png'],
   gates: {
     pass: true,
     failures: [],
@@ -54,7 +54,7 @@ test('createVerificationReport creates valid schemaVersion 1 report', () => {
     requiredPaths: ['index.html'],
     build: { ok: true, error: null },
     runtime: { hookReady: true, errors: [] },
-    captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+    captures: ['idle.png', 'locomotion.png', 'mechanic.png'],
     gates: {
       pass: true,
       failures: [],
@@ -260,7 +260,7 @@ test('adversarial: passed report with three arbitrary capture names is rejected'
 
 test('adversarial: passed report with duplicate capture names is rejected', () => {
   const sample = validReportSample();
-  sample.captures = ['milestone_idle.png', 'milestone_idle.png', 'milestone_mechanic.png'];
+  sample.captures = ['idle.png', 'idle.png', 'mechanic.png'];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
   assert.ok(val.errors.some((e) => /Duplicate capture filename|exactly the three required capture filenames/.test(e)));
@@ -268,7 +268,7 @@ test('adversarial: passed report with duplicate capture names is rejected', () =
 
 test('validateVerificationReport rejects passed report with a renamed capture (missing required, extra unknown)', () => {
   const sample = validReportSample();
-  sample.captures = ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic_v2.png'];
+  sample.captures = ['idle.png', 'locomotion.png', 'mechanic_v2.png'];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
 });
@@ -305,7 +305,7 @@ test('validateVerificationReport accepts a failed report with zero or a subset o
   samplePartial.gates.pass = false;
   samplePartial.gates.failures = ['setPose threw'];
   samplePartial.gates.metrics = { frames: [], cameraDiagnostics: null, rendererDiagnostics: null, terrainDiagnostics: null, poseDifferences: null, frameStats: { medianMs: null, p99Ms: null, samples: null } };
-  samplePartial.captures = ['milestone_idle.png'];
+  samplePartial.captures = ['idle.png'];
   assert.equal(validateVerificationReport(samplePartial).valid, true, validateVerificationReport(samplePartial).errors.join('; '));
 });
 
@@ -752,7 +752,7 @@ test('normalizeVerificationReport preserves a supplied cameraDiagnostics/poseDif
     validationErrors: [],
   };
   const norm = normalizeVerificationReport(sample);
-  assert.deepEqual(norm.environment, { browserChannel: 'chrome', headed: true, webgpuCapable: true });
+  assert.deepEqual(norm.environment, { browserChannel: 'chrome', browserExecutable: null, headed: true, externalServer: null, webgpuCapable: true });
   assert.deepEqual(norm.gates.metrics.cameraDiagnostics, { method: 'gpu-depth', nearestDepthM: 1.8, terrainClearanceM: 2.1 });
   assert.deepEqual(norm.gates.metrics.poseDifferences, { idleLocomotion: 0.12, idleMechanic: 0.2 });
   assert.equal(norm.gates.metrics.terrainDiagnostics.renderOwner, 'gpu');
@@ -770,7 +770,7 @@ test('createVerificationReport with a fully populated Task 6 gates.metrics shape
     requiredPaths: ['index.html'],
     build: { ok: true, error: null },
     runtime: { hookReady: true, errors: [] },
-    captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+    captures: ['idle.png', 'locomotion.png', 'mechanic.png'],
     environment: { browserChannel: 'chrome', headed: false, webgpuCapable: true },
     gates: {
       pass: true,
@@ -806,5 +806,5 @@ test('createVerificationReport with a fully populated Task 6 gates.metrics shape
   assert.equal(report.status, 'passed');
   const val = validateVerificationReport(report);
   assert.equal(val.valid, true, val.errors.join('; '));
-  assert.deepEqual(report.environment, { browserChannel: 'chrome', headed: false, webgpuCapable: true });
+  assert.deepEqual(report.environment, { browserChannel: 'chrome', browserExecutable: null, headed: false, externalServer: null, webgpuCapable: true });
 });

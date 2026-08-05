@@ -297,61 +297,103 @@ function isValidImage(img) {
 
 /**
  * Run every gate over a captured run.
+ */
+const STAGE_REQUIREMENTS = Object.freeze({
+  'backend-proof': { requiresTerrain: false, requiresCaptures: false, requiredArtifacts: [] },
+  'terrain-kernel': { requiresTerrain: true, requiresCaptures: false, requiredArtifacts: [] },
+  'environment-composition': { requiresTerrain: true, requiresCaptures: true, requiredArtifacts: ['environment_only.png', 'idle.png'] },
+  'character-locomotion': { requiresTerrain: true, requiresCaptures: true, requiredArtifacts: ['idle.png', 'locomotion.png'] },
+  'mechanic-final-polish': { requiresTerrain: true, requiresCaptures: true, requiredArtifacts: ['idle.png', 'locomotion.png', 'mechanic.png'] },
+});
+
+/**
+ * Evaluates the full suite of verification gates against runtime metrics and images.
+ * Returns { pass: boolean, failures: string[], info: string[], metrics: object }.
+ *
+ * @param {object} options
+ * @param {Array<{name: string, image: object, imageWithoutCharacter: object}>} options.frames
+ * @param {number} [options.cameraDepthM]
+ * @param {object} [options.cameraDiagnostics]
+ * @param {object} [options.terrainDiagnostics]
+ * @param {{medianMs: number, p99Ms: number, samples: number}} options.frameStats
+ * @param {string|null} [options.stage]
  * @returns {{pass: boolean, failures: string[], info: string[], metrics: object}}
  */
-export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, terrainDiagnostics = null, frameStats }) {
+export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, terrainDiagnostics = null, frameStats, stage = null }) {
   const failures = [];
   const info = [];
   const metricFrames = [];
 
+  const stageReqs = stage ? STAGE_REQUIREMENTS[stage] : null;
+  const isBackendProof = stage === 'backend-proof';
+  const isTerrainKernel = stage === 'terrain-kernel';
+  const requiresCaptures = stageReqs ? stageReqs.requiresCaptures : true;
+  const requiresTerrain = stageReqs ? stageReqs.requiresTerrain : true;
+
+  const requiredArtifacts = stageReqs ? stageReqs.requiredArtifacts : ['idle.png', 'locomotion.png', 'mechanic.png'];
+  const requiredPoses = ['idle', 'locomotion', 'mechanic'].filter((p) => requiredArtifacts.includes(`${p}.png`));
+
   // 1. Validate pose list completeness and uniqueness
-  if (!Array.isArray(frames) || frames.length === 0) {
-    failures.push(
-      'no frames captured — window.__demo.setPose() produced nothing to inspect. Verification cannot pass on an empty capture.',
-    );
-  } else {
-    const seenPoses = new Set();
-    for (const frame of frames) {
-      const name = frame?.name;
-      if (!name || !REQUIRED_POSES.includes(name)) {
-        failures.push(`unknown or missing pose name "${name}" in captured frames.`);
-      } else if (seenPoses.has(name)) {
-        failures.push(`duplicate captured frame for pose "${name}". Each pose must be captured exactly once.`);
-      } else {
-        seenPoses.add(name);
+  if (requiresCaptures) {
+    if (!Array.isArray(frames) || frames.length === 0) {
+      failures.push(
+        'no frames captured — window.__demo.setPose() produced nothing to inspect. Verification cannot pass on an empty capture.',
+      );
+    } else {
+      const seenPoses = new Set();
+      for (const frame of frames) {
+        const name = frame?.name;
+        if (!name || !REQUIRED_POSES.includes(name)) {
+          failures.push(`unknown or missing pose name "${name}" in captured frames.`);
+        } else if (seenPoses.has(name)) {
+          failures.push(`duplicate captured frame for pose "${name}". Each pose must be captured exactly once.`);
+        } else {
+          seenPoses.add(name);
+        }
+      }
+      for (const reqPose of requiredPoses) {
+        if (!seenPoses.has(reqPose)) {
+          failures.push(`missing required captured pose "${reqPose}". Verification requires all three poses: idle, locomotion, mechanic.`);
+        }
       }
     }
-    for (const reqPose of REQUIRED_POSES) {
-      if (!seenPoses.has(reqPose)) {
-        failures.push(`missing required captured pose "${reqPose}". Verification requires all three poses: idle, locomotion, mechanic.`);
-      }
-    }
+  } else if (!Array.isArray(frames) || frames.length === 0) {
+    info.push(`Image capture gates skipped for scoped stage '${stage}'.`);
   }
 
-  // 2. Validate numeric inputs and camera proof. cameraDepthM remains a narrow
-  // compatibility input for pure legacy unit fixtures; browser verification uses
-  // cameraDiagnostics exclusively.
-  const effectiveCameraDiagnostics = cameraDiagnostics || (typeof cameraDepthM === 'number'
-    ? { method: 'gpu-depth', nearestDepthM: cameraDepthM, terrainClearanceM: 1 }
-    : null);
-  if (!effectiveCameraDiagnostics || typeof effectiveCameraDiagnostics !== 'object' || Array.isArray(effectiveCameraDiagnostics)) {
-    failures.push(`window.__demo.cameraDiagnostics() returned ${JSON.stringify(effectiveCameraDiagnostics)} instead of an object — the camera-clipping gate cannot run. Implement it to return {method, nearestDepthM, terrainClearanceM}.`);
+  // 2. Validate numeric inputs and camera proof.
+  let effectiveCameraDiagnostics = null;
+  if (requiresTerrain) {
+    effectiveCameraDiagnostics = cameraDiagnostics || (typeof cameraDepthM === 'number'
+      ? { method: 'gpu-depth', nearestDepthM: cameraDepthM, terrainClearanceM: 1 }
+      : null);
+    if (!effectiveCameraDiagnostics || typeof effectiveCameraDiagnostics !== 'object' || Array.isArray(effectiveCameraDiagnostics)) {
+      failures.push(`window.__demo.cameraDiagnostics() returned ${JSON.stringify(effectiveCameraDiagnostics)} instead of an object — the camera-clipping gate cannot run. Implement it to return {method, nearestDepthM, terrainClearanceM}.`);
+    } else {
+      failures.push(...validateCameraDiagnostics(effectiveCameraDiagnostics, { terrainDiagnostics }));
+    }
+  } else {
+    info.push(`Camera and terrain gates skipped for scoped stage '${stage}'.`);
   }
-  failures.push(...validateCameraDiagnostics(effectiveCameraDiagnostics, { terrainDiagnostics }));
-  if (typeof frameStats?.medianMs !== 'number' || !Number.isFinite(frameStats.medianMs) || frameStats.medianMs < 0) {
-    failures.push(
-      `window.__demo.frameStats() is missing a finite non-negative "medianMs" — got ${JSON.stringify(frameStats?.medianMs)}.`,
-    );
-  }
-  if (typeof frameStats?.p99Ms !== 'number' || !Number.isFinite(frameStats.p99Ms) || frameStats.p99Ms < 0) {
-    failures.push(
-      `window.__demo.frameStats() is missing a finite non-negative "p99Ms" — got ${JSON.stringify(frameStats?.p99Ms)}.`,
-    );
-  }
-  if (typeof frameStats?.samples !== 'number' || !Number.isInteger(frameStats.samples) || frameStats.samples < 1) {
-    failures.push(
-      `window.__demo.frameStats() is missing a positive integer "samples" — got ${JSON.stringify(frameStats?.samples)}.`,
-    );
+
+  if (frameStats) {
+    if (typeof frameStats?.medianMs !== 'number' || !Number.isFinite(frameStats.medianMs) || frameStats.medianMs < 0) {
+      failures.push(
+        `window.__demo.frameStats() is missing a finite non-negative "medianMs" — got ${JSON.stringify(frameStats?.medianMs)}.`,
+      );
+    }
+    if (typeof frameStats?.p99Ms !== 'number' || !Number.isFinite(frameStats.p99Ms) || frameStats.p99Ms < 0) {
+      failures.push(
+        `window.__demo.frameStats() is missing a finite non-negative "p99Ms" — got ${JSON.stringify(frameStats?.p99Ms)}.`,
+      );
+    }
+    if (typeof frameStats?.samples !== 'number' || !Number.isInteger(frameStats.samples) || frameStats.samples < 1) {
+      failures.push(
+        `window.__demo.frameStats() is missing a positive integer "samples" — got ${JSON.stringify(frameStats?.samples)}.`,
+      );
+    }
+  } else if (requiresTerrain) {
+    failures.push('window.__demo.frameStats() is missing or null.');
   }
 
   // 3. Evaluate each frame record
@@ -462,22 +504,24 @@ export function evaluateGates({ frames, cameraDepthM, cameraDiagnostics = null, 
 
   const frameByName = new Map((frames || []).map((frame) => [frame?.name, { ...frame, valid: isValidImage(frame?.image) }]));
   const poseDifferences = { idleLocomotion: null, idleMechanic: null };
-  for (const [key, otherName, threshold] of [
-    ['idleLocomotion', 'locomotion', THRESHOLDS.poseIdleLocomotionMinChangedArea],
-    ['idleMechanic', 'mechanic', THRESHOLDS.poseIdleMechanicMinChangedArea],
-  ]) {
-    const idle = frameByName.get('idle')?.image;
-    const other = frameByName.get(otherName)?.image;
-    if (isValidImage(idle) && isValidImage(other)) {
-      try {
-        poseDifferences[key] = changedAreaFraction(idle, other);
-        info.push(`[${key}] changed area ${(poseDifferences[key] * 100).toFixed(1)}%`);
-        if (poseDifferences[key] < threshold) failures.push(`[${key}] changed area ${(poseDifferences[key] * 100).toFixed(1)}% is below ${threshold * 100}% — captures are too similar.`);
-      } catch (err) {
-        failures.push(`[${key}] failed to calculate pose difference: ${err.message}`);
+  if (requiresCaptures) {
+    for (const [key, otherName, threshold] of [
+      ['idleLocomotion', 'locomotion', THRESHOLDS.poseIdleLocomotionMinChangedArea],
+      ['idleMechanic', 'mechanic', THRESHOLDS.poseIdleMechanicMinChangedArea],
+    ]) {
+      const idle = frameByName.get('idle')?.image;
+      const other = frameByName.get(otherName)?.image;
+      if (isValidImage(idle) && isValidImage(other)) {
+        try {
+          poseDifferences[key] = changedAreaFraction(idle, other);
+          info.push(`[${key}] changed area ${(poseDifferences[key] * 100).toFixed(1)}%`);
+          if (poseDifferences[key] < threshold) failures.push(`[${key}] changed area ${(poseDifferences[key] * 100).toFixed(1)}% is below ${threshold * 100}% — captures are too similar.`);
+        } catch (err) {
+          failures.push(`[${key}] failed to calculate pose difference: ${err.message}`);
+        }
+      } else if (requiredPoses.includes('idle') && requiredPoses.includes(otherName)) {
+        failures.push(`[${key}] cannot be measured because both pose images are required.`);
       }
-    } else {
-      failures.push(`[${key}] cannot be measured because both pose images are required.`);
     }
   }
 

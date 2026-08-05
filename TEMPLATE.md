@@ -38,7 +38,7 @@ Do not stop at "it works." Stop when every captured frame looks polished, cohesi
 | Concern        | Spec |
 |----------------|------|
 | Language        | Modern JavaScript (ES2023 modules). JSDoc types encouraged, no TypeScript build step required. |
-| Engine          | {{ENGINE — default: Babylon.js latest stable, WebGPU only OR Three.js latest stable, WebGLRenderer (WebGL2 only)}} |
+| Engine          | {{ENGINE — default: Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only OR Three.js latest stable, WebGLRenderer (WebGL2 only)}} |
 | Shader Language | {{SHADER_LANG — default: WGSL or GLSL ES 3.00 raw modules}} |
 | Material API    | {{MATERIAL_API — default: Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL OR Three.js RawShaderMaterial on WebGLRenderer}} |
 | Bundler         | Vite |
@@ -238,6 +238,8 @@ window.__demo = {
   cameraDiagnostics() {},
   /** @returns {{medianMs:number, p99Ms:number, samples:number}} */
   frameStats() {},
+  /** @returns {{engineInitialized:boolean, activeBackend:string, activeShaderLanguage:string, materialCompilationAttempted:boolean, materialCompiledAgainstMesh:boolean, materialReady:boolean, requiredAttributes:Array<string>, presentVertexBuffers:Object, declaredUniforms:Array<string>, declaredResources:Array<string>, manualBindings:boolean, scopedValidationErrors:Array, uncapturedValidationErrors:Array, deviceLosses:Array, frameSubmitted:boolean, frameCompleted:boolean}} */
+  backendProof() {},
 };
 ```
 
@@ -256,3 +258,13 @@ terrain clearance.
 
 `setCharacterVisible(false)` must hide only the character and its cloth, leaving
 terrain, vegetation, and atmosphere untouched.
+
+`backendProof()` is the one-time, richer forensic proof consulted by the `backend-proof`
+stage verifier: it must genuinely report engine initialization, the active backend and
+shader language, material compilation attempted against the representative mesh and
+ready, the required attributes and which vertex buffers are actually present, every
+declared uniform and resource, `manualBindings: false` for a Babylon `ShaderMaterial`
+path, empty scoped/uncaptured validation-error and device-loss lists, and a submitted,
+completed frame. It deliberately overlaps `rendererInfo()` on backend/shader-language —
+`rendererInfo()` stays the small, cheap, repeatedly-polled summary; `backendProof()` is
+the one-shot forensic record. Do not let the two disagree.

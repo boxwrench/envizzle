@@ -79,7 +79,7 @@ Envizzle v0.1 supports exactly two rendering profiles. Every brief selects one p
 
 ### Default profile: Babylon WebGPU
 
-- **`ENGINE`**: `Babylon.js latest stable, WebGPU only`
+- **`ENGINE`**: `Babylon.js 7.x pinned (private device-access risk, see the Babylon WebGPU patterns reference doc), WebGPU only`
 - **`SHADER_LANG`**: `WGSL`
 - **`SHADER_LANG_EXT`**: `wgsl`
 - **`MATERIAL_API`**: `Babylon.js ShaderMaterial configured with ShaderLanguage.WGSL`

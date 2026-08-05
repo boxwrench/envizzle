@@ -62,7 +62,7 @@ test('every biome has at least the 19 required tokens, FOOT_INTERACTION, and par
   }
 });
 
-test('Dune Desert defines both optional morphology review tokens with the exact anti-pattern and positive-requirement content; all other biomes leave them absent', () => {
+test('Dune Desert defines both optional morphology review tokens with the exact anti-pattern and positive-requirement content; every other biome now defines its own', () => {
   const catalog = loadReferenceCatalog({ rootDir: repoRoot });
   const dune = catalog.biomes['Dune Desert'];
   const normalizeWhitespace = (s) => s.replace(/\s+/g, ' ').trim();
@@ -91,10 +91,18 @@ test('Dune Desert defines both optional morphology review tokens with the exact 
     );
   }
 
+  // Every biome now carries its own MORPHOLOGY_ANTI_PATTERNS/VISUAL_REVIEW_QUESTIONS
+  // (added for the 5 non-Dune biomes so environment review has the same positive
+  // morphology guidance and anti-pattern language across all six biomes, not just Dune).
   for (const [name, biome] of Object.entries(catalog.biomes)) {
-    if (name === 'Dune Desert') continue;
-    assert.equal(biome.tokens.MORPHOLOGY_ANTI_PATTERNS, undefined, `Biome ${name} should not define MORPHOLOGY_ANTI_PATTERNS yet`);
-    assert.equal(biome.tokens.VISUAL_REVIEW_QUESTIONS, undefined, `Biome ${name} should not define VISUAL_REVIEW_QUESTIONS yet`);
+    assert.ok(
+      typeof biome.tokens.MORPHOLOGY_ANTI_PATTERNS === 'string' && biome.tokens.MORPHOLOGY_ANTI_PATTERNS.trim() !== '',
+      `Biome ${name} should define a non-empty MORPHOLOGY_ANTI_PATTERNS`,
+    );
+    assert.ok(
+      typeof biome.tokens.VISUAL_REVIEW_QUESTIONS === 'string' && biome.tokens.VISUAL_REVIEW_QUESTIONS.trim() !== '',
+      `Biome ${name} should define a non-empty VISUAL_REVIEW_QUESTIONS`,
+    );
   }
 });
 
@@ -507,25 +515,14 @@ test('loader regression 22: rejects empty optional biome labeled token content',
 });
 
 test('loader regression 23: an optional biome labeled token defined on a non-Dune biome is tolerated and counted', () => {
-  withTempCatalog(
-    (root) => {
-      const bioPath = path.join(root, 'references', 'biomes.md');
-      const content = fs.readFileSync(bioPath, 'utf8');
-      const modified = content.replace(
-        '**`FOOT_INTERACTION`** — displace snow by 6–9 cm',
-        '**`MORPHOLOGY_ANTI_PATTERNS`** — Do not represent snow as a flat unlit plane.\n\n**`FOOT_INTERACTION`** — displace snow by 6–9 cm'
-      );
-      fs.writeFileSync(bioPath, modified, 'utf8');
-    },
-    (root) => {
-      const catalog = loadReferenceCatalog({ rootDir: root });
-      assert.equal(
-        catalog.biomes['Alpine Snow'].tokens.MORPHOLOGY_ANTI_PATTERNS,
-        'Do not represent snow as a flat unlit plane.',
-      );
-      assert.equal(Object.keys(catalog.biomes['Alpine Snow'].tokens).length, 20);
-    }
-  );
+  // Alpine Snow now carries real MORPHOLOGY_ANTI_PATTERNS/VISUAL_REVIEW_QUESTIONS content
+  // (added for all six biomes) — this proves the loader tolerates and counts an optional
+  // labeled token on a non-Dune biome without a synthetic injection.
+  const catalog = loadReferenceCatalog({ rootDir: repoRoot });
+  const alpine = catalog.biomes['Alpine Snow'];
+  assert.equal(typeof alpine.tokens.MORPHOLOGY_ANTI_PATTERNS, 'string');
+  assert.ok(alpine.tokens.MORPHOLOGY_ANTI_PATTERNS.trim() !== '');
+  assert.equal(Object.keys(alpine.tokens).length, 21);
 });
 
 test('missing or duplicate token fields fail loudly', () => {

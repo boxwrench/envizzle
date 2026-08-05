@@ -30,6 +30,7 @@ This reference defines the required Babylon.js WebGPU implementation patterns fo
   - [`queue.onSubmittedWorkDone()` Where Available](#queueonsubmittedworkdone-where-available)
   - [One Completed Frame](#one-completed-frame)
   - [Truthful Readiness](#truthful-readiness)
+- [Device Access](#device-access)
 - [Positive Pattern Example: Minimal WGSL ShaderMaterial](#positive-pattern-example-minimal-wgsl-shadermaterial)
 
 ---
@@ -133,6 +134,66 @@ Backend proof's required outputs include at least one submitted frame completing
 The hook starts with `ready: false`, `status: "initializing"`, and `error: null`. Set `status: "ready"` only after every proof step above has genuinely succeeded in order. On failure, set `status: "failed"`, keep `ready: false`, and provide a nonblank normalized `error`. Readiness is a report of what happened, not an optimistic guess about what should have happened by now.
 
 Never set `ready` inside a `finally` block, and never suppress an initialization failure and continue as though it succeeded. On failure, `status` becomes `"failed"`, `ready` stays `false`, and `error` is set to a nonblank, normalized description of what actually went wrong. Readiness is a report of what happened, not an optimistic guess about what should have happened by now.
+
+## `backendProof()` and `rendererInfo()`: which fields live where
+
+`window.__demo.backendProof()` is the canonical, one-time proof that backend selection, shader language, material compilation, binding declarations, validation capture, and frame submission all genuinely happened — it is what Stage 1 (`backend-proof`) verification reads. `window.__demo.rendererInfo()` remains the authoritative *ongoing* summary (`backend`, `shaderLanguage`, `materialsReady`, `renderedFrames`, `validationErrors`) consulted at every later stage and by the image gates. There is deliberate overlap (`backend`/`activeBackend`, `shaderLanguage`/`activeShaderLanguage`) — this is not unexplained duplicate truth: `rendererInfo()` is small and cheap to poll repeatedly through the whole run, while `backendProof()` is the richer, one-shot forensic record consulted once at Stage 1. Do not let the two disagree; both are derived from the same underlying engine/device state.
+
+`backendProof()` returns exactly:
+
+```js
+{
+  engineInitialized: true,
+  activeBackend: "webgpu",
+  activeShaderLanguage: "wgsl",
+  materialCompilationAttempted: true,
+  materialCompiledAgainstMesh: true,
+  materialReady: true,
+  requiredAttributes: ["position", "normal"],
+  presentVertexBuffers: { position: true, normal: true },
+  declaredUniforms: ["world", "viewProjection"],
+  declaredResources: [],
+  manualBindings: false,
+  scopedValidationErrors: [],
+  uncapturedValidationErrors: [],
+  deviceLosses: [],
+  frameSubmitted: true,
+  frameCompleted: true,
+}
+```
+
+`declaredResources` may legitimately be `[]` — Stage 1 must prove every resource it declares, but it must not invent an unused texture or storage buffer solely to make this list nonempty. `manualBindings` must be `false` for every Babylon `ShaderMaterial` path (see [Babylon Binding Ownership](#babylon-binding-ownership)); it exists to make the absence of manual `@group`/`@binding` a checkable fact rather than an assumption.
+
+## Device Access
+
+`device.pushErrorScope(...)`, `device.addEventListener('uncapturederror', ...)`, and `await device.lost` (all required by [Validation and Device State](#validation-and-device-state)) need a direct `GPUDevice` reference. The pinned Babylon.js version does not expose one through a documented, stable public API — the only currently available route is the private, unofficial field `engine._device`.
+
+**This is an unresolved RC risk**, not a solved problem: `engine._device` can be renamed or removed in a future Babylon.js release without notice, since it is not part of the public contract. Treat it accordingly:
+
+- Isolate every read of `engine._device` inside exactly one file: `src/core/gpuValidation.js`. No other module may reference it directly.
+- Pin the exact tested Babylon.js version (see this profile's `engine` string in the generated contract) and re-verify this helper whenever that pin changes.
+- State the private-field dependency explicitly in a code comment at the point of access — do not let it look like a supported API call.
+- Verify the field actually exists before using it, and fail closed (report a truthful initialization failure, never silently skip validation-error capture) when it does not:
+
+```js
+// src/core/gpuValidation.js
+// engine._device is a PRIVATE, UNDOCUMENTED Babylon.js WebGPUEngine field — there is no
+// public accessor for the raw GPUDevice in the pinned Babylon.js version. Isolated here
+// so exactly one file needs to change if a future Babylon.js version renames or removes it.
+export function getWebGPUDeviceOrFailClosed(engine) {
+  const device = engine && engine._device;
+  if (!device || typeof device.pushErrorScope !== 'function') {
+    throw new Error(
+      'gpuValidation: engine._device is unavailable or does not look like a GPUDevice on this Babylon.js version. ' +
+      'This is a known private-API risk (see this document\'s Device Access section) — failing closed ' +
+      'rather than silently skipping validation-error capture.',
+    );
+  }
+  return device;
+}
+```
+
+Prohibit direct `engine._device` access anywhere outside this one helper. If a future Babylon.js version adds a public accessor (e.g. a documented `engine.getDevice()`), replace the body of `getWebGPUDeviceOrFailClosed` to use it and delete this risk note — do not leave both paths present.
 
 ## Positive Pattern Example: Minimal WGSL ShaderMaterial
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkCoherence } from '../check.mjs';
+import { loadReferenceCatalog } from '../reference-loader.mjs';
 import {
   BIOME_CHANNELS,
   ARCHETYPES,
@@ -166,6 +167,43 @@ test('every shipped biome palette in biomes.md remains parseable and coherence-c
   }
 });
 
+test('every biome has MORPHOLOGY_ANTI_PATTERNS and VISUAL_REVIEW_QUESTIONS tokens, not only Dune Desert', () => {
+  const catalog = loadReferenceCatalog();
+  const biomeNames = ['Alpine Snow', 'Ghibli Valley', 'Dune Desert', 'Ocean Shelf', 'Volcanic', 'Night City'];
+  for (const name of biomeNames) {
+    const biome = catalog.biomes[name];
+    assert.ok(typeof biome.tokens.MORPHOLOGY_ANTI_PATTERNS === 'string' && biome.tokens.MORPHOLOGY_ANTI_PATTERNS.trim() !== '', `${name} missing MORPHOLOGY_ANTI_PATTERNS`);
+    assert.ok(typeof biome.tokens.VISUAL_REVIEW_QUESTIONS === 'string' && biome.tokens.VISUAL_REVIEW_QUESTIONS.trim() !== '', `${name} missing VISUAL_REVIEW_QUESTIONS`);
+  }
+});
+
+test('every mechanic in mechanics.md has an internally consistent centrepieceEffect block', () => {
+  const catalog = loadReferenceCatalog();
+  const mechanicNames = ['Surf / Carve', 'Flight / Glide', 'Beam Cannon', 'Grapple Swing', 'Summon Vehicle'];
+  for (const name of mechanicNames) {
+    const mechanic = catalog.mechanics[name];
+    assert.ok(mechanic.centrepieceEffect, `${name} is missing a centrepieceEffect block`);
+    const effect = mechanic.centrepieceEffect;
+    assert.ok(typeof effect.name === 'string' && effect.name.trim() !== '');
+    assert.ok(typeof effect.visualGoal === 'string' && effect.visualGoal.trim() !== '');
+    assert.ok(typeof effect.sharedDriver === 'string' && effect.sharedDriver.trim() !== '');
+    assert.ok(Array.isArray(effect.layers) && effect.layers.length >= 2, `${name} centrepieceEffect must have at least 2 layers`);
+    const layerIds = effect.layers.map((l) => l.id);
+    assert.ok(layerIds.includes(effect.dominantLayerId), `${name}'s dominantLayerId must reference a real layer`);
+    const particleLayers = effect.layers.filter((l) => l.type === 'particles' || l.type === 'atmospheric-particles');
+    assert.ok(particleLayers.length < effect.layers.length, `${name} must not be particle-only`);
+    assert.ok(Array.isArray(effect.readabilityRequirements) && effect.readabilityRequirements.length >= 3);
+  }
+});
+
+test('the Dune Sea Proven showcase resolves to the exact Sand Carve Wake recipe', () => {
+  const catalog = loadReferenceCatalog();
+  const effect = catalog.mechanics['Surf / Carve'].centrepieceEffect;
+  assert.equal(effect.name, 'Sand Carve Wake');
+  assert.equal(effect.dominantLayerId, 'wake-body');
+  assert.deepEqual(effect.layers.map((l) => l.id), ['persistent-carve', 'wake-body', 'crest-curtain', 'ballistic-grains', 'wind-dust', 'camera-response']);
+});
+
 test('the exact Tidal Shelf landing interpretation remains preserved in showcases.md', () => {
   const content = fs.readFileSync('references/showcases.md', 'utf8');
   assert.match(
@@ -294,5 +332,22 @@ test('visual-review.md covers all twelve review categories', () => {
     'Placeholder Detection', 'Visual Hierarchy', 'Scope Discipline',
   ]) {
     assert.ok(content.includes(category), `visual-review.md missing review category: ${category}`);
+  }
+});
+
+test('engine._device private-field access is documented as isolated to one helper and fails closed', () => {
+  const doc = fs.readFileSync('references/babylon-webgpu-patterns.md', 'utf8');
+  assert.ok(doc.includes('## Device Access'));
+  assert.ok(doc.includes('getWebGPUDeviceOrFailClosed'));
+  assert.ok(doc.includes('unresolved RC risk'));
+  assert.ok(/throw new Error/.test(doc), 'the compatibility helper must fail closed, not silently return undefined');
+});
+
+test('no reference doc other than babylon-webgpu-patterns.md casually references engine._device', () => {
+  const refDir = 'references';
+  for (const file of fs.readdirSync(refDir)) {
+    if (file === 'babylon-webgpu-patterns.md') continue;
+    const text = fs.readFileSync(path.join(refDir, file), 'utf8');
+    assert.ok(!text.includes('_device'), `${file} must not reference the private engine._device field directly`);
   }
 });

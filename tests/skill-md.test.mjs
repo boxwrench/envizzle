@@ -173,3 +173,9 @@ test('SKILL.md documents validateSelection errors as hard blockers', () => {
   assert.match(skill, /validateSelection[\s\S]{0,200}hard blockers/i);
   assert.match(skill, /checkCoherence[\s\S]{0,200}Deliberate Deviations/i);
 });
+
+test('SKILL.md lists all 7 verifier files in its verify/ directory description', () => {
+  for (const vf of ['README.md', 'gates.mjs', 'report.mjs', 'patternScan.mjs', 'contractSchema.mjs', 'metricSchema.mjs', 'verify_demo.mjs']) {
+    assert.ok(skill.includes(vf), `SKILL.md missing verifier file: ${vf}`);
+  }
+});
