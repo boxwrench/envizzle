@@ -161,3 +161,21 @@ test('SKILL.md documents validateSelection errors as hard blockers', () => {
   assert.match(skill, /validateSelection[\s\S]{0,200}hard blockers/i);
   assert.match(skill, /checkCoherence[\s\S]{0,200}Deliberate Deviations/i);
 });
+
+test('SKILL.md Step 5 names all nine bundle files and removes brief-only handoff claims', () => {
+  assert.doesNotMatch(skill, /needs nothing else/i, 'SKILL.md must not claim the brief needs nothing else');
+  for (const bundleFile of [
+    '<PROJECT>_TECHDEMO_PROMPT.md',
+    'ENVIZZLE_BUILD.json',
+    'ENVIZZLE_EVIDENCE.json',
+    'HANDOFF.md',
+    'verify/README.md',
+    'verify/evidence.mjs',
+    'verify/gates.mjs',
+    'verify/report.mjs',
+    'verify/verify_demo.mjs',
+  ]) {
+    assert.match(skill, new RegExp(bundleFile.replace(/[/.]/g, '\\$&')), `SKILL.md Step 5 must explicitly name ${bundleFile}`);
+  }
+  assert.match(skill, /complete nine-file bundle/i, 'SKILL.md must specify complete nine-file bundle handoff');
+});

@@ -20,7 +20,6 @@ const REQUIRED_PATHS = Object.freeze([
 export function parseVerifyCliArgs(args) {
   let projectDir = null;
   let reportPath = null;
-  let screenshotsDir = null;
   let help = false;
 
   const seenFlags = new Set();
@@ -38,13 +37,6 @@ export function parseVerifyCliArgs(args) {
         throw new Error('Missing path for --report option');
       }
       reportPath = args[++i];
-    } else if (arg === '--screenshots') {
-      if (seenFlags.has('screenshots')) throw new Error('Duplicate option --screenshots');
-      seenFlags.add('screenshots');
-      if (i + 1 >= args.length || args[i + 1].startsWith('-')) {
-        throw new Error('Missing directory for --screenshots option');
-      }
-      screenshotsDir = args[++i];
     } else if (arg.startsWith('-')) {
       throw new Error(`Unknown option '${arg}'`);
     } else {
@@ -66,9 +58,7 @@ export function parseVerifyCliArgs(args) {
   const resolvedReport = reportPath
     ? path.resolve(reportPath)
     : path.join(resolvedTarget, 'verify-report.json');
-  const resolvedScreenshots = screenshotsDir
-    ? path.resolve(screenshotsDir)
-    : path.join(resolvedTarget, 'evidence', 'final-polish');
+  const resolvedScreenshots = path.join(resolvedTarget, 'evidence', 'final-polish');
 
   return {
     help: false,
@@ -86,8 +76,9 @@ Usage:
 
 Options:
   --report <report.json>       Path to write machine-readable verification report (default: <project-directory>/verify-report.json)
-  --screenshots <directory>   Directory to save captured PNG screenshots (default: <project-directory>/screenshots/)
   --help, -h                  Show this help menu
+
+Final verification captures are saved directly to <project-directory>/evidence/final-polish/.
 
 Exit codes:
   0  Verification passed
@@ -105,7 +96,7 @@ function killTree(child) {
   if (!child || !child.pid) return;
   try {
     if (process.platform === 'win32') {
-      execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+      execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
     } else {
       process.kill(-child.pid, 'SIGKILL');
     }
@@ -124,7 +115,7 @@ async function waitForServer(url, timeoutMs) {
   let lastErr;
   while (Date.now() < deadline) {
     try {
-      await fetch(url, { method: 'GET' });
+      await fetch(url, { method: 'GET', signal: AbortSignal.timeout(Math.min(timeoutMs, 1000)) });
       return;
     } catch (err) {
       lastErr = err;

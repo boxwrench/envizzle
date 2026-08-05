@@ -88,8 +88,8 @@ Run automated verification on the generated demo project:
 # Standard verification writing verify-report.json
 node verify/verify_demo.mjs <project-directory>
 
-# Specify explicit report path and screenshot directory
-node verify/verify_demo.mjs <project-directory> --report verify-report.json --screenshots screenshots/
+# Specify explicit report path
+node verify/verify_demo.mjs <project-directory> --report verify-report.json
 ```
 
 Verification executes build checks, Playwright headless captures, and gate evaluations, emitting `verify-report.json` with `schemaVersion: 1`.

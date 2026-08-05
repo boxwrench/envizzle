@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { PNG } from 'pngjs';
-import { isSafeRelativePath, isPathInside } from './report.mjs';
+import { createRequire } from 'node:module';
+import { isSafeRelativePath, isPathInside, containsLeak } from './report.mjs';
 
 export const INCOMPLETE_VERIFICATION_STATUS = 'incomplete verification';
 export const COMPLETE_STATUS = 'complete';
@@ -39,6 +39,18 @@ export const ALL_CANONICAL_SCREENSHOT_PATHS = Object.freeze([
   'evidence/final-polish/milestone_mechanic.png',
 ]);
 
+let pngModule = null;
+function getPNG() {
+  if (pngModule) return pngModule;
+  try {
+    const req = createRequire(import.meta.url);
+    pngModule = req('pngjs').PNG;
+    return pngModule;
+  } catch {
+    throw new Error("Missing required dependency 'pngjs' for PNG decoding. Run: npm install -D playwright pngjs");
+  }
+}
+
 function isPlainObject(val) {
   return typeof val === 'object' && val !== null && !Array.isArray(val);
 }
@@ -54,6 +66,31 @@ function exactKeys(value, expected, label, errors) {
   if (missing.length > 0) errors.push(`${label} is missing required keys: ${missing.join(', ')}`);
   if (unknown.length > 0) errors.push(`${label} contains unknown keys: ${unknown.join(', ')}`);
   return missing.length === 0 && unknown.length === 0;
+}
+
+function validateContainedFile(projReal, relFilename, errors) {
+  const absPath = path.join(projReal, relFilename);
+  if (!fs.existsSync(absPath)) {
+    errors.push(`Missing required file '${relFilename}'`);
+    return null;
+  }
+  let realP;
+  try {
+    realP = fs.realpathSync(absPath);
+  } catch (err) {
+    errors.push(`File '${relFilename}' realpath resolution failed: ${err.message}`);
+    return null;
+  }
+  if (!isPathInside(projReal, realP)) {
+    errors.push(`Path security violation: file '${relFilename}' resolves outside project directory '${projReal}'`);
+    return null;
+  }
+  const stat = fs.statSync(realP);
+  if (!stat.isFile()) {
+    errors.push(`Target file '${relFilename}' is not a regular file`);
+    return null;
+  }
+  return realP;
 }
 
 function validateEvidenceMilestone(milestone, index, errors) {
@@ -76,6 +113,12 @@ function validateEvidenceMilestone(milestone, index, errors) {
     for (const field of ['errors', 'warnings']) {
       if (!Array.isArray(milestone.console[field]) || milestone.console[field].some((v) => typeof v !== 'string')) {
         errors.push(`${label}.console.${field} must be an array of strings`);
+      } else {
+        milestone.console[field].forEach((str, i) => {
+          if (containsLeak(str)) {
+            errors.push(`${label}.console.${field}[${i}] contains leaked sensitive data or absolute path`);
+          }
+        });
       }
     }
   }
@@ -96,6 +139,12 @@ function validateEvidenceMilestone(milestone, index, errors) {
     for (const field of ['weaknesses', 'corrections']) {
       if (!Array.isArray(milestone.visualSelfReview[field]) || milestone.visualSelfReview[field].some((v) => typeof v !== 'string')) {
         errors.push(`${label}.visualSelfReview.${field} must be an array of strings`);
+      } else {
+        milestone.visualSelfReview[field].forEach((str, i) => {
+          if (containsLeak(str)) {
+            errors.push(`${label}.visualSelfReview.${field}[${i}] contains leaked sensitive data or absolute path`);
+          }
+        });
       }
     }
   }
@@ -226,16 +275,12 @@ export function validateProjectMilestoneEvidence(projectDir, options = {}) {
     return { ok: false, errors: [`Failed to resolve realpath for project directory '${projAbs}': ${err.message}`] };
   }
 
-  // 1. Check ENVIZZLE_BUILD.json
-  const buildContractPath = path.join(projReal, BUILD_CONTRACT_FILENAME);
-  if (!fs.existsSync(buildContractPath)) {
-    errors.push(`Missing build contract file '${BUILD_CONTRACT_FILENAME}'`);
-  }
-
+  // 1. Check ENVIZZLE_BUILD.json containment
+  const contractReal = validateContainedFile(projReal, BUILD_CONTRACT_FILENAME, errors);
   let contract = null;
-  if (fs.existsSync(buildContractPath)) {
+  if (contractReal) {
     try {
-      contract = JSON.parse(fs.readFileSync(buildContractPath, 'utf8'));
+      contract = JSON.parse(fs.readFileSync(contractReal, 'utf8'));
     } catch (err) {
       errors.push(`Failed to parse '${BUILD_CONTRACT_FILENAME}': ${err.message}`);
     }
@@ -289,16 +334,12 @@ export function validateProjectMilestoneEvidence(projectDir, options = {}) {
     }
   }
 
-  // 3. Check ENVIZZLE_EVIDENCE.json
-  const evidencePath = path.join(projReal, EVIDENCE_FILENAME);
-  if (!fs.existsSync(evidencePath)) {
-    errors.push(`Missing evidence record file '${EVIDENCE_FILENAME}'`);
-  }
-
+  // 3. Check ENVIZZLE_EVIDENCE.json containment
+  const evidenceReal = validateContainedFile(projReal, EVIDENCE_FILENAME, errors);
   let evidence = null;
-  if (fs.existsSync(evidencePath)) {
+  if (evidenceReal) {
     try {
-      evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+      evidence = JSON.parse(fs.readFileSync(evidenceReal, 'utf8'));
     } catch (err) {
       errors.push(`Failed to parse '${EVIDENCE_FILENAME}': ${err.message}`);
     }
@@ -324,6 +365,14 @@ export function validateProjectMilestoneEvidence(projectDir, options = {}) {
 
   // 4. If evidence exists and is structurally complete, validate physical screenshot files on disk
   if (evidence && Array.isArray(evidence.milestones)) {
+    let PNG;
+    try {
+      PNG = getPNG();
+    } catch (err) {
+      errors.push(err.message);
+      return { ok: false, errors };
+    }
+
     for (const milestone of evidence.milestones) {
       if (milestone?.status === COMPLETE_STATUS && Array.isArray(milestone.screenshots)) {
         for (const relShotPath of milestone.screenshots) {

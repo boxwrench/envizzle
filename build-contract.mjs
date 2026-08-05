@@ -116,7 +116,8 @@ const MILESTONE_DEFINITIONS = Object.freeze([
     requiredScreenshotEvidence: Object.freeze({
       required: true,
       minimumScreenshots: 1,
-      requiredPoses: Object.freeze(['evidence/first-runnable-scene/milestone_idle.png']),
+      requiredPoses: Object.freeze(['idle']),
+      requiredScreenshotPaths: Object.freeze(['evidence/first-runnable-scene/milestone_idle.png']),
     }),
     requiredConsoleEvidence: Object.freeze({
       required: true,
@@ -150,7 +151,8 @@ const MILESTONE_DEFINITIONS = Object.freeze([
     requiredScreenshotEvidence: Object.freeze({
       required: true,
       minimumScreenshots: 2,
-      requiredPoses: Object.freeze([
+      requiredPoses: Object.freeze(['locomotion', 'mechanic']),
+      requiredScreenshotPaths: Object.freeze([
         'evidence/systems-complete/milestone_locomotion.png',
         'evidence/systems-complete/milestone_mechanic.png',
       ]),
@@ -187,7 +189,8 @@ const MILESTONE_DEFINITIONS = Object.freeze([
     requiredScreenshotEvidence: Object.freeze({
       required: true,
       minimumScreenshots: 3,
-      requiredPoses: Object.freeze([
+      requiredPoses: Object.freeze(['idle', 'locomotion', 'mechanic']),
+      requiredScreenshotPaths: Object.freeze([
         'evidence/final-polish/milestone_idle.png',
         'evidence/final-polish/milestone_locomotion.png',
         'evidence/final-polish/milestone_mechanic.png',
@@ -597,7 +600,7 @@ export function renderMilestoneInstructions(contract) {
   for (const [index, milestone] of contract.milestones.entries()) {
     lines.push(`### ${index + 1}. ${milestone.title} (\`${milestone.id}\`)`, '');
     lines.push(`- **Required checks:** ${milestone.requiredChecks.join('; ')}.`);
-    lines.push(`- **Screenshot evidence:** capture at least ${milestone.requiredScreenshotEvidence.minimumScreenshots} screenshot(s); required poses: ${milestone.requiredScreenshotEvidence.requiredPoses.join(', ')}.`);
+    lines.push(`- **Screenshot evidence:** capture at least ${milestone.requiredScreenshotEvidence.minimumScreenshots} screenshot(s); required poses: ${milestone.requiredScreenshotEvidence.requiredPoses.join(', ')}; required paths: ${milestone.requiredScreenshotEvidence.requiredScreenshotPaths.join(', ')}.`);
     lines.push(`- **Console evidence:** record console findings; blocking errors allowed: ${milestone.requiredConsoleEvidence.blockingErrors}.`);
     lines.push(`- **Performance evidence:** record ${milestone.requiredPerformanceEvidence.fields.join(' and ')}.`);
     lines.push(`- **Visual self-review:** inspect each required screenshot, set reviewed, record visible weaknesses, and record the corrections made.`);

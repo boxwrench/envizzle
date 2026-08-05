@@ -654,3 +654,33 @@ test('written prompt SHA-256 equals ENVIZZLE_BUILD.json project.briefSha256', ()
     removeTempDir(tmpDir);
   }
 });
+
+test('build contract milestones strictly separate requiredPoses from requiredScreenshotPaths', () => {
+  const assembled = assembleBrief(validSignature(), { rootDir: repoRoot });
+  const contract = assembled.buildContract;
+
+  assert.deepEqual(contract.milestones[0].requiredScreenshotEvidence.requiredPoses, ['idle']);
+  assert.deepEqual(contract.milestones[0].requiredScreenshotEvidence.requiredScreenshotPaths, ['evidence/first-runnable-scene/milestone_idle.png']);
+
+  assert.deepEqual(contract.milestones[1].requiredScreenshotEvidence.requiredPoses, ['locomotion', 'mechanic']);
+  assert.deepEqual(contract.milestones[1].requiredScreenshotEvidence.requiredScreenshotPaths, [
+    'evidence/systems-complete/milestone_locomotion.png',
+    'evidence/systems-complete/milestone_mechanic.png',
+  ]);
+
+  assert.deepEqual(contract.milestones[2].requiredScreenshotEvidence.requiredPoses, ['idle', 'locomotion', 'mechanic']);
+  assert.deepEqual(contract.milestones[2].requiredScreenshotEvidence.requiredScreenshotPaths, [
+    'evidence/final-polish/milestone_idle.png',
+    'evidence/final-polish/milestone_locomotion.png',
+    'evidence/final-polish/milestone_mechanic.png',
+  ]);
+
+  // Ensure rendered brief does not contain "required poses: evidence/..."
+  assert.doesNotMatch(assembled.brief, /required poses:\s*evidence\//i);
+
+  // Swapped or corrupted poses fail validation
+  const badContract = clone(contract);
+  badContract.milestones[0].requiredScreenshotEvidence.requiredPoses = ['evidence/first-runnable-scene/milestone_idle.png'];
+  const val = validateBuildContract(badContract);
+  assert.equal(val.valid, false);
+});

@@ -620,26 +620,27 @@ test('adversarial test: legacy skip-build environment variable cannot bypass the
   }
 });
 
-test('adversarial test: server readiness failure is classified as status: error (exit 2), not a demo defect', async () => {
+test('adversarial test: server readiness failure is classified as status: error (exit 2), not a demo defect', () => {
   const shim = makeNpxShim('serve-fail');
   const projectDir = makeStubProject();
   try {
     const reportPath = path.join(projectDir, 'verify-report.json');
-    const result = await withShimOnPath(shim, () =>
-      verifyDemo(projectDir, {
-        reportPath,
-        silent: true,
-        serverReadyTimeoutMs: 800,
-      }));
+    let status = 0;
+    try {
+      execFileSync(
+        process.execPath,
+        [path.join(repoRoot, 'verify', 'verify_demo.mjs'), projectDir, '--report', reportPath],
+        {
+          cwd: repoRoot,
+          stdio: 'pipe',
+          env: { ...process.env, PATH: shim.dir + path.delimiter + process.env.PATH },
+        },
+      );
+    } catch (err) {
+      status = err.status;
+    }
 
-    assert.equal(result.status, 'error', `expected operational error, got status '${result.status}'`);
-    assert.equal(result.report.gates.pass, false);
-    assert.equal(result.pass, false);
-    assert.ok(
-      result.failures.some((f) => /server|connection|port/i.test(f)),
-      `expected an operational server/port failure string, got: ${result.failures.join(' | ')}`,
-    );
-
+    assert.equal(status, 2, 'server readiness failure must exit code 2');
     const written = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
     assert.equal(written.status, 'error');
     assert.equal(written.gates.pass, false);
@@ -906,4 +907,10 @@ test('adversarial test: connected page.goto() failure blocks success even when e
     shim.cleanup();
     try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
+});
+
+test('verify_demo process cleanup contains no undefined execSync or shell command strings', () => {
+  const code = fs.readFileSync(path.join(repoRoot, 'verify', 'verify_demo.mjs'), 'utf8');
+  assert.doesNotMatch(code, /\bexecSync\b/, 'verify_demo.mjs must not reference undefined execSync');
+  assert.match(code, /execFileSync\s*\(\s*['"]taskkill['"]\s*,\s*\[/i, 'verify_demo.mjs must use vector execFileSync for taskkill');
 });

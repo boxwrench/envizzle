@@ -52,17 +52,21 @@ export function containsLeak(str) {
   if (typeof str !== 'string') return false;
   // Stack traces
   if (/\bat\s+.*:\d+:\d+/i.test(str)) return true;
+  if (/\bat\s+.*\([^)]+:\d+:\d+\)/i.test(str)) return true;
+  if (/Traceback \(most recent call last\):/i.test(str)) return true;
   // Windows drive letter absolute paths or UNC paths
   if (/[a-zA-Z]:[\\/]/i.test(str) || /^[a-zA-Z]:$/i.test(str) || /^(\\\\|\/\/)/.test(str)) return true;
   // Unix absolute paths (/Users, /home, /var, /usr, /etc, /opt, /tmp, /root, /bin, /sbin, /dev)
   if (/(\/(Users|home|var|usr|etc|opt|tmp|root|bin|sbin|dev)\/[^\s\n:]+)/i.test(str)) return true;
   if (/^\/(Users|home|var|usr|etc|opt|tmp|root|bin|sbin|dev)($|\/)/i.test(str)) return true;
-  // Embedded Unix/Windows absolute paths in longer strings
   if (/(?:^|\s)\/(Users|home|var|usr|etc|opt|tmp|root|bin|sbin|dev)\/[^\s\n:]+/i.test(str)) return true;
   if (/(?:^|\s)[a-zA-Z]:[\\/][^\s\n:]+/i.test(str)) return true;
-  // Credentials/tokens
+  // Credentials / tokens / secrets
   if (/bearer\s+[a-z0-9._-]+/i.test(str)) return true;
-  if (/(api[_-]?key|secret|token|password|auth)\s*[:=]\s*\S+/i.test(str)) return true;
+  if (/(api[_-]?key|secret|token|password|auth|credential|access[_-]?key|private[_-]?key)\s*[:=]\s*\S+/i.test(str)) return true;
+  if (/sk-[a-zA-Z0-9_-]{8,}/.test(str)) return true;
+  if (/ghp_[a-zA-Z0-9_-]{8,}/.test(str)) return true;
+  if (/BEGIN\s+PRIVATE\s+KEY/i.test(str)) return true;
   return false;
 }
 

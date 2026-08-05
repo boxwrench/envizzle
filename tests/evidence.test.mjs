@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execSync, execFileSync } from 'node:child_process';
 import { PNG } from 'pngjs';
 import {
   validateMilestoneEvidence,
@@ -574,6 +575,124 @@ test('missing or malformed briefSha256 fails disk-level validation', () => {
       assert.ok(res.errors.some((e) => /briefSha256/.test(e)));
     } finally {
       rmTmpDir(tmp);
+    }
+  }
+});
+
+test('pure evidence schema module can be imported and used in an isolated directory without node_modules or pngjs', () => {
+  const tmpDir = makeTmpDir();
+  try {
+    const evUrl = pathToFileURL(path.join(repoRoot, 'verify', 'evidence.mjs')).href;
+    const script = `
+      import { validateMilestoneEvidence } from '${evUrl}';
+      const template = {
+        schemaVersion: 1,
+        status: 'incomplete verification',
+        milestones: [
+          { id: 'first-runnable-scene', status: 'incomplete verification', screenshots: [], console: { errors: [], warnings: [] }, performance: { fps: null, frameTimeMs: null }, visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] } },
+          { id: 'systems-complete', status: 'incomplete verification', screenshots: [], console: { errors: [], warnings: [] }, performance: { fps: null, frameTimeMs: null }, visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] } },
+          { id: 'final-polish', status: 'incomplete verification', screenshots: [], console: { errors: [], warnings: [] }, performance: { fps: null, frameTimeMs: null }, visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] } }
+        ]
+      };
+      const res = validateMilestoneEvidence(template);
+      if (!res.valid) throw new Error('Validation failed: ' + res.errors.join('; '));
+      console.log('PURE_IMPORT_OK');
+    `;
+    const out = execFileSync('node', ['--input-type=module', '--eval', script], { cwd: tmpDir, env: { ...process.env, NODE_PATH: '' }, encoding: 'utf8' });
+    assert.ok(out.includes('PURE_IMPORT_OK'));
+  } finally {
+    rmTmpDir(tmpDir);
+  }
+});
+
+test('adversarial test: ENVIZZLE_BUILD.json symlink resolving outside project is rejected', (t) => {
+  const tmpOutside = makeTmpDir();
+  const tmpProject = makeTmpDir();
+  try {
+    createValidProjectDirectory(tmpProject);
+    const outsideBuild = path.join(tmpOutside, 'external-build.json');
+    fs.writeFileSync(outsideBuild, JSON.stringify({ schemaVersion: 1 }), 'utf8');
+
+    const projectBuild = path.join(tmpProject, BUILD_CONTRACT_FILENAME);
+    fs.unlinkSync(projectBuild);
+
+    try {
+      fs.symlinkSync(outsideBuild, projectBuild);
+    } catch {
+      t.skip('Host filesystem platform/permissions do not permit creating symlinks (EPERM)');
+      return;
+    }
+
+    const res = validateProjectMilestoneEvidence(tmpProject);
+    assert.equal(res.ok, false);
+    assert.ok(res.errors.some((e) => /Path security violation|resolves outside project/.test(e)));
+  } finally {
+    rmTmpDir(tmpOutside);
+    rmTmpDir(tmpProject);
+  }
+});
+
+test('adversarial test: ENVIZZLE_EVIDENCE.json symlink resolving outside project is rejected', (t) => {
+  const tmpOutside = makeTmpDir();
+  const tmpProject = makeTmpDir();
+  try {
+    createValidProjectDirectory(tmpProject);
+    const outsideEvidence = path.join(tmpOutside, 'external-evidence.json');
+    fs.writeFileSync(outsideEvidence, JSON.stringify({ schemaVersion: 1 }), 'utf8');
+
+    const projectEvidence = path.join(tmpProject, EVIDENCE_FILENAME);
+    fs.unlinkSync(projectEvidence);
+
+    try {
+      fs.symlinkSync(outsideEvidence, projectEvidence);
+    } catch {
+      t.skip('Host filesystem platform/permissions do not permit creating symlinks (EPERM)');
+      return;
+    }
+
+    const res = validateProjectMilestoneEvidence(tmpProject);
+    assert.equal(res.ok, false);
+    assert.ok(res.errors.some((e) => /Path security violation|resolves outside project/.test(e)));
+  } finally {
+    rmTmpDir(tmpOutside);
+    rmTmpDir(tmpProject);
+  }
+});
+
+test('evidence leak protection rejects stack traces, Unix paths, Windows paths, bearer tokens, and API credentials in console and review fields', () => {
+  const leaks = [
+    'Error: Failed at render (file:///C:/Users/dev/project/main.js:10:20)',
+    'Traceback (most recent call last): File "/home/user/script.py", line 5',
+    '/var/log/system.log output leak',
+    'C:\\Users\\admin\\secret\\key.txt',
+    'bearer eyJhbGciOiJIUzI1NiJ9.secret',
+    'api_key=sk-1234567890abcdef123456',
+    'ghp_1234567890abcdef123456',
+    '-----BEGIN PRIVATE KEY-----',
+  ];
+
+  for (const leak of leaks) {
+    for (const location of ['console.errors', 'console.warnings', 'visualSelfReview.weaknesses', 'visualSelfReview.corrections']) {
+      const template = {
+        schemaVersion: 1,
+        status: INCOMPLETE_VERIFICATION_STATUS,
+        milestones: [
+          {
+            id: 'first-runnable-scene',
+            status: INCOMPLETE_VERIFICATION_STATUS,
+            screenshots: [],
+            console: { errors: location === 'console.errors' ? [leak] : [], warnings: location === 'console.warnings' ? [leak] : [] },
+            performance: { fps: null, frameTimeMs: null },
+            visualSelfReview: { reviewed: false, weaknesses: location === 'visualSelfReview.weaknesses' ? [leak] : [], corrections: location === 'visualSelfReview.corrections' ? [leak] : [] },
+          },
+          { id: 'systems-complete', status: INCOMPLETE_VERIFICATION_STATUS, screenshots: [], console: { errors: [], warnings: [] }, performance: { fps: null, frameTimeMs: null }, visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] } },
+          { id: 'final-polish', status: INCOMPLETE_VERIFICATION_STATUS, screenshots: [], console: { errors: [], warnings: [] }, performance: { fps: null, frameTimeMs: null }, visualSelfReview: { reviewed: false, weaknesses: [], corrections: [] } },
+        ],
+      };
+
+      const res = validateMilestoneEvidence(template);
+      assert.equal(res.valid, false, `Leak '${leak}' in '${location}' must fail validation`);
+      assert.ok(res.errors.some((e) => /leaked sensitive data|absolute path/.test(e)));
     }
   }
 });

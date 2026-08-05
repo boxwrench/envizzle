@@ -51,20 +51,29 @@ test('parseVerifyCliArgs handles help, default paths, custom options, duplicate 
   assert.equal(resDefault.projectDir, process.cwd());
 
   // Custom project and flags
-  const resCustom = parseVerifyCliArgs(['my-project', '--report', 'out.json', '--screenshots', 'shots']);
+  const resCustom = parseVerifyCliArgs(['my-project', '--report', 'out.json']);
   assert.equal(resCustom.projectDir, path.resolve('my-project'));
+  assert.equal(resCustom.reportPath, path.resolve('out.json'));
+  assert.equal(resCustom.screenshotsDir, path.join(path.resolve('my-project'), 'evidence', 'final-polish'));
 
-  // Malformed options
+  // Malformed options & removed --screenshots option
   assert.throws(() => parseVerifyCliArgs(['--report']), /Missing path/);
+  assert.throws(() => parseVerifyCliArgs(['--screenshots', 'shots']), /Unknown option/);
   assert.throws(() => parseVerifyCliArgs(['--invalid-flag']), /Unknown option/);
-  assert.throws(() => parseVerifyCliArgs(['dir1', 'dir2']), /Unexpected positional argument/);
-
   // Duplicate flags
   assert.throws(() => parseVerifyCliArgs(['--report', 'a.json', '--report', 'b.json']), /Duplicate option --report/);
-  assert.throws(() => parseVerifyCliArgs(['--screenshots', 's1', '--screenshots', 's2']), /Duplicate option --screenshots/);
 
   // Combined help
   assert.throws(() => parseVerifyCliArgs(['my-project', '--help']), /Cannot combine --help with other arguments/);
+});
+
+test('verify_demo CLI rejects --screenshots and exits 2', () => {
+  try {
+    execSync('node verify/verify_demo.mjs --screenshots screenshots/', { cwd: repoRoot, stdio: 'pipe' });
+    assert.fail('--screenshots must exit 2');
+  } catch (err) {
+    assert.equal(err.status, 2, '--screenshots option must exit code 2');
+  }
 });
 
 test('parseBenchmarkCliArgs enforces strict attempt grammar, duplicate flags, and help combinations', () => {

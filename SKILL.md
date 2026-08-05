@@ -397,15 +397,16 @@ wrong biome's text, a mechanic writing a channel the biome does not declare, and
 
 ## Step 5 — Hand off
 
-1. Copy this skill's `verify/` directory next to the target project so
-   `verify/verify_demo.mjs`, `verify/gates.mjs`, and `verify/README.md` sit beside
-   the brief.
+1. Copy `ENVIZZLE_BUILD.json`, `ENVIZZLE_EVIDENCE.json`, and this skill's `verify/` directory (`verify/README.md`, `verify/evidence.mjs`, `verify/gates.mjs`, `verify/report.mjs`, `verify/verify_demo.mjs`) next to `<PROJECT>_TECHDEMO_PROMPT.md`.
 2. Write `HANDOFF.md` in the same directory:
 
 ```markdown
 # Handoff
 
-- **Brief:** `<PROJECT>_TECHDEMO_PROMPT.md` — give this file to the coding agent, whole. It needs nothing else.
+- **Brief:** `<PROJECT>_TECHDEMO_PROMPT.md` — primary task prompt brief for the coding agent.
+- **Build contract:** `ENVIZZLE_BUILD.json` — machine-readable build contract.
+- **Evidence record:** `ENVIZZLE_EVIDENCE.json` — milestone screenshot and verification record template.
+- **Agent workspace:** provide the complete nine-file bundle (`<PROJECT>_TECHDEMO_PROMPT.md`, `ENVIZZLE_BUILD.json`, `ENVIZZLE_EVIDENCE.json`, `HANDOFF.md`, `verify/README.md`, `verify/evidence.mjs`, `verify/gates.mjs`, `verify/report.mjs`, `verify/verify_demo.mjs`) as the builder agent's workspace.
 - **Agent:** <the agent the user named, e.g. Claude Code in this repo>
 - **When the agent says it is done:** `npm install -D playwright pngjs && node verify/verify_demo.mjs .`
 - **On failure:** the verifier lists each problem. Hand the list back to the agent and have it fix and re-run. Do not accept the demo with failures outstanding.
