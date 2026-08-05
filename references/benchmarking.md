@@ -65,14 +65,16 @@ Each prepared case directory contains:
 - `review-template.json`: Pre-populated human review template.
 - `bundle/`:
   - `<PROJECT>_TECHDEMO_PROMPT.md`: Assembled tech demo brief.
+  - `ENVIZZLE_BUILD.json`: Machine-readable build contract.
+  - `ENVIZZLE_EVIDENCE.json`: Milestone evidence record template.
   - `HANDOFF.md`: Handoff instructions for the builder agent.
-  - `verify/`: Embedded verifier source files (`verify_demo.mjs`, `gates.mjs`, `report.mjs`, `README.md`).
+  - `verify/`: Embedded verifier source files (`verify_demo.mjs`, `gates.mjs`, `report.mjs`, `evidence.mjs`, `README.md`).
 
 ---
 
 ## Agent Prompt Handoff
 
-When evaluating an agent, pass ONLY the assembled brief (`bundle/<PROJECT>_TECHDEMO_PROMPT.md`) and standard workspace setup. Do not provide hidden hints, custom scaffolding, or pre-built asset files beyond what the brief specifies.
+When evaluating an agent, pass the complete bundle (`<PROJECT>_TECHDEMO_PROMPT.md`, `ENVIZZLE_BUILD.json`, `ENVIZZLE_EVIDENCE.json`, `HANDOFF.md`, `verify/`) as the workspace. Use the Markdown brief as the primary prompt. Do not provide hidden hints, custom scaffolding, or pre-built asset files beyond what the brief specifies.
 
 The builder agent must implement the tech demo in zero-asset procedural WebGL/WebGPU code using standard Vite structure and expose the required `window.__demo` hook.
 

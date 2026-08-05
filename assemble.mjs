@@ -22,6 +22,7 @@ import {
   BUILD_CONTRACT_FILENAME,
   EVIDENCE_FILENAME,
   HANDOFF_FILENAME,
+  VERIFIER_FILES,
   createBuildContract,
   createCanonicalAssemblyModel,
   createEvidenceTemplate,
@@ -945,7 +946,7 @@ export function writeBundle(spec, outDir, options = {}) {
   const verifySrc = path.join(rootDir, 'verify');
 
   // Preflight 1: Read all verifier files into memory before creating/modifying targets
-  const verifierFiles = ['README.md', 'gates.mjs', 'report.mjs', 'verify_demo.mjs'];
+  const verifierFiles = VERIFIER_FILES;
   const cachedVerifierFiles = {};
   for (const vf of verifierFiles) {
     const srcPath = path.join(verifySrc, vf);
@@ -990,10 +991,7 @@ export function writeBundle(spec, outDir, options = {}) {
     path.join(targetDir, BUILD_CONTRACT_FILENAME),
     path.join(targetDir, EVIDENCE_FILENAME),
     path.join(targetDir, HANDOFF_FILENAME),
-    path.join(targetDir, 'verify', 'README.md'),
-    path.join(targetDir, 'verify', 'gates.mjs'),
-    path.join(targetDir, 'verify', 'report.mjs'),
-    path.join(targetDir, 'verify', 'verify_demo.mjs'),
+    ...verifierFiles.map((vf) => path.join(targetDir, 'verify', vf)),
   ];
 
   for (const tf of targetFiles) {

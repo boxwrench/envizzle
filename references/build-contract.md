@@ -1,6 +1,6 @@
 # Build Contract and Milestone Evidence
 
-`writeBundle` emits `ENVIZZLE_BUILD.json` beside the generated brief and copies the owned verifier files (`verify/README.md`, `verify/gates.mjs`, `verify/report.mjs`, `verify/verify_demo.mjs`). It is a versioned, deterministic contract created from the same validated assembly model as the Markdown brief. It is descriptive: it does not add artistic thresholds or replace the verifier's existing acceptance rules.
+`writeBundle` emits `ENVIZZLE_BUILD.json` beside the generated brief and copies the owned verifier files (`verify/README.md`, `verify/evidence.mjs`, `verify/gates.mjs`, `verify/report.mjs`, `verify/verify_demo.mjs`). It is a versioned, deterministic contract created from the same validated assembly model as the Markdown brief. It is descriptive: it does not add artistic thresholds or replace the verifier's existing acceptance rules.
 
 ## Contract
 
@@ -28,6 +28,6 @@ Each defines required checks, screenshot poses, console evidence, `fps`/`frameTi
 
 `ENVIZZLE_EVIDENCE.json` is an empty deterministic template. Its top-level status and each milestone status are either `complete` or exactly `incomplete verification`. Each milestone records screenshot filenames, console errors and warnings, performance values, and a visual self-review with weaknesses and corrections.
 
-Missing screenshot capability or missing required evidence must remain `incomplete verification`; it is never converted into a pass. A complete milestone requires unique screenshot filenames matching pose requirements (`milestone_idle.png`, `milestone_locomotion.png`, `milestone_mechanic.png`), zero console errors, finite non-negative performance values (`fps`, `frameTimeMs`), `reviewed: true`, and nonblank entries in `weaknesses` and `corrections`. The evidence validator requires all three milestone IDs in canonical order and rejects duplicate, missing, reordered, or unknown entries.
+Missing screenshot capability or missing required evidence must remain `incomplete verification`; it is never converted into a pass. A complete milestone requires unique screenshot filenames matching canonical pose requirements (`evidence/first-runnable-scene/milestone_idle.png`, `evidence/systems-complete/milestone_locomotion.png`, `evidence/systems-complete/milestone_mechanic.png`, `evidence/final-polish/milestone_idle.png`, `evidence/final-polish/milestone_locomotion.png`, `evidence/final-polish/milestone_mechanic.png`), zero console errors, finite non-negative performance values (`fps`, `frameTimeMs`), `reviewed: true`, and nonblank entries in `weaknesses` and `corrections`. The evidence validator requires all three milestone IDs in canonical order and rejects duplicate, missing, reordered, legacy pose-only, or unknown entries.
 
 Both JSON files use stable key/array order, two-space indentation, a final newline, and contain no timestamps, random IDs, absolute paths, or environment data. Contract validation and brief/contract agreement validation run before a bundle is written.

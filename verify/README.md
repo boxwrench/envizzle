@@ -27,12 +27,13 @@ Defaults to the current working directory if no path is given. It:
 5. Checks for runtime/console errors.
 6. Cycles through the `idle`, `locomotion`, and `mechanic` poses. For each,
    captures a screenshot with the character visible and one with it hidden,
-   and writes `screenshots/milestone_<pose>.png`.
+   and writes `evidence/final-polish/milestone_<pose>.png`.
 7. Reads camera depth and frame-time stats from the hook.
-8. Runs `evaluateGates` (see `gates.mjs`) over everything captured and
+8. Validates project contract, brief hash, evidence record, and canonical screenshot files on disk.
+9. Runs `evaluateGates` (see `gates.mjs`) over everything captured and
    reports pass/fail.
 
-Exit code is `0` only if every check — including every image gate — passed.
+Exit code is `0` only if every check — including completed valid milestone evidence — passed.
 
 ## The `window.__demo` contract
 

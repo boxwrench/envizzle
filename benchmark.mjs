@@ -10,7 +10,9 @@ import {
   buildCaseAssemblySpec,
 } from './benchmark-cases.mjs';
 import { assembleBrief, writeBundle } from './assemble.mjs';
+import { VERIFIER_FILES } from './build-contract.mjs';
 import { validateVerificationReport, containsLeak, isPathInside } from './verify/report.mjs';
+import { validateProjectMilestoneEvidence } from './verify/evidence.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname);
@@ -597,7 +599,7 @@ export function prepareBenchmark(outDir, options = {}) {
     preparedBundles.push({ caseDef: c, spec, brief, fileName, briefSha256 });
   }
 
-  const verifierSources = ['README.md', 'gates.mjs', 'verify_demo.mjs', 'report.mjs'];
+  const verifierSources = VERIFIER_FILES;
   for (const vFile of verifierSources) {
     const vPath = path.join(repoRoot, 'verify', vFile);
     if (!fs.existsSync(vPath)) {
@@ -930,7 +932,14 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     };
   }
 
-  const isPassed = rawReport.status === 'passed' && rawReport.gates?.pass === true && rawReport.build?.ok === true;
+  const evidenceVal = validateProjectMilestoneEvidence(projReal);
+
+  const isPassed = rawReport.status === 'passed' &&
+    rawReport.gates?.pass === true &&
+    rawReport.build?.ok === true &&
+    rawReport.evidence?.ok === true &&
+    evidenceVal.ok;
+
   const hardGateFailures = [];
   const seenHardGateFailures = new Set();
   const addHardGateFailure = (failure) => {
@@ -943,6 +952,10 @@ export function collectBenchmarkResult(projectDir, options = {}) {
   addHardGateFailure(rawReport.build?.error);
   for (const error of rawReport.runtime?.errors || []) addHardGateFailure(error);
   for (const failure of rawReport.gates?.failures || []) addHardGateFailure(failure);
+  for (const err of rawReport.evidence?.errors || []) addHardGateFailure(err);
+  for (const err of evidenceVal.errors) addHardGateFailure(`Milestone evidence validation failed: ${err}`);
+
+  const autoStatus = isPassed ? 'passed' : (rawReport.status === 'error' ? 'error' : 'failed');
 
   const normalizedResult = {
     schemaVersion: 1,
@@ -951,7 +964,7 @@ export function collectBenchmarkResult(projectDir, options = {}) {
     attempt: options.attempt,
     briefSha256: actualPromptSha256,
     automated: {
-      status: rawReport.status,
+      status: autoStatus,
       pass: isPassed,
       hardGateFailures,
       hardGateFailureCount: hardGateFailures.length,

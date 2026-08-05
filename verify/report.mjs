@@ -14,6 +14,7 @@ const ALLOWED_TOP_KEYS = new Set([
   'requiredPaths',
   'build',
   'runtime',
+  'evidence',
   'captures',
   'gates',
   'benchmark',
@@ -41,7 +42,11 @@ function isNonBlankString(val) {
 
 const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const REQUIRED_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
-export const REQUIRED_CAPTURE_FILENAMES = Object.freeze(['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png']);
+export const REQUIRED_CAPTURE_FILENAMES = Object.freeze([
+  'evidence/final-polish/milestone_idle.png',
+  'evidence/final-polish/milestone_locomotion.png',
+  'evidence/final-polish/milestone_mechanic.png',
+]);
 
 export function containsLeak(str) {
   if (typeof str !== 'string') return false;
@@ -209,6 +214,27 @@ export function validateVerificationReport(report) {
     }
   }
 
+  if (!isPlainObject(report.evidence)) {
+    errors.push('evidence must be a plain object');
+  } else {
+    const evKeys = Object.keys(report.evidence);
+    if (evKeys.length !== 2 || !evKeys.includes('ok') || !evKeys.includes('errors')) {
+      errors.push(`evidence must contain exact keys ['ok', 'errors'], got [${evKeys.join(', ')}]`);
+    }
+    if (typeof report.evidence.ok !== 'boolean') {
+      errors.push('evidence.ok must be a boolean');
+    }
+    if (!Array.isArray(report.evidence.errors) || report.evidence.errors.some((e) => typeof e !== 'string')) {
+      errors.push('evidence.errors must be an array of strings');
+    } else {
+      for (const errStr of report.evidence.errors) {
+        if (containsLeak(errStr)) {
+          errors.push(`evidence error contains path, stack, or credential leakage: '${errStr}'`);
+        }
+      }
+    }
+  }
+
   if (!Array.isArray(report.captures)) {
     errors.push('captures must be an array of safe relative filename strings');
   } else {
@@ -334,6 +360,12 @@ export function validateVerificationReport(report) {
     if (Array.isArray(report.runtime?.errors) && report.runtime.errors.length > 0) {
       errors.push('Contradictory state: status is "passed" but runtime.errors is not empty');
     }
+    if (report.evidence?.ok !== true) {
+      errors.push('Contradictory state: status is "passed" but evidence.ok is not true');
+    }
+    if (Array.isArray(report.evidence?.errors) && report.evidence.errors.length > 0) {
+      errors.push('Contradictory state: status is "passed" but evidence.errors is not empty');
+    }
     if (report.gates?.pass !== true) {
       errors.push('Contradictory state: status is "passed" but gates.pass is not true');
     }
@@ -391,9 +423,10 @@ export function validateVerificationReport(report) {
     const hasFailureReason =
       isNonBlankString(report.build?.error) ||
       (Array.isArray(report.runtime?.errors) && report.runtime.errors.some(isNonBlankString)) ||
+      (Array.isArray(report.evidence?.errors) && report.evidence.errors.some(isNonBlankString)) ||
       (Array.isArray(report.gates?.failures) && report.gates.failures.some(isNonBlankString));
     if (!hasFailureReason) {
-      errors.push('Contradictory state: status is "failed" but no nonblank failure reason was recorded in build, runtime, or gates');
+      errors.push('Contradictory state: status is "failed" but no nonblank failure reason was recorded in build, runtime, evidence, or gates');
     }
   } else if (report.status === 'error') {
     if (report.gates?.pass !== false) {
@@ -402,9 +435,10 @@ export function validateVerificationReport(report) {
     const hasOperationalError =
       isNonBlankString(report.build?.error) ||
       (Array.isArray(report.runtime?.errors) && report.runtime.errors.some(isNonBlankString)) ||
+      (Array.isArray(report.evidence?.errors) && report.evidence.errors.some(isNonBlankString)) ||
       (Array.isArray(report.gates?.failures) && report.gates.failures.some(isNonBlankString));
     if (!hasOperationalError) {
-      errors.push('Contradictory state: status is "error" but no operational error recorded in build, runtime, or gates');
+      errors.push('Contradictory state: status is "error" but no operational error recorded in build, runtime, evidence, or gates');
     }
   }
 
@@ -452,6 +486,12 @@ export function normalizeVerificationReport(report) {
       hookReady: Boolean(report.runtime?.hookReady),
       errors: Array.isArray(report.runtime?.errors)
         ? report.runtime.errors.map((e) => sanitizePathOrString(String(e)))
+        : [],
+    },
+    evidence: {
+      ok: Boolean(report.evidence?.ok),
+      errors: Array.isArray(report.evidence?.errors)
+        ? report.evidence.errors.map((e) => sanitizePathOrString(String(e)))
         : [],
     },
     captures: Array.isArray(report.captures)
@@ -509,13 +549,14 @@ export function createVerificationReport({
   requiredPaths = [],
   build = { ok: true, error: null },
   runtime = { hookReady: true, errors: [] },
+  evidence = { ok: true, errors: [] },
   captures = [],
   gates = { pass: true, failures: [], info: [], metrics: { frames: [], cameraNearestDepthM: null, frameStats: { medianMs: null, p99Ms: null, samples: null } } },
   status = null,
   benchmark = null,
 }) {
   const computedStatus = status || (
-    build.ok && runtime.hookReady && (runtime.errors || []).length === 0 && gates.pass
+    build.ok && runtime.hookReady && (runtime.errors || []).length === 0 && evidence.ok && (evidence.errors || []).length === 0 && gates.pass
       ? 'passed'
       : 'failed'
   );
@@ -530,6 +571,7 @@ export function createVerificationReport({
     requiredPaths,
     build,
     runtime,
+    evidence,
     captures,
     gates,
     benchmark,

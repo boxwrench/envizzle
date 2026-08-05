@@ -14,7 +14,7 @@ Five artefacts, written into the user's target project directory:
 | `<PROJECT>_TECHDEMO_PROMPT.md` | The brief. One self-contained Markdown file. **This is the product.** |
 | `ENVIZZLE_BUILD.json` | Versioned machine-readable build contract generated from the same validated assembly result as the brief. |
 | `ENVIZZLE_EVIDENCE.json` | Empty/incomplete milestone evidence template for screenshots, console findings, performance, weaknesses, and corrections. |
-| `verify/` | A copy of this skill's `verify/` directory (`verify_demo.mjs`, `gates.mjs`, `README.md`). |
+| `verify/` | A copy of this skill's `verify/` directory (`verify_demo.mjs`, `gates.mjs`, `report.mjs`, `evidence.mjs`, `README.md`). |
 | `HANDOFF.md` | Handoff, contract, evidence, and three-milestone visual self-review instructions. |
 
 The brief must be **self-contained**. The agent that builds from it may be any

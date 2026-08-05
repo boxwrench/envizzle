@@ -31,17 +31,29 @@ export const NOVELTY_BUDGET_KEYS = Object.freeze([
   'increasesAmbition',
 ]);
 
+import {
+  validateMilestoneEvidence as validateMilestoneEvidenceSchema,
+} from './verify/evidence.mjs';
+
+export const VERIFIER_FILES = Object.freeze([
+  'README.md',
+  'evidence.mjs',
+  'gates.mjs',
+  'report.mjs',
+  'verify_demo.mjs',
+]);
+
 export const REQUIRED_CAPTURE_POSES = Object.freeze(['idle', 'locomotion', 'mechanic']);
 export const REQUIRED_CAPTURE_FILENAMES = Object.freeze([
-  'milestone_idle.png',
-  'milestone_locomotion.png',
-  'milestone_mechanic.png',
+  'evidence/final-polish/milestone_idle.png',
+  'evidence/final-polish/milestone_locomotion.png',
+  'evidence/final-polish/milestone_mechanic.png',
 ]);
 
 const POSE_FILENAME_MAP = Object.freeze({
-  idle: 'milestone_idle.png',
-  locomotion: 'milestone_locomotion.png',
-  mechanic: 'milestone_mechanic.png',
+  idle: 'evidence/final-polish/milestone_idle.png',
+  locomotion: 'evidence/final-polish/milestone_locomotion.png',
+  mechanic: 'evidence/final-polish/milestone_mechanic.png',
 });
 
 const REQUIRED_PROJECT_PATHS = Object.freeze([
@@ -104,7 +116,7 @@ const MILESTONE_DEFINITIONS = Object.freeze([
     requiredScreenshotEvidence: Object.freeze({
       required: true,
       minimumScreenshots: 1,
-      requiredPoses: Object.freeze(['idle']),
+      requiredPoses: Object.freeze(['evidence/first-runnable-scene/milestone_idle.png']),
     }),
     requiredConsoleEvidence: Object.freeze({
       required: true,
@@ -138,7 +150,10 @@ const MILESTONE_DEFINITIONS = Object.freeze([
     requiredScreenshotEvidence: Object.freeze({
       required: true,
       minimumScreenshots: 2,
-      requiredPoses: Object.freeze(['locomotion', 'mechanic']),
+      requiredPoses: Object.freeze([
+        'evidence/systems-complete/milestone_locomotion.png',
+        'evidence/systems-complete/milestone_mechanic.png',
+      ]),
     }),
     requiredConsoleEvidence: Object.freeze({
       required: true,
@@ -172,7 +187,11 @@ const MILESTONE_DEFINITIONS = Object.freeze([
     requiredScreenshotEvidence: Object.freeze({
       required: true,
       minimumScreenshots: 3,
-      requiredPoses: REQUIRED_CAPTURE_POSES,
+      requiredPoses: Object.freeze([
+        'evidence/final-polish/milestone_idle.png',
+        'evidence/final-polish/milestone_locomotion.png',
+        'evidence/final-polish/milestone_mechanic.png',
+      ]),
     }),
     requiredConsoleEvidence: Object.freeze({
       required: true,
@@ -545,91 +564,8 @@ export function validateBuildContract(contract) {
   return { valid: errors.length === 0, errors };
 }
 
-function validateEvidenceMilestone(milestone, index, errors) {
-  const label = `milestones[${index}]`;
-  if (!exactKeys(milestone, ['id', 'status', 'screenshots', 'console', 'performance', 'visualSelfReview'], label, errors)) return;
-  if (!['first-runnable-scene', 'systems-complete', 'final-polish'].includes(milestone.id)) errors.push(`${label}.id is invalid`);
-  if (![INCOMPLETE_VERIFICATION_STATUS, COMPLETE_STATUS].includes(milestone.status)) errors.push(`${label}.status is invalid`);
-  if (!Array.isArray(milestone.screenshots) || milestone.screenshots.some((file) => !isSafeRelativePath(file))) errors.push(`${label}.screenshots must contain safe relative filenames`);
-  if (exactKeys(milestone.console, ['errors', 'warnings'], `${label}.console`, errors)) {
-    for (const field of ['errors', 'warnings']) if (!Array.isArray(milestone.console[field]) || milestone.console[field].some((value) => typeof value !== 'string')) errors.push(`${label}.console.${field} must be an array of strings`);
-  }
-  if (exactKeys(milestone.performance, ['fps', 'frameTimeMs'], `${label}.performance`, errors)) {
-    for (const field of ['fps', 'frameTimeMs']) if (!(milestone.performance[field] === null || (typeof milestone.performance[field] === 'number' && Number.isFinite(milestone.performance[field]) && milestone.performance[field] >= 0))) errors.push(`${label}.performance.${field} must be a non-negative finite number or null`);
-  }
-  if (exactKeys(milestone.visualSelfReview, ['reviewed', 'weaknesses', 'corrections'], `${label}.visualSelfReview`, errors)) {
-    if (typeof milestone.visualSelfReview.reviewed !== 'boolean') errors.push(`${label}.visualSelfReview.reviewed must be boolean`);
-    for (const field of ['weaknesses', 'corrections']) if (!Array.isArray(milestone.visualSelfReview[field]) || milestone.visualSelfReview[field].some((value) => typeof value !== 'string')) errors.push(`${label}.visualSelfReview.${field} must be an array of strings`);
-  }
-  if (milestone.status === COMPLETE_STATUS) {
-    const def = MILESTONE_DEFINITIONS.find((d) => d.id === milestone.id);
-    if (!def) {
-      errors.push(`${label} cannot be complete without valid milestone definition`);
-      return;
-    }
-    if (!Array.isArray(milestone.screenshots)) {
-      errors.push(`${label} cannot be complete without screenshots array`);
-    } else {
-      const uniqueScreenshots = new Set(milestone.screenshots);
-      if (uniqueScreenshots.size !== milestone.screenshots.length) {
-        errors.push(`${label} cannot contain duplicate screenshot filenames`);
-      }
-      const minCount = def.requiredScreenshotEvidence.minimumScreenshots;
-      if (milestone.screenshots.length < minCount) {
-        errors.push(`${label} requires at least ${minCount} screenshot(s) when complete`);
-      }
-      for (const pose of def.requiredScreenshotEvidence.requiredPoses) {
-        const expectedFilename = POSE_FILENAME_MAP[pose];
-        if (expectedFilename && !milestone.screenshots.includes(expectedFilename)) {
-          errors.push(`${label} missing required pose screenshot '${expectedFilename}' for pose '${pose}'`);
-        }
-      }
-    }
-    if (!isPlainObject(milestone.console) || !Array.isArray(milestone.console.errors) || milestone.console.errors.length > 0) {
-      errors.push(`${label} cannot be complete with console errors`);
-    }
-    if (!isPlainObject(milestone.performance) ||
-        milestone.performance.fps === null || typeof milestone.performance.fps !== 'number' || !Number.isFinite(milestone.performance.fps) || milestone.performance.fps < 0 ||
-        milestone.performance.frameTimeMs === null || typeof milestone.performance.frameTimeMs !== 'number' || !Number.isFinite(milestone.performance.frameTimeMs) || milestone.performance.frameTimeMs < 0) {
-      errors.push(`${label} cannot be complete without non-null non-negative finite performance evidence`);
-    }
-    if (!isPlainObject(milestone.visualSelfReview) || milestone.visualSelfReview.reviewed !== true) {
-      errors.push(`${label} cannot be complete without visual self-review`);
-    } else {
-      if (!Array.isArray(milestone.visualSelfReview.weaknesses) || milestone.visualSelfReview.weaknesses.length === 0 || milestone.visualSelfReview.weaknesses.some((w) => typeof w !== 'string' || w.trim() === '')) {
-        errors.push(`${label} cannot be complete with empty weaknesses`);
-      }
-      if (!Array.isArray(milestone.visualSelfReview.corrections) || milestone.visualSelfReview.corrections.length === 0 || milestone.visualSelfReview.corrections.some((c) => typeof c !== 'string' || c.trim() === '')) {
-        errors.push(`${label} cannot be complete with empty corrections`);
-      }
-    }
-  }
-}
-
 export function validateMilestoneEvidence(evidence) {
-  const errors = [];
-  if (!isPlainObject(evidence)) return { valid: false, errors: ['Evidence record must be a plain object'] };
-  if (!exactKeys(evidence, ['schemaVersion', 'status', 'milestones'], 'evidence', errors)) return { valid: false, errors };
-  if (evidence.schemaVersion !== BUILD_CONTRACT_SCHEMA_VERSION) errors.push(`evidence.schemaVersion must be ${BUILD_CONTRACT_SCHEMA_VERSION}`);
-  if (![INCOMPLETE_VERIFICATION_STATUS, COMPLETE_STATUS].includes(evidence.status)) errors.push(`evidence.status must be '${INCOMPLETE_VERIFICATION_STATUS}' or '${COMPLETE_STATUS}'`);
-  if (!Array.isArray(evidence.milestones)) {
-    errors.push('evidence.milestones must be an array');
-  } else {
-    const expectedIds = MILESTONE_DEFINITIONS.map(({ id }) => id);
-    const actualIds = evidence.milestones.map((milestone) => milestone?.id);
-    if (JSON.stringify(actualIds) !== JSON.stringify(expectedIds)) errors.push('evidence.milestones must contain the three milestone IDs in canonical order');
-    const seen = new Set();
-    evidence.milestones.forEach((milestone, index) => {
-      if (seen.has(milestone?.id)) errors.push(`evidence.milestones contains duplicate ID '${milestone?.id}'`);
-      seen.add(milestone?.id);
-      validateEvidenceMilestone(milestone, index, errors);
-    });
-    const allComplete = evidence.milestones.length === MILESTONE_DEFINITIONS.length && evidence.milestones.every((milestone) => milestone.status === COMPLETE_STATUS);
-    if (evidence.status === COMPLETE_STATUS && !allComplete) errors.push('evidence.status complete requires every milestone to be complete');
-    if (evidence.status === INCOMPLETE_VERIFICATION_STATUS && allComplete) errors.push('evidence.status must be complete when every milestone is complete');
-  }
-  scanForNonFiniteOrAbsolute(evidence, 'evidence', errors);
-  return { valid: errors.length === 0, errors };
+  return validateMilestoneEvidenceSchema(evidence);
 }
 
 export function renderContractSummary(contract) {
@@ -675,9 +611,11 @@ export function renderHandoff({ fileName, builderAgent, contract }) {
   const builderAgentLabel = builderAgent || 'the coding agent named by the user';
   return `# Handoff
 
-- **Brief:** \`${fileName}\` — give this file to the coding agent, whole. It needs nothing else.
+- **Brief:** \`${fileName}\` — primary prompt brief for the coding agent.
 - **Build contract:** \`${BUILD_CONTRACT_FILENAME}\` — machine-readable contract generated from the same validated assembly result as the brief.
 - **Evidence record:** \`${EVIDENCE_FILENAME}\` — preserve milestone screenshots, console findings, performance values, weaknesses, and corrections here.
+- **Agent workspace:** provide the complete generated bundle (\`${fileName}\`, \`${BUILD_CONTRACT_FILENAME}\`, \`${EVIDENCE_FILENAME}\`, \`${HANDOFF_FILENAME}\`, \`verify/\`) as the agent's workspace.
+- **Agent instructions:** Use the Markdown brief as your primary prompt. You may inspect \`${BUILD_CONTRACT_FILENAME}\`, \`${EVIDENCE_FILENAME}\`, and the \`verify/\` verifier to understand requirements and evidence formats. Do not request or rely on hidden hints, scaffolds, or external assets outside the bundle.
 - **Agent:** ${builderAgentLabel}
 - **Milestone workflow:** complete \`first-runnable-scene\`, then \`systems-complete\`, then \`final-polish\`; inspect screenshots and correct visible weaknesses at every milestone.
 - **Incomplete verification:** missing screenshot capability or required evidence must be recorded exactly as \`${INCOMPLETE_VERIFICATION_STATUS}\`; it is never a pass.

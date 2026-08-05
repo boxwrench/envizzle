@@ -17,6 +17,12 @@
     "hookReady": false,
     "errors": []
   },
+  "evidence": {
+    "ok": false,
+    "errors": [
+      "build failed: Syntax error in src/main.js"
+    ]
+  },
   "captures": [],
   "gates": {
     "pass": false,

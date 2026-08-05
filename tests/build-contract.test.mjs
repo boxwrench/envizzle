@@ -380,6 +380,7 @@ test('generated bundle contains all four verifier files', () => {
     const result = writeBundle(spec, tmpDir, { rootDir: repoRoot });
     const expectedFiles = [
       'README.md',
+      'evidence.mjs',
       'gates.mjs',
       'report.mjs',
       'verify_demo.mjs',
@@ -455,7 +456,7 @@ const createValidCompletedEvidence = () => ({
     {
       id: 'first-runnable-scene',
       status: 'complete',
-      screenshots: ['milestone_idle.png'],
+      screenshots: ['evidence/first-runnable-scene/milestone_idle.png'],
       console: { errors: [], warnings: [] },
       performance: { fps: 60, frameTimeMs: 16.67 },
       visualSelfReview: { reviewed: true, weaknesses: ['No visible weakness observed.'], corrections: ['No correction required.'] },
@@ -463,7 +464,7 @@ const createValidCompletedEvidence = () => ({
     {
       id: 'systems-complete',
       status: 'complete',
-      screenshots: ['milestone_locomotion.png', 'milestone_mechanic.png'],
+      screenshots: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'],
       console: { errors: [], warnings: [] },
       performance: { fps: 60, frameTimeMs: 16.67 },
       visualSelfReview: { reviewed: true, weaknesses: ['Slight particle clipping.'], corrections: ['Adjusted depth offset.'] },
@@ -471,7 +472,7 @@ const createValidCompletedEvidence = () => ({
     {
       id: 'final-polish',
       status: 'complete',
-      screenshots: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+      screenshots: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'],
       console: { errors: [], warnings: [] },
       performance: { fps: 60, frameTimeMs: 16.67 },
       visualSelfReview: { reviewed: true, weaknesses: ['Contrast could be higher.'], corrections: ['Adjusted contrast.'] },
@@ -488,7 +489,7 @@ test('fully populated three-milestone completed evidence record validates', () =
 test('adversarial evidence mutation: first-runnable complete with only unrelated.png is rejected', () => {
   const ev = createValidCompletedEvidence();
   const before = JSON.stringify(ev.milestones[0].screenshots);
-  ev.milestones[0].screenshots = ['unrelated.png'];
+  ev.milestones[0].screenshots = ['evidence/first-runnable-scene/unrelated.png'];
   assert.notEqual(JSON.stringify(ev.milestones[0].screenshots), before, 'screenshots field must be changed before testing');
   const validation = validateMilestoneEvidence(ev);
   assert.equal(validation.valid, false);
@@ -498,7 +499,7 @@ test('adversarial evidence mutation: first-runnable complete with only unrelated
 test('adversarial evidence mutation: systems-complete with only milestone_locomotion.png is rejected', () => {
   const ev = createValidCompletedEvidence();
   const before = JSON.stringify(ev.milestones[1].screenshots);
-  ev.milestones[1].screenshots = ['milestone_locomotion.png'];
+  ev.milestones[1].screenshots = ['evidence/systems-complete/milestone_locomotion.png'];
   assert.notEqual(JSON.stringify(ev.milestones[1].screenshots), before, 'screenshots field must be changed before testing');
   const validation = validateMilestoneEvidence(ev);
   assert.equal(validation.valid, false);
@@ -508,7 +509,7 @@ test('adversarial evidence mutation: systems-complete with only milestone_locomo
 test('adversarial evidence mutation: final-polish with only one screenshot is rejected', () => {
   const ev = createValidCompletedEvidence();
   const before = JSON.stringify(ev.milestones[2].screenshots);
-  ev.milestones[2].screenshots = ['milestone_idle.png'];
+  ev.milestones[2].screenshots = ['evidence/final-polish/milestone_idle.png'];
   assert.notEqual(JSON.stringify(ev.milestones[2].screenshots), before, 'screenshots field must be changed before testing');
   const validation = validateMilestoneEvidence(ev);
   assert.equal(validation.valid, false);
@@ -518,7 +519,7 @@ test('adversarial evidence mutation: final-polish with only one screenshot is re
 test('adversarial evidence mutation: duplicate screenshot filenames in completed milestone is rejected', () => {
   const ev = createValidCompletedEvidence();
   const before = JSON.stringify(ev.milestones[1].screenshots);
-  ev.milestones[1].screenshots = ['milestone_locomotion.png', 'milestone_locomotion.png'];
+  ev.milestones[1].screenshots = ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_locomotion.png'];
   assert.notEqual(JSON.stringify(ev.milestones[1].screenshots), before, 'screenshots field must be changed before testing');
   const validation = validateMilestoneEvidence(ev);
   assert.equal(validation.valid, false);

@@ -24,7 +24,12 @@ const validReportSample = () => ({
   requiredPaths: ['index.html', 'package.json'],
   build: { ok: true, error: null },
   runtime: { hookReady: true, errors: [] },
-  captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+  evidence: { ok: true, errors: [] },
+  captures: [
+    'evidence/final-polish/milestone_idle.png',
+    'evidence/final-polish/milestone_locomotion.png',
+    'evidence/final-polish/milestone_mechanic.png',
+  ],
   gates: {
     pass: true,
     failures: [],
@@ -51,7 +56,12 @@ test('createVerificationReport creates valid schemaVersion 1 report', () => {
     requiredPaths: ['index.html'],
     build: { ok: true, error: null },
     runtime: { hookReady: true, errors: [] },
-    captures: ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic.png'],
+    evidence: { ok: true, errors: [] },
+    captures: [
+      'evidence/final-polish/milestone_idle.png',
+      'evidence/final-polish/milestone_locomotion.png',
+      'evidence/final-polish/milestone_mechanic.png',
+    ],
     gates: {
       pass: true,
       failures: [],
@@ -161,6 +171,14 @@ test('validateVerificationReport rejects absolute or traversal requiredPaths', (
   assert.ok(val.errors.some((e) => /requiredPaths/.test(e)));
 });
 
+test('validateVerificationReport rejects partial captures on passed status', () => {
+  const samplePartial = validReportSample();
+  samplePartial.captures = ['evidence/final-polish/milestone_idle.png'];
+  const val = validateVerificationReport(samplePartial);
+  assert.equal(val.valid, false);
+  assert.ok(val.errors.some((e) => /captures/.test(e)));
+});
+
 test('validateVerificationReport rejects object captures', () => {
   const sample = validReportSample();
   sample.captures = [{ file: 'idle.png' }];
@@ -252,17 +270,25 @@ test('adversarial: passed report with three arbitrary capture names is rejected'
   assert.ok(val.errors.some((e) => /Unknown capture filename|exactly the three required capture filenames/.test(e)));
 });
 
-test('adversarial: passed report with duplicate capture names is rejected', () => {
+test('validateVerificationReport rejects duplicate capture filenames', () => {
   const sample = validReportSample();
-  sample.captures = ['milestone_idle.png', 'milestone_idle.png', 'milestone_mechanic.png'];
+  sample.captures = [
+    'evidence/final-polish/milestone_idle.png',
+    'evidence/final-polish/milestone_idle.png',
+    'evidence/final-polish/milestone_mechanic.png',
+  ];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
-  assert.ok(val.errors.some((e) => /Duplicate capture filename|exactly the three required capture filenames/.test(e)));
+  assert.ok(val.errors.some((e) => /Duplicate capture filename/.test(e)));
 });
 
-test('validateVerificationReport rejects passed report with a renamed capture (missing required, extra unknown)', () => {
+test('validateVerificationReport rejects unrecognized capture filenames', () => {
   const sample = validReportSample();
-  sample.captures = ['milestone_idle.png', 'milestone_locomotion.png', 'milestone_mechanic_v2.png'];
+  sample.captures = [
+    'evidence/final-polish/milestone_idle.png',
+    'evidence/final-polish/milestone_locomotion.png',
+    'evidence/final-polish/milestone_mechanic_v2.png',
+  ];
   const val = validateVerificationReport(sample);
   assert.equal(val.valid, false);
 });

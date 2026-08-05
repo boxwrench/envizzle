@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { evaluateGates } from './gates.mjs';
 import { createVerificationReport, writeVerificationReport } from './report.mjs';
+import { validateProjectMilestoneEvidence } from './evidence.mjs';
 
 const REQUIRED_PATHS = Object.freeze([
   'index.html',
@@ -67,7 +68,7 @@ export function parseVerifyCliArgs(args) {
     : path.join(resolvedTarget, 'verify-report.json');
   const resolvedScreenshots = screenshotsDir
     ? path.resolve(screenshotsDir)
-    : path.join(resolvedTarget, 'screenshots');
+    : path.join(resolvedTarget, 'evidence', 'final-polish');
 
   return {
     help: false,
@@ -205,7 +206,7 @@ export async function verifyDemo(projectDir, options = {}) {
     : path.join(targetDir, 'verify-report.json');
   const shotDir = options.screenshotsDir
     ? path.resolve(options.screenshotsDir)
-    : path.join(targetDir, 'screenshots');
+    : path.join(targetDir, 'evidence', 'final-polish');
 
   const failures = [];
   const logInfo = [];
@@ -244,9 +245,13 @@ export async function verifyDemo(projectDir, options = {}) {
     ? failures[0]
     : (missingPaths.length > 0 ? `Missing required paths: ${missingPaths.join(', ')}` : null);
 
+  const isWin = process.platform === 'win32';
+  const buildCmd = isWin ? 'cmd.exe' : 'npx';
+  const buildArgs = isWin ? ['/d', '/s', '/c', 'npx', 'vite', 'build'] : ['vite', 'build'];
+
   if (buildOk) {
     try {
-      execSync('npx vite build', { cwd: targetDir, stdio: 'pipe' });
+      execFileSync(buildCmd, buildArgs, { cwd: targetDir, stdio: 'pipe', shell: false });
       pass('production build compiled with zero errors');
     } catch (err) {
       buildOk = false;
@@ -289,11 +294,18 @@ export async function verifyDemo(projectDir, options = {}) {
       const port = 5300 + Math.floor(Math.random() * 600);
       const origin = `http://localhost:${port}`;
       try {
-        server = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
-          cwd: targetDir,
-          shell: true,
-          detached: process.platform !== 'win32',
-        });
+        if (isWin) {
+          server = spawn('cmd.exe', ['/d', '/s', '/c', 'npx', 'vite', '--port', String(port), '--strictPort'], {
+            cwd: targetDir,
+            shell: false,
+          });
+        } else {
+          server = spawn('npx', ['vite', '--port', String(port), '--strictPort'], {
+            cwd: targetDir,
+            shell: false,
+            detached: true,
+          });
+        }
       } catch (spawnErr) {
         isOperationalError = true;
         throw new Error(`Failed to spawn dev server: ${spawnErr.message}`);
@@ -370,9 +382,12 @@ export async function verifyDemo(projectDir, options = {}) {
               image: toImage(withCharBuf),
               imageWithoutCharacter: toImage(withoutCharBuf),
             });
-            const shotName = `milestone_${pose}.png`;
-            fs.writeFileSync(path.join(shotDir, shotName), withCharBuf);
-            writtenCaptures.push(shotName);
+            const shotRelPath = path.relative(targetDir, path.join(shotDir, `milestone_${pose}.png`));
+            const normalizedRelPath = shotRelPath.replace(/\\/g, '/');
+            const destPath = path.join(targetDir, normalizedRelPath);
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
+            fs.writeFileSync(destPath, withCharBuf);
+            writtenCaptures.push(normalizedRelPath);
           }
         } catch (err) {
           if (!browser.isConnected()) {
@@ -461,9 +476,29 @@ export async function verifyDemo(projectDir, options = {}) {
     };
   }
 
+  let evidenceOk = false;
+  const evidenceErrors = [];
+  try {
+    const evVal = validateProjectMilestoneEvidence(targetDir);
+    evidenceOk = evVal.ok;
+    if (!evVal.ok) {
+      for (const err of evVal.errors) {
+        evidenceErrors.push(err);
+        fail(`milestone evidence failure: ${err}`);
+      }
+    } else {
+      pass('milestone evidence validated cleanly');
+    }
+  } catch (err) {
+    evidenceOk = false;
+    const errMsg = `Failed to validate milestone evidence: ${err.message}`;
+    evidenceErrors.push(errMsg);
+    fail(errMsg);
+  }
+
   const finishedAt = new Date().toISOString();
   const durationMs = Date.now() - startTime;
-  const overallPass = buildOk && hookReady && runtimeErrors.length === 0 && gateResult.pass && !isOperationalError && failures.length === 0;
+  const overallPass = buildOk && hookReady && runtimeErrors.length === 0 && gateResult.pass && evidenceOk && !isOperationalError && failures.length === 0;
   const status = isOperationalError ? 'error' : (overallPass ? 'passed' : 'failed');
 
   const report = createVerificationReport({
@@ -474,6 +509,7 @@ export async function verifyDemo(projectDir, options = {}) {
     requiredPaths: REQUIRED_PATHS.slice(),
     build: { ok: buildOk, error: buildError },
     runtime: { hookReady, errors: runtimeErrors },
+    evidence: { ok: evidenceOk, errors: evidenceErrors },
     captures: writtenCaptures,
     gates: {
       pass: gateResult.pass,

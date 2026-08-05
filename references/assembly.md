@@ -128,19 +128,21 @@ node assemble.mjs tests/fixtures/assemblies/signature-alpine.json --out ./my-pro
 
 ## Safe Overwrite Behavior
 
-`writeBundle` writes seven expected target files:
+`writeBundle` writes nine expected target files:
 1. `<PROJECT>_TECHDEMO_PROMPT.md`
 2. `ENVIZZLE_BUILD.json`
 3. `ENVIZZLE_EVIDENCE.json`
 4. `HANDOFF.md`
 5. `verify/README.md`
-6. `verify/gates.mjs`
-7. `verify/verify_demo.mjs`
+6. `verify/evidence.mjs`
+7. `verify/gates.mjs`
+8. `verify/report.mjs`
+9. `verify/verify_demo.mjs`
 
 ### Overwrite Rules
 * Before writing anything, complete selection validation, coherence check, and destination collision preflight.
-* By default, if any of the seven expected files exist in `<output-directory>`, assembly stops immediately and exits code `2` without writing or modifying any files.
-* Passing `--force` permits overwriting only those seven expected files.
+* By default, if any of the nine expected files exist in `<output-directory>`, assembly stops immediately and exits code `2` without writing or modifying any files.
+* Passing `--force` permits overwriting only those nine expected files.
 * Never recursively delete or wipe the output directory.
 * Unrelated files in `<output-directory>` are preserved untouched.
 
@@ -156,6 +158,6 @@ node assemble.mjs tests/fixtures/assemblies/signature-alpine.json --out ./my-pro
 * **Policy/art-direction errors** (luminance, contrast, saturation) can be deliberately overridden with `{ rule, reason }` entries in `coherenceOverrides`.
 
 ### Source Preflight
-Before creating any output directory or file, `writeBundle` reads and caches all three verifier source files (`verify/README.md`, `verify/gates.mjs`, `verify/verify_demo.mjs`) completely in memory. It then assembles the brief, JSON contract, evidence template, and handoff, completes destination/type/collision checks, and only then writes targets. If any source read fails, the function throws immediately and no target files are created.
+Before creating any output directory or file, `writeBundle` reads and caches all five verifier source files (`verify/README.md`, `verify/evidence.mjs`, `verify/gates.mjs`, `verify/report.mjs`, `verify/verify_demo.mjs`) completely in memory. It then assembles the brief, JSON contract, evidence template, and handoff, completes destination/type/collision checks, and only then writes targets. If any source read fails, the function throws immediately and no target files are created.
 
 See [Build Contract and Milestone Evidence](build-contract.md) for the JSON schema, milestone workflow, and `incomplete verification` semantics.

@@ -1,15 +1,13 @@
 # envizzle
 
-**A Claude Code skill that writes the brief, so an agent can one-shot a
+**An agent skill that writes the brief, so a coding agent can one-shot a
 visually impressive real-time graphics demo.**
 
 You run `/envizzle`. It asks what you want (or picks a known-good combination for
-you), checks your art direction for internal contradictions, and writes a single
-self-contained Markdown brief. You hand that brief to any coding agent — Claude,
-Gemini, whatever — and it builds the demo.
+you), checks your art direction for internal contradictions, and writes a complete
+project bundle (`<PROJECT>_TECHDEMO_PROMPT.md`, `ENVIZZLE_BUILD.json`, `ENVIZZLE_EVIDENCE.json`, `HANDOFF.md`, `verify/`). You hand that bundle to any coding agent — Claude, Gemini, or any LLM-powered coding system — as its workspace, and it builds the demo.
 
-The brief is the product. It is deliberately model-agnostic: one file, no external
-references, nothing to fetch.
+The generated bundle consists of 9 total files (4 root files and 5 verifier files under `verify/`). It is deliberately model-agnostic: self-contained, no external references, nothing to fetch.
 
 ---
 

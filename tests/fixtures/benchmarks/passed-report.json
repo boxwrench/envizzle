@@ -21,10 +21,14 @@
     "hookReady": true,
     "errors": []
   },
+  "evidence": {
+    "ok": true,
+    "errors": []
+  },
   "captures": [
-    "milestone_idle.png",
-    "milestone_locomotion.png",
-    "milestone_mechanic.png"
+    "evidence/final-polish/milestone_idle.png",
+    "evidence/final-polish/milestone_locomotion.png",
+    "evidence/final-polish/milestone_mechanic.png"
   ],
   "gates": {
     "pass": true,

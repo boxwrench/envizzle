@@ -6,6 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
+import crypto from 'node:crypto';
 import {
   meanLuminance, flatFrameRatio, changedAreaFraction, evaluateGates, THRESHOLDS,
 } from '../verify/gates.mjs';
@@ -22,8 +23,130 @@ const makeStubProject = () => {
   for (const rel of REQUIRED_STUB_PATHS) {
     const full = path.join(dir, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
-    fs.writeFileSync(full, '', 'utf8');
+    let content = '# Stub\n';
+    if (rel === 'package.json') {
+      content = JSON.stringify({ name: 'stub-demo', type: 'module' }, null, 2);
+    } else if (rel === 'vite.config.js') {
+      content = 'export default {};\n';
+    } else if (rel === 'index.html') {
+      content = '<!DOCTYPE html><html><head><title>Stub</title></head><body><script type="module" src="/src/main.js"></script></body></html>\n';
+    } else if (rel === 'src/main.js') {
+      content = 'console.log("stub");\n';
+    }
+    fs.writeFileSync(full, content, 'utf8');
   }
+
+  const briefName = 'ALPINE_DAWN_TECHDEMO_PROMPT.md';
+  const briefContent = '# ALPINE-DAWN Brief\n\nContent';
+  const briefSha256 = crypto.createHash('sha256').update(briefContent, 'utf8').digest('hex');
+  fs.writeFileSync(path.join(dir, briefName), briefContent, 'utf8');
+
+  const contract = {
+    schemaVersion: 1,
+    project: {
+      name: 'alpine-dawn',
+      briefFilename: briefName,
+      briefSha256: briefSha256,
+      renderingProfile: 'WebGL2 High-Performance 3D',
+      engine: 'Three.js',
+      shaderLanguage: 'GLSL ES 3.0',
+      shaderLanguageExtension: 'glsl',
+      materialApi: 'RawShaderMaterial',
+      renderingParadigm: 'Forward Plus Clustered',
+      assetStrategy: '100% Zero-Asset Procedural',
+      assetStrategyText: '100% Zero-Asset Procedural (zero runtime CDN texture/mesh/audio dependencies)',
+      targetHardware: 'Mid-range WebGL2 desktop GPU',
+      coreInteractionSentence: 'Explore the scene.',
+    },
+    selection: {
+      creativeMode: 'Signature Showcase',
+      path: 'Base Showcase',
+      baseShowcase: 'Alpine Dawn',
+      ambition: 'High',
+      includedSections: ['Terrain'],
+      omittedOptionalSections: [],
+      extraSections: [],
+      biome: 'Alpine Sub-Arctic',
+      archetype: 'Expansive Wilderness',
+      mechanic: 'Snow Terrain Deformation',
+      camera: '3rd-Person Orbit',
+      renderingProfile: 'WebGL2 High-Performance 3D',
+      cameraAdjustments: [],
+      changedAxes: [],
+    },
+    stateChannels: { enabled: true, omittedBehavior: 'disabled', channels: [] },
+    creative: { creativeSpark: 'Spark', signatureMoment: { enabled: true, text: 'Moment' }, noveltyBudget: {}, coherenceOverrides: [] },
+    acceptance: {
+      requiredProjectPaths: ['index.html'],
+      productionBuild: { required: true },
+      verificationHook: { required: true },
+      runtime: { blockingBrowserOrConsoleErrors: 0 },
+      captures: { required: true },
+      imageGates: { required: true },
+      camera: { required: true },
+      report: { required: true, filename: 'verify-report.json' },
+    },
+    milestones: [
+      { id: 'first-runnable-scene', requiredScreenshotEvidence: { minimumScreenshots: 1, requiredPoses: ['evidence/first-runnable-scene/milestone_idle.png'] } },
+      { id: 'systems-complete', requiredScreenshotEvidence: { minimumScreenshots: 2, requiredPoses: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'] } },
+      { id: 'final-polish', requiredScreenshotEvidence: { minimumScreenshots: 3, requiredPoses: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'] } },
+    ],
+  };
+  fs.writeFileSync(path.join(dir, 'ENVIZZLE_BUILD.json'), JSON.stringify(contract, null, 2), 'utf8');
+
+  const evidence = {
+    schemaVersion: 1,
+    status: 'complete',
+    milestones: [
+      {
+        id: 'first-runnable-scene',
+        status: 'complete',
+        screenshots: ['evidence/first-runnable-scene/milestone_idle.png'],
+        console: { errors: [], warnings: [] },
+        performance: { fps: 60, frameTimeMs: 16.67 },
+        visualSelfReview: { reviewed: true, weaknesses: ['None'], corrections: ['None'] },
+      },
+      {
+        id: 'systems-complete',
+        status: 'complete',
+        screenshots: ['evidence/systems-complete/milestone_locomotion.png', 'evidence/systems-complete/milestone_mechanic.png'],
+        console: { errors: [], warnings: [] },
+        performance: { fps: 60, frameTimeMs: 16.67 },
+        visualSelfReview: { reviewed: true, weaknesses: ['None'], corrections: ['None'] },
+      },
+      {
+        id: 'final-polish',
+        status: 'complete',
+        screenshots: ['evidence/final-polish/milestone_idle.png', 'evidence/final-polish/milestone_locomotion.png', 'evidence/final-polish/milestone_mechanic.png'],
+        console: { errors: [], warnings: [] },
+        performance: { fps: 60, frameTimeMs: 16.67 },
+        visualSelfReview: { reviewed: true, weaknesses: ['None'], corrections: ['None'] },
+      },
+    ],
+  };
+  fs.writeFileSync(path.join(dir, 'ENVIZZLE_EVIDENCE.json'), JSON.stringify(evidence, null, 2), 'utf8');
+
+  const png = new PNG({ width: 1, height: 1 });
+  png.data[0] = 255; png.data[1] = 0; png.data[2] = 0; png.data[3] = 255;
+  const pngBuf = PNG.sync.write(png);
+
+  const shots = [
+    'evidence/first-runnable-scene/milestone_idle.png',
+    'evidence/systems-complete/milestone_locomotion.png',
+    'evidence/systems-complete/milestone_mechanic.png',
+    'evidence/final-polish/milestone_idle.png',
+    'evidence/final-polish/milestone_locomotion.png',
+    'evidence/final-polish/milestone_mechanic.png',
+    'screenshots/milestone_idle.png',
+    'screenshots/milestone_locomotion.png',
+    'screenshots/milestone_mechanic.png',
+  ];
+  for (const s of shots) {
+    const sPath = path.join(dir, s);
+    fs.mkdirSync(path.dirname(sPath), { recursive: true });
+    fs.writeFileSync(sPath, pngBuf);
+  }
+
   return dir;
 };
 
@@ -339,14 +462,20 @@ if (mode === 'serve-ok') {
   };
 }
 
+let pathLock = Promise.resolve();
+
 function withShimOnPath(shim, fn) {
-  const originalPath = process.env.PATH;
-  process.env.PATH = shim.dir + path.delimiter + originalPath;
-  return Promise.resolve()
-    .then(fn)
-    .finally(() => {
+  const next = pathLock.then(async () => {
+    const originalPath = process.env.PATH;
+    process.env.PATH = shim.dir + path.delimiter + originalPath;
+    try {
+      return await fn();
+    } finally {
       process.env.PATH = originalPath;
-    });
+    }
+  });
+  pathLock = next.catch(() => {});
+  return next;
 }
 
 function tinyPngBuffer() {
@@ -470,7 +599,7 @@ test('adversarial test: legacy skip-build environment variable cannot bypass the
       status = err.status;
     }
     const written = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
     return { status, written };
   };
 
@@ -499,7 +628,6 @@ test('adversarial test: server readiness failure is classified as status: error 
     const result = await withShimOnPath(shim, () =>
       verifyDemo(projectDir, {
         reportPath,
-        screenshotsDir: path.join(projectDir, 'screenshots'),
         silent: true,
         serverReadyTimeoutMs: 800,
       }));
@@ -517,7 +645,7 @@ test('adversarial test: server readiness failure is classified as status: error 
     assert.equal(written.gates.pass, false);
   } finally {
     shim.cleanup();
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
 });
 
@@ -539,7 +667,6 @@ test('adversarial test: setPose throwing is a demo defect (status: failed), not 
     const result = await withShimOnPath(shim, () =>
       verifyDemo(projectDir, {
         reportPath,
-        screenshotsDir: path.join(projectDir, 'screenshots'),
         silent: true,
         serverReadyTimeoutMs: 5000,
         playwright: fakePlaywright,
@@ -553,7 +680,7 @@ test('adversarial test: setPose throwing is a demo defect (status: failed), not 
     );
   } finally {
     shim.cleanup();
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
 });
 
@@ -575,7 +702,6 @@ test('adversarial test: camera/frame-stat hook throwing is a demo defect (status
     const result = await withShimOnPath(shim, () =>
       verifyDemo(projectDir, {
         reportPath,
-        screenshotsDir: path.join(projectDir, 'screenshots'),
         silent: true,
         serverReadyTimeoutMs: 5000,
         playwright: fakePlaywright,
@@ -591,7 +717,7 @@ test('adversarial test: camera/frame-stat hook throwing is a demo defect (status
     assert.equal(result.report.captures.length, 3);
   } finally {
     shim.cleanup();
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
 });
 
@@ -611,7 +737,6 @@ test('adversarial test: browser disconnecting mid-capture is classified as statu
     const result = await withShimOnPath(shim, () =>
       verifyDemo(projectDir, {
         reportPath,
-        screenshotsDir: path.join(projectDir, 'screenshots'),
         silent: true,
         serverReadyTimeoutMs: 5000,
         playwright: fakePlaywright,
@@ -621,7 +746,7 @@ test('adversarial test: browser disconnecting mid-capture is classified as statu
     assert.equal(result.report.gates.pass, false);
   } finally {
     shim.cleanup();
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
 });
 
@@ -664,7 +789,6 @@ test('adversarial test: injected browser-launch failure maps to status error and
     const result = await withShimOnPath(shim, () =>
       verifyDemo(projectDir, {
         reportPath,
-        screenshotsDir: path.join(projectDir, 'screenshots'),
         silent: true,
         serverReadyTimeoutMs: 5000,
         playwright: failingPlaywright,
@@ -678,7 +802,7 @@ test('adversarial test: injected browser-launch failure maps to status error and
     assert.equal(written.gates.pass, false);
   } finally {
     shim.cleanup();
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
 });
 
@@ -702,7 +826,6 @@ test('adversarial test: disconnected browser during hook readiness is classified
     const result = await withShimOnPath(shim, () =>
       verifyDemo(projectDir, {
         reportPath,
-        screenshotsDir: path.join(projectDir, 'screenshots'),
         silent: true,
         serverReadyTimeoutMs: 5000,
         playwright: fakePlaywright,
@@ -713,7 +836,7 @@ test('adversarial test: disconnected browser during hook readiness is classified
     assert.equal(verificationExitCode(result), 2);
   } finally {
     shim.cleanup();
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
 });
 
@@ -734,7 +857,6 @@ test('adversarial test: connected browser with hook readiness timeout is classif
     const result = await withShimOnPath(shim, () =>
       verifyDemo(projectDir, {
         reportPath,
-        screenshotsDir: path.join(projectDir, 'screenshots'),
         silent: true,
         serverReadyTimeoutMs: 5000,
         playwright: fakePlaywright,
@@ -746,7 +868,7 @@ test('adversarial test: connected browser with hook readiness timeout is classif
     assert.ok(result.failures.some((f) => /hook missing or never became ready/i.test(f)));
   } finally {
     shim.cleanup();
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
 });
 
@@ -766,7 +888,6 @@ test('adversarial test: connected page.goto() failure blocks success even when e
     const result = await withShimOnPath(shim, () =>
       verifyDemo(projectDir, {
         reportPath,
-        screenshotsDir: path.join(projectDir, 'screenshots'),
         silent: true,
         serverReadyTimeoutMs: 5000,
         playwright: fakePlaywright,
@@ -783,6 +904,6 @@ test('adversarial test: connected page.goto() failure blocks success even when e
     assert.equal(result.report.runtime.hookReady, true, 'hook readiness must still have succeeded, proving the navigation failure alone caused the block');
   } finally {
     shim.cleanup();
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    try { fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch (_) {}
   }
 });
