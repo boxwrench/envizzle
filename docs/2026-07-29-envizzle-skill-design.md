@@ -1,7 +1,9 @@
 # Design: `envizzle` Skill
 
-Invoked as `/envizzle`. Emits a self-contained implementation brief for a
-one-shot, visually impressive real-time graphics tech demo.
+Invoked as `/envizzle`. Emits a deterministic nine-file bundle for a one-shot,
+visually impressive real-time graphics tech demo. The bundle's Markdown brief is
+the primary task prompt; the bundle also carries the build contract, evidence
+template, and verification code the target agent needs.
 
 **Date:** 2026-07-29
 **Status:** Implemented, public alpha
@@ -55,7 +57,7 @@ and the run still reported success.
 ## Goals
 
 - A packaged skill that interviews the user, checks their choices for coherence, and
-  emits a self-contained brief.
+  emits a self-contained nine-file bundle whose brief is the primary prompt.
 - Characters that read as finished figures rather than assembled primitives.
 - Options a non-graphics-engineer can select meaningfully, including a "pick for me"
   path.
@@ -173,8 +175,10 @@ orientation aligns to the terrain normal at 0.7 blend. The state-buffer splat an
 footfall audio event emit from the same call site as the plant write, so they cannot
 desync.
 
-**Prohibitions.** Currently absent, and their absence is the proximate cause of the
-failure:
+**Prohibitions.** The predecessor system had no construction recipe and no foot-
+planting mechanism, and their absence was the proximate cause of the failure. The
+current character recipe includes both, plus explicit prohibitions that close off
+the failure mode:
 
 - `BoxGeometry`, `SphereGeometry`, `CylinderGeometry`, `CapsuleGeometry`, and
   `ConeGeometry` are forbidden anywhere in character code.
@@ -226,10 +230,19 @@ the character must look good from.
 
 Rules evaluated after selection and before assembly:
 
-- Painterly paradigm requires mean scene luminance ≥ 0.35 and a lightest palette
-  value ≥ `#d8d0b8`. The reference config's `#080810` and `#2b0052` fail here.
-- Every palette needs ≥3 distinct value tiers spanning ≥0.55 in luminance.
-- Emissive and neon accents are capped at roughly 15% of screen area.
+- **Light anchor:** at least one large- or medium-area colour must have relative
+  luminance ≥ 0.55 and saturation ≤ 0.35. The reference config's `#080810` and
+  `#2b0052` fail here — both are too dark, and neither is desaturated enough to
+  anchor a frame even if it were bright.
+- **Value tiers:** the palette needs at least one colour in each of three tiers —
+  dark (luminance < 0.15), mid (0.15–0.55), and light (> 0.55) — or it reads as
+  flat and unlit.
+- **Painterly large-area luminance:** for the painterly paradigm, the mean
+  luminance of large-area palette entries must be ≥ 0.30.
+- **Accent policy:** warns when more than 35% of palette entries are classified as
+  `accent`. The artistic intent behind the cap is that emissive accents occupy
+  roughly no more than 15% of the rendered frame; the palette-entry fraction is a
+  proxy for that, not a direct measurement of screen area.
 - Photoreal with zero assets requires multi-scale procedural normals.
 - Painterly with zero assets requires a palette table plus a cel ramp.
 
@@ -238,11 +251,11 @@ auto-corrected, because the user may have a deliberate intent the rules do not m
 
 ### 4. Ambition dial
 
-| Level | Systems included |
-|---|---|
-| Slice (default) | Terrain, material, character, one mechanic, atmosphere — ~6 |
-| Showcase | Adds vegetation, wind field, state buffer, audio, atmospheric life — ~11 |
-| Everything | Adds 2–3 optional axes |
+| Level | Core sections | Extra sections |
+|---|---|---|
+| Slice (default) | None | None |
+| Showcase | Validated core sections (vegetation, state buffer, audio) | None — forbidden at this level |
+| Everything | All three core sections, required | At least one of the four supported extras (weather, water bodies, architecture, destructibility) |
 
 Sections not selected are omitted from the emitted brief entirely rather than left as
 unfilled placeholders, so the target agent never sees dead tokens.
@@ -264,7 +277,7 @@ passed.
 | Mean luminance | within [0.12, 0.85] |
 | Flat-frame rejection | fail if >70% of pixels fall within 2% of a single value |
 | Character visible | screenshot with and without character; changed area 3–20% of frame |
-| Camera not inside geometry | nearest depth > 0.3 m |
+| Camera not inside geometry | nearest depth: passes at >= 0.30 m, fails below 0.30 m |
 | Performance | median and p99 frame time recorded and reported; informational only, not gated under headless verification |
 
 The character-visible diff is the important one: it is essentially unfakeable, since

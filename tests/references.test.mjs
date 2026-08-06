@@ -336,3 +336,104 @@ test('design document names current real files and current behavior', () => {
     'design document must state performance timing is informational and not gated under headless verification'
   );
 });
+
+// --- Batch 10 second micro-correction regression tests ---
+
+test('design document frames Envizzle as emitting a nine-file bundle, not only a brief', () => {
+  const design = fs.readFileSync('docs/2026-07-29-envizzle-skill-design.md', 'utf8');
+  assert.doesNotMatch(
+    design,
+    /Emits a self-contained implementation brief for a/,
+    'design document must not claim Envizzle emits only a self-contained brief'
+  );
+  assert.match(
+    design,
+    /nine-file bundle/i,
+    'design document must describe the deterministic nine-file bundle'
+  );
+  assert.match(
+    design,
+    /brief is the primary/i,
+    'design document must state the brief is the primary prompt within the bundle'
+  );
+});
+
+test('design document does not claim character prohibitions are currently absent', () => {
+  const design = fs.readFileSync('docs/2026-07-29-envizzle-skill-design.md', 'utf8');
+  assert.doesNotMatch(
+    design,
+    /Currently absent, and their absence is the proximate cause/i,
+    'design document must not claim the current recipe lacks prohibitions'
+  );
+  assert.match(
+    design,
+    /predecessor[\s\S]{0,120}no construction recipe and no foot-?\s*planting mechanism/i,
+    'design document must attribute the missing construction/foot-planting mechanisms to the predecessor'
+  );
+  assert.match(
+    design,
+    /current character recipe includes both/i,
+    'design document must state the current recipe includes construction and foot-planting mechanisms'
+  );
+});
+
+test('design document coherence-rule summary agrees with check.mjs thresholds', () => {
+  const design = fs.readFileSync('docs/2026-07-29-envizzle-skill-design.md', 'utf8');
+  assert.doesNotMatch(
+    design,
+    /Painterly paradigm requires mean scene luminance/i,
+    'design document must not restate the old painterly/lightest-value coherence summary'
+  );
+  assert.doesNotMatch(
+    design,
+    /≥3 distinct value tiers spanning ≥0\.55/,
+    'design document must not restate the old value-tier summary'
+  );
+  assert.match(design, /luminance\s*≥\s*0\.55/, 'design document must state the light-anchor luminance floor of 0.55');
+  assert.match(design, /saturation\s*≤\s*0\.35/, 'design document must state the light-anchor saturation ceiling of 0.35');
+  assert.match(design, /≥\s*0\.30/, 'design document must state the painterly large-area luminance floor of 0.30');
+  assert.match(design, /dark \(luminance < 0\.15\)/, 'design document must state the dark value-tier boundary');
+  assert.match(design, /light \(> 0\.55\)/, 'design document must state the light value-tier boundary');
+  assert.match(design, /more than 35% of palette entries/i, 'design document must state the 35% accent-cap threshold');
+  assert.match(design, /no more than 15% of the rendered frame/i, 'design document must preserve the ~15% screen-area artistic intent');
+  assert.match(design, /multi-scale procedural normals/i, 'design document must preserve the photoreal multi-scale-normal requirement');
+  assert.match(design, /palette table plus a cel ramp/i, 'design document must preserve the painterly palette-table/cel-ramp requirement');
+});
+
+test('design document ambition table states exact section rules per level', () => {
+  const design = fs.readFileSync('docs/2026-07-29-envizzle-skill-design.md', 'utf8');
+  assert.doesNotMatch(
+    design,
+    /Adds 2[–-]3 optional axes/i,
+    'design document must not restate the old vague "Adds 2-3 optional axes" claim'
+  );
+  assert.match(
+    design,
+    /Slice \(default\)[\s\S]{0,40}None[\s\S]{0,40}None/,
+    'design document must state slice has no core and no extra sections'
+  );
+  assert.match(
+    design,
+    /Showcase[\s\S]{0,120}forbidden at this level/i,
+    'design document must state showcase forbids extra sections'
+  );
+  assert.match(
+    design,
+    /Everything[\s\S]{0,60}All three core sections, required[\s\S]{0,120}At least one of the four supported extras/i,
+    'design document must state everything requires all core sections plus at least one extra'
+  );
+});
+
+test('design document states the camera-depth gate as a >= 0.30 m pass threshold', () => {
+  const design = fs.readFileSync('docs/2026-07-29-envizzle-skill-design.md', 'utf8');
+  assert.doesNotMatch(
+    design,
+    /nearest depth > 0\.3 m \|/,
+    'design document must not restate the old bare ">0.3 m" camera-depth wording'
+  );
+  assert.match(
+    design,
+    /passes at >= 0\.30 m, fails below 0\.30 m/,
+    'design document must state the camera-depth gate passes at >= 0.30 m and fails below it'
+  );
+});
