@@ -66,7 +66,7 @@ The Experimental fully custom path is the only path that runs the complete Step 
 - Never select Experimental automatically; require explicit user selection.
 - Run `checkCoherence` on the final configuration.
 - Run `validateSelection` from `selection.mjs` to verify the explicit state-channel contract, camera adjustments, ambition levels, and mode contracts.
-- Record all changes and compatibility decisions in `DECISIONS.md`.
+- Record selection changes and compatibility decisions in the assembly specification. `assemble.mjs` records them in the generated brief's Assembly Decisions section and build contract. The builder creates the project's `DECISIONS.md`, recording implementation decisions, resolved engine version, trade-offs, deviations, and compatibility work.
 
 ---
 

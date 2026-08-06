@@ -269,3 +269,70 @@ test('retained design document contains no active prompt_builder.html or legacy 
     'Design document must not use the legacy $REFERENCE_OUTPUT reference'
   );
 });
+
+// --- Batch 10 micro-correction regression tests ---
+
+test('modes.md records selection decisions in the assembly specification and assigns project DECISIONS.md creation to the builder', () => {
+  const content = fs.readFileSync('references/modes.md', 'utf8');
+  assert.match(
+    content,
+    /assembly specification/i,
+    'modes.md must describe selection changes as recorded in the assembly specification'
+  );
+  assert.match(
+    content,
+    /builder creates[\s\S]{0,60}DECISIONS\.md/i,
+    'modes.md must state the builder creates project DECISIONS.md'
+  );
+  assert.doesNotMatch(
+    content,
+    /Record all changes and compatibility decisions in `DECISIONS\.md`/i,
+    'modes.md must not claim Envizzle selection itself writes DECISIONS.md'
+  );
+});
+
+test('design document contains no stale filenames, toggles, or status wording', () => {
+  const design = fs.readFileSync('docs/2026-07-29-envizzle-skill-design.md', 'utf8');
+  const forbidden = [
+    ['showcase-configs.md', /showcase-configs\.md/i],
+    ['systems-optional.md', /systems-optional\.md/i],
+    ['references/coherence.md', /references\/coherence\.md/i],
+    ['?hideCharacter=1', /\?hideCharacter=1/i],
+    ['ready for implementation planning', /ready for implementation planning/i],
+  ];
+  for (const [label, re] of forbidden) {
+    assert.doesNotMatch(design, re, `design document must not contain stale "${label}"`);
+  }
+  assert.doesNotMatch(
+    design,
+    /reported,\s*gated/i,
+    'design document must not describe performance as unconditionally gated'
+  );
+});
+
+test('design document names current real files and current behavior', () => {
+  const design = fs.readFileSync('docs/2026-07-29-envizzle-skill-design.md', 'utf8');
+  assert.match(design, /references\/showcases\.md/, 'design document must name references/showcases.md');
+  assert.match(design, /check\.mjs|checkCoherence/, 'design document must name check.mjs or checkCoherence');
+  assert.match(design, /setCharacterVisible/, 'design document must name setCharacterVisible');
+  const verifyBlockStart = design.indexOf('verify/');
+  assert.ok(verifyBlockStart !== -1, 'design document must contain a verify/ directory listing');
+  const verifyBlock = design.slice(verifyBlockStart, verifyBlockStart + 400);
+  for (const verifierFile of [
+    'README.md',
+    'evidence.mjs',
+    'gates.mjs',
+    'report.mjs',
+    'verify_demo.mjs',
+  ]) {
+    assert.ok(
+      verifyBlock.includes(verifierFile),
+      `design document's verify/ listing must name ${verifierFile}`
+    );
+  }
+  assert.match(
+    design,
+    /informational[\s\S]{0,20}not gated|not gated[\s\S]{0,40}headless/i,
+    'design document must state performance timing is informational and not gated under headless verification'
+  );
+});

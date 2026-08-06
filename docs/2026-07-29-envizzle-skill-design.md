@@ -4,15 +4,17 @@ Invoked as `/envizzle`. Emits a self-contained implementation brief for a
 one-shot, visually impressive real-time graphics tech demo.
 
 **Date:** 2026-07-29
-**Status:** Approved, ready for implementation planning
+**Status:** Implemented, public alpha
 
 ## Problem
 
-`prompt template/` currently holds a fill-in-the-blanks prompt system: `TEMPLATE.md`
-(condensed, ~9 KB), `BIOME_TECHDEMO_TEMPLATE.md` (long form, ~49 KB),
-`TEMPLATE_GUIDE.md`, and `prompt_builder.html` (a standalone form with ~25 freeform
-text fields). Filling it produces a Markdown brief that is handed to a coding agent,
-which builds the demo. There is no packaged skill.
+This section describes the historical predecessor system that motivated this skill,
+not the current repository. Before this skill existed, `prompt template/` held a
+fill-in-the-blanks prompt system: `TEMPLATE.md` (condensed, ~9 KB),
+`BIOME_TECHDEMO_TEMPLATE.md` (long form, ~49 KB), `TEMPLATE_GUIDE.md`, and
+`prompt_builder.html` (a standalone form with ~25 freeform text fields). Filling it
+produced a Markdown brief that was handed to a coding agent, which built the demo.
+There was no packaged skill.
 
 The system works for some systems and fails for others, and the failure is
 structural. Compare what the brief hands the agent:
@@ -61,15 +63,16 @@ and the run still reported success.
 
 ## Non-goals
 
-- Changing the SnowVR demo itself. This work is confined to `prompt template/`,
-  `docs/`, and `~/.claude/skills/`.
+- Changing the SnowVR demo itself. This work is confined to the Envizzle skill
+  repository and its `docs/`.
 - Gameplay, progression, or UI design. The emitted brief remains a graphics tech
   demo brief.
 - Supporting non-humanoid body types this round (see Decisions).
 
 ## Architecture
 
-Source of truth lives in the repo; a copy is installed for personal use.
+The repository root is canonical. Installations may link or copy a snapshot of it,
+as documented in `README.md`.
 
 ```
 SKILL.md                    router, interview flow, assembly rules
@@ -92,11 +95,12 @@ build-contract.mjs          build contract and evidence generator
 benchmark.mjs               benchmark case registry and harness
 reference-loader.mjs        strict reference loader
 verify/
-└── verify_demo.mjs         hardened image gates
+├── README.md                verifier usage and gate documentation
+├── evidence.mjs              evidence capture and validation utilities
+├── gates.mjs                  image and structural gate checks
+├── report.mjs                 structured verification report generation
+└── verify_demo.mjs           the post-build visual verifier
 ```
-
-The repository root is the canonical skill directory. The repo path is
-authoritative; installed copies are build artifacts.
 
 ### Data flow
 
@@ -186,8 +190,8 @@ against sky.
 
 ### 2. Preset libraries
 
-`showcase-configs.md` holds ~6 complete configs with every token filled, each already
-coherence-checked, each with one line on why it reads as AAA:
+`references/showcases.md` holds 6 complete configs with every token filled, each
+already coherence-checked, each with one line on why it reads as AAA:
 
 | Config | Paradigm and palette intent |
 |---|---|
@@ -201,10 +205,14 @@ coherence-checked, each with one line on why it reads as AAA:
 "Pick for me" selects one of these whole. It never mixes presets, because
 recombination is what produced the incoherent reference config.
 
-`biomes.md`, `archetypes.md`, `mechanics.md`, `cameras.md`, and `systems-optional.md`
-supply à-la-carte pieces for custom builds. Each biome entry carries numeric noise
-layers with scale and amplitude, palette hexes, far-field treatment, material
-behaviours, vegetation spec, state-buffer channels, audio spec, and atmospheric life.
+`biomes.md`, `archetypes.md`, `mechanics.md`, and `cameras.md` supply à-la-carte
+pieces for custom builds. Each biome entry carries numeric noise layers with scale
+and amplitude, palette hexes, far-field treatment, material behaviours, vegetation
+spec, state-buffer channels, audio spec, and atmospheric life. Optional sections
+(vegetation, state buffer, audio, and the `everything`-level extras) are not a
+separate preset library; they are selected through the assembly specification's
+`includedSections` and `extraSections` fields, governed by the ambition level in
+`modes.md`.
 
 Archetypes are **parameters on the single rig**, not alternative bodies: height, ring
 radius multipliers, cloth panel list with Verlet grid dimensions, material
@@ -214,7 +222,7 @@ parameters, head covering, and foot interaction.
 first-person, cinematic orbit and flythrough, and XR — each noting what
 the character must look good from.
 
-### 3. `references/coherence.md`
+### 3. `check.mjs` (`checkCoherence`)
 
 Rules evaluated after selection and before assembly:
 
@@ -245,8 +253,9 @@ Showcase is roughly the current level.
 ### 5. Verification
 
 The brief gains a hard requirement: the demo must expose a `window.__demo` hook with
-pose setters, a `?hideCharacter=1` toggle, and frame statistics. Without it none of
-the gates below are checkable, which is why the black frame passed.
+pose setters, `window.__demo.setCharacterVisible(visible)`, and frame statistics.
+Without it none of the gates below are checkable, which is why the black frame
+passed.
 
 `verify_demo.mjs` gates:
 
@@ -256,7 +265,7 @@ the gates below are checkable, which is why the black frame passed.
 | Flat-frame rejection | fail if >70% of pixels fall within 2% of a single value |
 | Character visible | screenshot with and without character; changed area 3–20% of frame |
 | Camera not inside geometry | nearest depth > 0.3 m |
-| Performance | median and p99 frame time reported, gated |
+| Performance | median and p99 frame time recorded and reported; informational only, not gated under headless verification |
 
 The character-visible diff is the important one: it is essentially unfakeable, since
 the only way to pass is for a character to actually occupy plausible screen area.
@@ -314,8 +323,9 @@ Claude and has no access to the skill directory.
 **Coherence conflicts are reported, not auto-fixed.** The rules encode defaults, not
 truth; a user may want something the rules reject.
 
-**Repo is source of truth, `~/.claude/skills/` holds a copy.** Accepts a sync step in
-exchange for version control plus global availability.
+**Repo root is source of truth, installations may hold a linked or copied
+snapshot.** Accepts a sync step in exchange for version control plus availability
+across install methods, as documented in `README.md`.
 
 **Slice is the default ambition level.** The stated goal is one-shot or near-one-shot
 success, and system count is the main thing working against that.

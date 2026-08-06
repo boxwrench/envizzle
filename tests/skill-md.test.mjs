@@ -270,6 +270,31 @@ test('SKILL.md preserves progressive reference loading', () => {
   assert.match(skill, /do not load every reference file/i);
 });
 
+// --- Batch 10 correction regression tests ---
+
+test('SKILL.md does not instruct manual insertion into TEMPLATE.md or assembled output', () => {
+  assert.doesNotMatch(
+    skill,
+    /insert it into `TEMPLATE\.md`/i,
+    'SKILL.md must not instruct the agent to manually insert content into TEMPLATE.md'
+  );
+  assert.doesNotMatch(
+    skill,
+    /insert[^\n]{0,60}TEMPLATE\.md[^\n]{0,40}\{\{/i,
+    'SKILL.md must not instruct manually inserting content at a template token'
+  );
+  assert.match(
+    skill,
+    /never[^\n]{0,20}edit `TEMPLATE\.md`/i,
+    'SKILL.md must explicitly forbid manual edits to TEMPLATE.md or assembled output'
+  );
+  assert.match(
+    skill,
+    /assemble\.mjs[^\n]{0,80}(formats and injects|injects)/i,
+    'SKILL.md must state assemble.mjs performs the state-channel contract injection'
+  );
+});
+
 test('DECISIONS.md ownership is described consistently', () => {
   // Assembly records selection decisions into the brief and build contract
   assert.match(
