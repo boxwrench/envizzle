@@ -200,3 +200,72 @@ test('biomes.md distinguishes nineteen template tokens from FOOT_INTERACTION wit
   assert.match(content, /FOOT_INTERACTION/, 'biomes.md must mention FOOT_INTERACTION');
   assert.doesNotMatch(content, /twenty tokens/i, 'biomes.md must not claim twenty tokens');
 });
+
+// --- Batch 10 regression tests ---
+
+test('active non-test documentation contains no Batch 3 or Batch 8 terminology', () => {
+  const activeFiles = [
+    'SKILL.md',
+    'README.md',
+    'references/modes.md',
+    'references/benchmarking.md',
+    'references/biomes.md',
+    'references/archetypes.md',
+    'references/mechanics.md',
+    'references/cameras.md',
+    'references/showcases.md',
+    'references/assembly.md',
+    'references/build-contract.md',
+    'references/character-recipe.md',
+  ];
+  for (const file of activeFiles) {
+    if (!fs.existsSync(file)) continue;
+    const content = fs.readFileSync(file, 'utf8');
+    assert.doesNotMatch(
+      content,
+      /Batch 3\b/,
+      `${file} contains stale "Batch 3" terminology`
+    );
+    assert.doesNotMatch(
+      content,
+      /Batch 8\b/,
+      `${file} contains stale "Batch 8" terminology`
+    );
+  }
+});
+
+test('obsolete implementation plan is absent and unreferenced', () => {
+  assert.strictEqual(
+    fs.existsSync('docs/2026-07-29-envizzle-skill.md'),
+    false,
+    'The obsolete implementation plan should be deleted'
+  );
+  const activeFiles = ['SKILL.md', 'README.md'];
+  for (const file of activeFiles) {
+    const content = fs.readFileSync(file, 'utf8');
+    assert.doesNotMatch(
+      content,
+      /2026-07-29-envizzle-skill\.md[^-]/,
+      `${file} must not reference the deleted implementation plan`
+    );
+  }
+});
+
+test('retained design document contains no active prompt_builder.html or legacy screenshots/ instructions', () => {
+  const design = fs.readFileSync('docs/2026-07-29-envizzle-skill-design.md', 'utf8');
+  assert.doesNotMatch(
+    design,
+    /prompt_builder\.html[\s\S]{0,80}(retain|active|manual path|optional)/i,
+    'Design document must not describe prompt_builder.html as an active or retained path'
+  );
+  assert.doesNotMatch(
+    design,
+    /screenshots\/ directory of the reference output/i,
+    'Design document must not reference legacy screenshots/ evidence paths'
+  );
+  assert.doesNotMatch(
+    design,
+    /\$REFERENCE_OUTPUT/,
+    'Design document must not use the legacy $REFERENCE_OUTPUT reference'
+  );
+});

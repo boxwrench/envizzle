@@ -7,7 +7,7 @@ You run `/envizzle`. It asks what you want (or picks a known-good combination fo
 you), checks your art direction for internal contradictions, and writes a complete
 project bundle (`<PROJECT>_TECHDEMO_PROMPT.md`, `ENVIZZLE_BUILD.json`, `ENVIZZLE_EVIDENCE.json`, `HANDOFF.md`, `verify/`). You hand that bundle to any coding agent — Claude, Gemini, or any LLM-powered coding system — as its workspace, and it builds the demo.
 
-The generated bundle consists of 9 total files (4 root files and 5 verifier files under `verify/`). It is deliberately model-agnostic: self-contained, no external references, nothing to fetch.
+The generated bundle consists of 9 total files (4 root files and 5 verifier files under `verify/`). It is deliberately model-agnostic: the generated brief has no hidden dependency on Envizzle's source references, and the complete bundle contains all Envizzle-specific instructions and verification contracts. The builder may still install the engine and verifier dependencies named by the bundle.
 
 ---
 
@@ -289,26 +289,11 @@ image gates cannot run, and the verifier says so instead of passing.
 | `benchmark.mjs` | Benchmark CLI and evaluation harness (`node benchmark.mjs`) |
 | `verify/` | Playwright run with structured report generation and image gates |
 | `tests/` | `node:test` suite over all of the above |
-| `docs/` | Design spec and implementation plan |
+| `docs/` | Design spec |
 
 ## Status
 
-**Envizzle v0.1.0 Public Alpha release candidate.** Progressive reference loading, central registries,
-operable selection CLI, coherence CLI, deterministic brief assembly, safe project-bundle output,
-machine-readable verification reports, deterministic build contracts and milestone evidence templates, 8-case benchmark registry, bundle preparation, result collection,
-deterministic Markdown/JSON comparative summaries, human visual rubric, test fixtures, cross-file contract verification,
-and strict assembly integrity are implemented, and all unit tests pass (`npm test`).
-See `references/benchmarking.md` for the benchmarking guide and `docs/2026-07-29-envizzle-skill-design.md` for architectural design rationale.
-
-The original prompt templates this skill was distilled from
-(`BIOME_TECHDEMO_TEMPLATE.md`, `TEMPLATE.md`, `TEMPLATE_GUIDE.md`,
-`verify_demo.mjs`) lived in `legacy/` during the migration and were removed once
-their content was mined. Recover any with:
-
-```bash
-git log --diff-filter=D --summary -- legacy/
-git restore --source=<deletion-commit>^ -- legacy/<file>
-```
+**Envizzle v0.1.0 — Public Alpha.** The pipeline from skill interview through deterministic assembly, nine-file bundle output, automated verification, and cross-agent benchmarking is implemented and tested (`npm test`). See `references/benchmarking.md` for the benchmarking guide and `docs/2026-07-29-envizzle-skill-design.md` for architectural design rationale.
 
 ## Attribution
 

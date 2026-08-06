@@ -72,51 +72,50 @@ and the run still reported success.
 Source of truth lives in the repo; a copy is installed for personal use.
 
 ```
-prompt template/skill/
-├── SKILL.md                    router, interview flow, assembly rules
-├── TEMPLATE.md                 brief skeleton with {{TOKEN}} slots
-├── references/
-│   ├── character-recipe.md     numeric humanoid construction spec
-│   ├── showcase-configs.md     ~6 complete coherence-checked configs
-│   ├── biomes.md               biome presets
-│   ├── archetypes.md           character archetypes as rig parameters
-│   ├── mechanics.md            centrepiece mechanic presets
-│   ├── cameras.md              camera and presentation modes
-│   ├── systems-optional.md     optional system axes
-│   └── coherence.md            conflict rules
-└── verify/
-    └── verify_demo.mjs         hardened image gates
+SKILL.md                    router, interview flow, assembly rules
+TEMPLATE.md                 brief skeleton with {{TOKEN}} slots
+references/
+├── character-recipe.md     numeric humanoid construction spec
+├── showcases.md            6 complete coherence-checked configs
+├── biomes.md               biome presets
+├── archetypes.md           character archetypes as rig parameters
+├── mechanics.md            centrepiece mechanic presets
+├── cameras.md              camera and presentation modes
+├── modes.md                creative modes and ambition levels
+├── assembly.md             assembly specification schema
+├── build-contract.md       deterministic build contract and evidence
+└── benchmarking.md         benchmark harness and evaluation
+assemble.mjs                deterministic brief assembler and bundle writer
+selection.mjs               selection validator and central registries
+check.mjs                   brief validator and coherence rules
+build-contract.mjs          build contract and evidence generator
+benchmark.mjs               benchmark case registry and harness
+reference-loader.mjs        strict reference loader
+verify/
+└── verify_demo.mjs         hardened image gates
 ```
 
-Installed to `~/.claude/skills/envizzle/` as a copy. The repo path is
-authoritative; the install is a build artifact.
-
-`prompt_builder.html` is retained unchanged as an optional manual path. Adding the new
-presets and ambition dial to its UI is explicitly out of scope this round; the skill's
-interview replaces it as the primary path, and duplicating the preset libraries into
-HTML would create a second place to keep in sync.
-
-The existing `prompt template/verify_demo.mjs` is superseded by
-`skill/verify/verify_demo.mjs`, which is a rewrite rather than an edit — the gates are
-different in kind, not degree. The old file is deleted once the new one passes its
-fixture tests.
+The repository root is the canonical skill directory. The repo path is
+authoritative; installed copies are build artifacts.
 
 ### Data flow
 
 ```
 user request
   → SKILL.md interview (or "pick for me" → showcase config)
-  → coherence.md check → report conflicts, offer fixes, user confirms
-  → assemble: TEMPLATE.md + expanded preset text + character-recipe.md inlined
-  → emit <PROJECT>_TECHDEMO_PROMPT.md + verify/ + HANDOFF.md
-  → target agent builds demo
+  → coherence check → report conflicts, offer fixes, user confirms
+  → assemble.mjs: validated spec + TEMPLATE.md + references → nine-file bundle
+  → emit <PROJECT>_TECHDEMO_PROMPT.md, ENVIZZLE_BUILD.json, ENVIZZLE_EVIDENCE.json,
+    HANDOFF.md, verify/ (5 files)
+  → target agent builds demo from the complete bundle
   → verify_demo.mjs gates → pass or mandated retake loop
 ```
 
-The emitted brief must be fully self-contained. The target agent may be any model
-(the reference run used Gemini Flash 3.6) and sees only that one file, so
-`character-recipe.md` is **inlined in full at assembly time**, never referenced by
-path.
+The emitted brief is fully self-contained: the brief has no hidden dependency on
+Envizzle's source references. `character-recipe.md` is **inlined in full at
+assembly time**, never referenced by path. The complete nine-file bundle contains
+all Envizzle-specific instructions, contracts, evidence templates, and verification
+code the builder needs.
 
 ## Components
 
@@ -212,12 +211,8 @@ radius multipliers, cloth panel list with Verlet grid dimensions, material
 parameters, head covering, and foot interaction.
 
 `cameras.md` covers third-person action-MMO (current hardcoded default),
-first-person, cinematic orbit and flythrough, top-down, and VR/XR — each noting what
+first-person, cinematic orbit and flythrough, and XR — each noting what
 the character must look good from.
-
-`systems-optional.md` covers time-of-day and weather, water and reflections,
-architecture and structures, volumetrics and post-processing look, creature life
-beyond boids, and destructibility.
 
 ### 3. `references/coherence.md`
 
@@ -297,11 +292,10 @@ mechanically:
 4. **End-to-end, manual.** Emit one brief, hand it to an agent, confirm the character
    is a rigged figure rather than primitives.
 
-Fixture images come from the `screenshots/` directory of the reference output — the
-demo built from the predecessor template by Gemini Flash 3.6 — referred to
-throughout the plan as `$REFERENCE_OUTPUT`. That run produced genuine known-bad
-frames, including one near-black frame that the old verifier passed, so the gates
-are tested against real failures rather than only synthetic ones.
+Fixture images come from the milestone evidence directory of the reference output — the
+demo built from the predecessor template by Gemini Flash 3.6. That run produced genuine
+known-bad frames, including one near-black frame that the old verifier passed, so the
+gates are tested against real failures rather than only synthetic ones.
 
 ## Decisions
 

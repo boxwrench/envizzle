@@ -46,7 +46,7 @@ Experimental permits controlled customization via two explicit paths:
    - Begin from one named showcase configuration from [showcases.md](showcases.md).
    - Change at most one major axis: Ambition, Biome (including palette, paradigm, material behavior, and terrain values from [biomes.md](biomes.md)), Archetype (from [archetypes.md](archetypes.md)), Mechanic (from [mechanics.md](mechanics.md)), or Camera (from [cameras.md](cameras.md)).
    - Ask which single major axis will change and ask only the relevant Step 2 question for that selected axis. Do not run the remaining interview questions.
-   - A rendering-profile change does not count as the single creative axis, provided it uses a complete supported Batch 3 profile tuple from [cameras.md](cameras.md).
+   - A rendering-profile change does not count as the single creative axis, provided it uses a complete supported rendering-profile tuple from [cameras.md](cameras.md).
    - Project name and hardware-target edits do not count as creative axes.
    - Ask the optional creative-spark question.
    - Enable `ENABLE_SIGNATURE_MOMENT` by default; disabling it restores the configuration after its one approved axis change without the Signature Moment.

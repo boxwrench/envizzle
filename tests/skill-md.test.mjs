@@ -159,11 +159,10 @@ test('SKILL.md contains no stale token-count or manual verification phrases', ()
 
 test('SKILL.md documents validateSelection errors as hard blockers', () => {
   assert.match(skill, /validateSelection[\s\S]{0,200}hard blockers/i);
-  assert.match(skill, /checkCoherence[\s\S]{0,200}Deliberate Deviations/i);
+  assert.match(skill, /checkCoherence[\s\S]{0,200}Deliberate Deviations|checkCoherence[\s\S]{0,200}deliberate deviations/i);
 });
 
-test('SKILL.md Step 5 names all nine bundle files and removes brief-only handoff claims', () => {
-  assert.doesNotMatch(skill, /needs nothing else/i, 'SKILL.md must not claim the brief needs nothing else');
+test('SKILL.md names all nine bundle files and describes the complete bundle workspace', () => {
   for (const bundleFile of [
     '<PROJECT>_TECHDEMO_PROMPT.md',
     'ENVIZZLE_BUILD.json',
@@ -175,7 +174,113 @@ test('SKILL.md Step 5 names all nine bundle files and removes brief-only handoff
     'verify/report.mjs',
     'verify/verify_demo.mjs',
   ]) {
-    assert.match(skill, new RegExp(bundleFile.replace(/[/.]/g, '\\$&')), `SKILL.md Step 5 must explicitly name ${bundleFile}`);
+    assert.match(skill, new RegExp(bundleFile.replace(/[/.]/g, '\\$&')), `SKILL.md must explicitly name ${bundleFile}`);
   }
-  assert.match(skill, /complete nine-file bundle/i, 'SKILL.md must specify complete nine-file bundle handoff');
+  assert.match(skill, /complete nine-file bundle/i, 'SKILL.md must specify complete nine-file bundle');
+});
+
+// --- Batch 10 regression tests ---
+
+test('SKILL.md does not claim builder sees only one file', () => {
+  assert.doesNotMatch(
+    skill,
+    /see(s)? that one file and nothing else/i,
+    'SKILL.md must not claim the builder sees only one file'
+  );
+  assert.doesNotMatch(
+    skill,
+    /needs nothing else/i,
+    'SKILL.md must not claim the brief needs nothing else'
+  );
+  assert.doesNotMatch(
+    skill,
+    /it will see that one file/i,
+    'SKILL.md must not claim the builder sees one file'
+  );
+});
+
+test('SKILL.md makes assemble.mjs required, not preferred', () => {
+  assert.doesNotMatch(
+    skill,
+    /preferred\s+(path|mechanical|method)/i,
+    'SKILL.md must not call assemble.mjs the preferred path'
+  );
+  assert.doesNotMatch(
+    skill,
+    /manual\s+(composition|assembly|fallback)/i,
+    'SKILL.md must not contain a manual assembly fallback'
+  );
+  assert.match(
+    skill,
+    /assemble\.mjs/,
+    'SKILL.md must reference assemble.mjs'
+  );
+});
+
+test('SKILL.md contains no manual assembly fallback', () => {
+  assert.doesNotMatch(
+    skill,
+    /manual composition rules below/i,
+    'SKILL.md must not contain manual composition rules reference'
+  );
+  assert.doesNotMatch(
+    skill,
+    /Copy `TEMPLATE\.md` to/i,
+    'SKILL.md must not contain manual template copy instructions'
+  );
+  assert.doesNotMatch(
+    skill,
+    /### 4a\. Fill the 38 tokens/i,
+    'SKILL.md must not contain manual token-fill step 4a'
+  );
+  assert.doesNotMatch(
+    skill,
+    /### 4b\. Delete the unselected sections/i,
+    'SKILL.md must not contain manual section deletion step 4b'
+  );
+  assert.doesNotMatch(
+    skill,
+    /### 4c\. The.*CHARACTER_RECIPE.*slot/i,
+    'SKILL.md must not contain manual character recipe step 4c'
+  );
+  assert.doesNotMatch(
+    skill,
+    /### 4d\. Substitute/i,
+    'SKILL.md must not contain manual camera substitution step 4d'
+  );
+  assert.doesNotMatch(
+    skill,
+    /### 4e\. Validate/i,
+    'SKILL.md must not contain manual validation step 4e'
+  );
+});
+
+test('SKILL.md is at most 340 physical lines', () => {
+  const lineCount = skill.split('\n').length;
+  assert.ok(lineCount <= 340, `SKILL.md has ${lineCount} lines, exceeding the 340-line limit`);
+});
+
+test('SKILL.md preserves the verbatim numeric character-recipe requirement', () => {
+  assert.match(skill, /character.recipe[\s\S]{0,200}inlined[\s\S]{0,100}verbatim/i);
+  assert.match(skill, /not negotiable|not summarisable/i);
+});
+
+test('SKILL.md preserves progressive reference loading', () => {
+  assert.match(skill, /progressive reference loading/i);
+  assert.match(skill, /do not load every reference file/i);
+});
+
+test('DECISIONS.md ownership is described consistently', () => {
+  // Assembly records selection decisions into the brief and build contract
+  assert.match(
+    skill,
+    /assembl(er|y)[\s\S]{0,200}(brief|build contract|Assembly Decisions)/i,
+    'SKILL.md must describe assembler recording decisions'
+  );
+  // Builder creates the project DECISIONS.md
+  assert.match(
+    skill,
+    /builder creates[\s\S]{0,100}DECISIONS\.md/i,
+    'SKILL.md must state the builder creates DECISIONS.md'
+  );
 });

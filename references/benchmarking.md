@@ -15,7 +15,7 @@ This document describes the benchmark harness, case registry, automated verifica
 - [Summarizing Benchmark Runs](#summarizing-benchmark-runs)
 - [Automated Eligibility vs Subjective Scores](#automated-eligibility-vs-subjective-scores)
 - [Reproducibility & Brief Hashes](#reproducibility--brief-hashes)
-- [What Batch 8 Intentionally Does Not Automate](#what-batch-8-intentionally-does-not-automate)
+- [What the Harness Does Not Automate](#what-the-harness-does-not-automate)
 
 ---
 
@@ -178,8 +178,8 @@ Every generated brief's content is hashed using SHA-256 (`briefSha256`). `case.j
 
 ---
 
-## What Batch 8 Intentionally Does Not Automate
+## What the Harness Does Not Automate
 
-1. **Model API Execution:** Batch 8 does not call LLM APIs or launch external AI coding agents.
+1. **Model API Execution:** The harness does not call LLM APIs or launch external AI coding agents.
 2. **Automated Human Scoring:** Subjective aesthetic evaluations are performed by human reviewers using `review-template.json`.
 3. **Headless Frame Gating:** Frame rate performance metrics are recorded as informational data and do not trigger build failures on headless software renderers.
